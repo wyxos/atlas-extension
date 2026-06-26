@@ -2,6 +2,7 @@ import {
   deleteAtlasFile,
   fetchAssetStatuses,
   loadAtlasContentConfig,
+  postAssetReactionBatch,
   postAssetReaction,
 } from '../content/atlas-api.js';
 import {
@@ -126,13 +127,21 @@ async function handleAtlasApiMessage(message) {
     });
   }
 
-  const payload = await postAssetReaction({
-    asset: message.asset,
-    config,
-    reactionType: message.reactionType,
-    referrerUrl: message.referrerUrl,
-    source: message.source,
-  });
+  const payload = message.type === 'atlas-extension.asset-reaction-batch'
+    ? await postAssetReactionBatch({
+      config,
+      downloadAction: message.downloadAction,
+      items: message.items,
+      reactionType: message.reactionType,
+    })
+    : await postAssetReaction({
+      asset: message.asset,
+      config,
+      downloadAction: message.downloadAction,
+      reactionType: message.reactionType,
+      referrerUrl: message.referrerUrl,
+      source: message.source,
+    });
 
   void ensureReverbConnection({
     ...config,
@@ -144,6 +153,7 @@ async function handleAtlasApiMessage(message) {
 
 function isAtlasApiMessage(message) {
   return [
+    'atlas-extension.asset-reaction-batch',
     'atlas-extension.asset-reaction',
     'atlas-extension.asset-statuses',
     'atlas-extension.file-delete',

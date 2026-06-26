@@ -19,7 +19,7 @@ defineProps({
   },
 });
 
-defineEmits(["delete", "react"]);
+defineEmits(["batch-toggle", "delete", "react"]);
 
 const iconSize = 18;
 const metaIconSize = 14;
@@ -99,6 +99,20 @@ function assetTypeFor(badge) {
         v-if="badge.timestampLabel"
         class="atlas-static-timestamp"
       >{{ badge.timestampLabel }}</span>
+      <label
+        v-if="badge.batch?.available"
+        class="atlas-static-batch"
+        title="Queue every file in this post"
+      >
+        <input
+          type="checkbox"
+          :checked="badge.batch.checked"
+          :disabled="badge.isBusy || badge.isDeleting"
+          @change.stop="$emit('batch-toggle', $event.target.checked)"
+          @click.stop
+        >
+        <span>Batch</span>
+      </label>
     </div>
 
     <div class="atlas-static-icons">

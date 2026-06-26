@@ -7,20 +7,25 @@ export function createAssetOverlay(shadowRoot, options = {}) {
   const state = reactive({
     badges: [],
     confirmRequest: null,
+    reactionRequest: null,
   });
   const mountElement = document.createElement('div');
   const dialogMountElement = document.createElement('div');
   let pendingConfirmResolve = null;
+  let pendingReactionResolve = null;
   const app = createApp({
     name: 'AtlasAssetOverlayRoot',
     setup() {
       return () => h(AssetOverlay, {
         badges: state.badges,
         confirmRequest: state.confirmRequest,
+        onBatchToggle: options.onBatchToggle,
         onDelete: options.onDelete,
         onConfirm: resolveConfirmRequest,
         onReact: options.onReact,
+        onReactionConfirm: resolveReactionRequest,
         portalTarget: dialogMountElement,
+        reactionRequest: state.reactionRequest,
       });
     },
   });
@@ -38,7 +43,23 @@ export function createAssetOverlay(shadowRoot, options = {}) {
     resolve?.(confirmed === true);
   }
 
+  function resolveReactionRequest(choice) {
+    const resolve = pendingReactionResolve;
+
+    pendingReactionResolve = null;
+    state.reactionRequest = null;
+    resolve?.(choice === 'redownload' || choice === 'update-only' ? choice : 'cancel');
+  }
+
   return {
+    confirmReactionUpdate(request) {
+      pendingReactionResolve?.('cancel');
+      state.reactionRequest = request;
+
+      return new Promise((resolve) => {
+        pendingReactionResolve = resolve;
+      });
+    },
     confirmReferrerOpen(request) {
       pendingConfirmResolve?.(false);
       state.confirmRequest = request;

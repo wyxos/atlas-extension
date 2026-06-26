@@ -6,6 +6,7 @@ import {
   fetchAssetStatusesViaBackground,
   fetchOpenReferrerCountsViaBackground,
   openReferrerInTabViaBackground,
+  postAssetReactionBatchViaBackground,
   postAssetReactionViaBackground,
   sendBackgroundRequest,
 } from '../src/content/background-api.js';
@@ -47,6 +48,7 @@ test('posts asset reactions through the background worker', async () => {
       source: 'https://cdn.example.test/video.mp4',
       type: 'video',
     },
+    downloadAction: 'skip',
     reactionType: 'love',
     referrerUrl: 'https://www.example.test/post/123',
     runtime: {
@@ -68,12 +70,78 @@ test('posts asset reactions through the background worker', async () => {
       source: 'https://cdn.example.test/video.mp4',
       type: 'video',
     },
+    downloadAction: 'skip',
     reactionType: 'love',
     referrerUrl: 'https://www.example.test/post/123',
     source: 'example.test',
     type: 'atlas-extension.asset-reaction',
   }]);
   assert.equal(payload.reaction.type, 'love');
+});
+
+test('posts batch asset reactions through the background worker', async () => {
+  const messages = [];
+  const payload = await postAssetReactionBatchViaBackground({
+    items: [
+      {
+        asset: {
+          source: 'https://cdn.example.test/file-1.jpg',
+          type: 'image',
+        },
+        referrerUrl: 'https://www.example.test/post/123?file=1',
+        source: 'example.test',
+      },
+      {
+        asset: {
+          source: 'https://cdn.example.test/file-2.jpg',
+          type: 'image',
+        },
+        referrerUrl: 'https://www.example.test/post/123?file=2',
+        source: 'example.test',
+      },
+    ],
+    downloadAction: 'force',
+    reactionType: 'love',
+    runtime: {
+      sendMessage(message, callback) {
+        messages.push(message);
+        callback({
+          ok: true,
+          payload: {
+            items: [
+              { reaction: { type: 'love' } },
+              { reaction: { type: 'love' } },
+            ],
+          },
+        });
+      },
+    },
+  });
+
+  assert.deepEqual(messages, [{
+    items: [
+      {
+        asset: {
+          source: 'https://cdn.example.test/file-1.jpg',
+          type: 'image',
+        },
+        referrerUrl: 'https://www.example.test/post/123?file=1',
+        source: 'example.test',
+      },
+      {
+        asset: {
+          source: 'https://cdn.example.test/file-2.jpg',
+          type: 'image',
+        },
+        referrerUrl: 'https://www.example.test/post/123?file=2',
+        source: 'example.test',
+      },
+    ],
+    downloadAction: 'force',
+    reactionType: 'love',
+    type: 'atlas-extension.asset-reaction-batch',
+  }]);
+  assert.equal(payload.items.length, 2);
 });
 
 test('deletes Atlas files through the background worker', async () => {

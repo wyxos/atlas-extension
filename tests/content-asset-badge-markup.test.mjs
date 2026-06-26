@@ -16,3 +16,9 @@ test('asset badge uses icon metadata instead of Atlas fallback or type text', ()
   assert.match(source, /Video/);
   assert.match(source, /Volume2/);
 });
+
+test('asset badge exposes a compact batch checkbox when available', () => {
+  assert.match(source, /badge\.batch\?\.available/);
+  assert.match(source, /type="checkbox"/);
+  assert.match(source, /batch-toggle/);
+});

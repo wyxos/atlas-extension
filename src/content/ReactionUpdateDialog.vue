@@ -24,23 +24,29 @@ const props = defineProps({
 
 const emit = defineEmits(["resolve"]);
 
-function titleFor(request) {
-  return request?.reason === "reacted"
-    ? "Referrer already reacted"
-    : "Referrer already open";
+const reactionLabels = {
+  blacklist: "blacklist",
+  funny: "funny",
+  like: "like",
+  love: "love",
+};
+
+function reactionLabel(value) {
+  return reactionLabels[value] ?? "reaction";
 }
 
 function descriptionFor(request) {
-  return request?.reason === "reacted"
-    ? "Atlas already has a reaction for this referrer."
-    : "This referrer is already open in another tab.";
+  const current = reactionLabel(request?.currentReaction);
+  const next = reactionLabel(request?.nextReaction);
+
+  return `This asset already has a ${current} reaction. Choose whether to change it to ${next} only, or queue a fresh download too.`;
 }
 
 function handleOpenChange(open) {
   if (!open && props.request !== null) {
     window.setTimeout(() => {
       if (props.request !== null) {
-        emit("resolve", false);
+        emit("resolve", "cancel");
       }
     }, 0);
   }
@@ -54,22 +60,21 @@ function handleOpenChange(open) {
   >
     <AlertDialogContent :portal-to="portalTarget">
       <AlertDialogHeader>
-        <AlertDialogTitle>{{ titleFor(request) }}</AlertDialogTitle>
+        <AlertDialogTitle>Update reaction?</AlertDialogTitle>
         <AlertDialogDescription>
           {{ descriptionFor(request) }}
         </AlertDialogDescription>
       </AlertDialogHeader>
 
-      <div class="atlas-referrer-open-url">
-        {{ request?.url }}
-      </div>
-
       <AlertDialogFooter>
-        <AlertDialogCancel @click="emit('resolve', false)">
+        <AlertDialogCancel @click="emit('resolve', 'cancel')">
           Cancel
         </AlertDialogCancel>
-        <AlertDialogAction @click="emit('resolve', true)">
-          Open anyway
+        <AlertDialogAction @click="emit('resolve', 'update-only')">
+          Update reaction only
+        </AlertDialogAction>
+        <AlertDialogAction @click="emit('resolve', 'redownload')">
+          React + redownload
         </AlertDialogAction>
       </AlertDialogFooter>
     </AlertDialogContent>

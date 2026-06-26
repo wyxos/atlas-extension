@@ -6,7 +6,7 @@ import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 
 const rootDirectory = fileURLToPath(new URL('.', import.meta.url));
-const allowedBuildTargets = new Set(['background', 'content', 'options']);
+const allowedBuildTargets = new Set(['background', 'content', 'location-bridge', 'options']);
 const buildTarget = process.env.ATLAS_EXTENSION_BUILD_TARGET ?? 'options';
 
 if (!allowedBuildTargets.has(buildTarget)) {
@@ -16,6 +16,7 @@ if (!allowedBuildTargets.has(buildTarget)) {
 function resolveInput() {
   const inputs = {
     content: path.resolve(rootDirectory, 'src/content/main.js'),
+    'location-bridge': path.resolve(rootDirectory, 'src/content/location-bridge.js'),
     background: path.resolve(rootDirectory, 'src/background/main.js'),
     options: path.resolve(rootDirectory, 'options.html'),
   };
@@ -28,6 +29,10 @@ function resolveInput() {
     return { content: inputs.content };
   }
 
+  if (buildTarget === 'location-bridge') {
+    return { 'location-bridge': inputs['location-bridge'] };
+  }
+
   return { options: inputs.options };
 }
 
@@ -36,7 +41,7 @@ function resolveOutput() {
     entryFileNames: 'assets/[name].js',
   };
 
-  if (['background', 'content'].includes(buildTarget)) {
+  if (['background', 'content', 'location-bridge'].includes(buildTarget)) {
     output.inlineDynamicImports = true;
   }
 

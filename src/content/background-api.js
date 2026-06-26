@@ -37,6 +37,7 @@ export function openReferrerInTabViaBackground({
 
 export function postAssetReactionViaBackground({
   asset,
+  downloadAction,
   reactionType,
   referrerUrl,
   runtime = globalThis.chrome?.runtime,
@@ -45,10 +46,26 @@ export function postAssetReactionViaBackground({
 }) {
   return sendBackgroundRequest({
     asset,
+    downloadAction,
     reactionType,
     referrerUrl,
     source,
     type: 'atlas-extension.asset-reaction',
+  }, { runtime, timeoutMs });
+}
+
+export function postAssetReactionBatchViaBackground({
+  downloadAction,
+  items,
+  reactionType,
+  runtime = globalThis.chrome?.runtime,
+  timeoutMs = defaultTimeoutMs,
+}) {
+  return sendBackgroundRequest({
+    downloadAction,
+    items,
+    reactionType,
+    type: 'atlas-extension.asset-reaction-batch',
   }, { runtime, timeoutMs });
 }
 

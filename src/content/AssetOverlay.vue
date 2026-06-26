@@ -1,5 +1,6 @@
 <script setup>
 import AssetBadge from "./AssetBadge.vue";
+import ReactionUpdateDialog from "./ReactionUpdateDialog.vue";
 import ReferrerAssetBadge from "./ReferrerAssetBadge.vue";
 import ReferrerOpenDialog from "./ReferrerOpenDialog.vue";
 
@@ -17,9 +18,14 @@ defineProps({
     type: null,
     required: false,
   },
+  reactionRequest: {
+    type: Object,
+    required: false,
+    default: null,
+  },
 });
 
-defineEmits(["confirm", "delete", "react"]);
+defineEmits(["batch-toggle", "confirm", "delete", "react", "reaction-confirm"]);
 </script>
 
 <template>
@@ -34,6 +40,7 @@ defineEmits(["confirm", "delete", "react"]);
     <AssetBadge
       v-else
       :badge="badge"
+      @batch-toggle="$emit('batch-toggle', { id: badge.id, checked: $event })"
       @delete="$emit('delete', { id: badge.id })"
       @react="$emit('react', { id: badge.id, type: $event })"
     />
@@ -42,5 +49,10 @@ defineEmits(["confirm", "delete", "react"]);
     :portal-target="portalTarget"
     :request="confirmRequest"
     @resolve="$emit('confirm', $event)"
+  />
+  <ReactionUpdateDialog
+    :portal-target="portalTarget"
+    :request="reactionRequest"
+    @resolve="$emit('reaction-confirm', $event)"
   />
 </template>

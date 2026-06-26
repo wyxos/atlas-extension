@@ -66,6 +66,28 @@ export function getOverlayStyles() {
       flex: 0 0 auto;
     }
 
+    .atlas-static-batch {
+      align-items: center;
+      cursor: pointer;
+      display: inline-flex;
+      flex-shrink: 0;
+      font-size: 10px;
+      gap: 4px;
+      pointer-events: auto;
+    }
+
+    .atlas-static-batch input {
+      accent-color: #14b8a6;
+      height: 12px;
+      margin: 0;
+      width: 12px;
+    }
+
+    .atlas-static-batch input:disabled {
+      cursor: wait;
+      opacity: 0.55;
+    }
+
     .atlas-static-icons {
       align-items: center;
       display: flex;

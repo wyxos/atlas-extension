@@ -213,21 +213,22 @@ export async function buildExtension({ destination, root }) {
   const buildOutputPath = getBuildOutputPath(root);
   const backgroundOutputPath = getBackgroundBuildOutputPath(root);
   const contentOutputPath = getContentBuildOutputPath(root);
+  const locationBridgeOutputPath = getLocationBridgeBuildOutputPath(root);
 
   fs.rmSync(buildOutputPath, { force: true, recursive: true });
   fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
   fs.rmSync(contentOutputPath, { force: true, recursive: true });
+  fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
   await runViteBuild({ outDir: buildOutputPath, root, target: 'options' });
   await runViteBuild({ outDir: backgroundOutputPath, root, target: 'background' });
   await runViteBuild({ outDir: contentOutputPath, root, target: 'content' });
-  copyContentBuild({
-    buildOutputPath,
-    contentOutputPath: backgroundOutputPath,
-    entryName: 'background',
-  });
+  await runViteBuild({ outDir: locationBridgeOutputPath, root, target: 'location-bridge' });
+  copyContentBuild({ buildOutputPath, contentOutputPath: backgroundOutputPath, entryName: 'background' });
   copyContentBuild({ buildOutputPath, contentOutputPath });
+  copyContentBuild({ buildOutputPath, contentOutputPath: locationBridgeOutputPath, entryName: 'location-bridge' });
   fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
   fs.rmSync(contentOutputPath, { force: true, recursive: true });
+  fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
   fs.copyFileSync(path.join(root, 'manifest.json'), path.join(buildOutputPath, 'manifest.json'));
   copyStaticAssets({ buildOutputPath, root });
 
@@ -397,6 +398,10 @@ function getBackgroundBuildOutputPath(root) {
 
 function getContentBuildOutputPath(root) {
   return path.join(root, 'dist', '.vite-content-build');
+}
+
+function getLocationBridgeBuildOutputPath(root) {
+  return path.join(root, 'dist', '.vite-location-bridge-build');
 }
 
 export function resolveExecutable(command, platform = process.platform) {

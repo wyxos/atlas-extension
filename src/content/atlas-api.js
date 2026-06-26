@@ -12,6 +12,7 @@ export async function loadAtlasContentConfig(storage, options = {}) {
 export async function postAssetReaction({
   asset,
   config,
+  downloadAction,
   fetchImpl = globalThis.fetch,
   reactionType,
   requestTimeoutMs,
@@ -21,6 +22,7 @@ export async function postAssetReaction({
   return atlasExtensionJson({
     body: {
       asset_url: asset.source,
+      ...(downloadAction ? { download_action: downloadAction } : {}),
       metadata: buildAssetMetadata(asset),
       referrer_url: referrerUrl,
       source,
@@ -30,6 +32,28 @@ export async function postAssetReaction({
     fetchImpl,
     method: 'POST',
     path: '/reactions',
+    requestTimeoutMs,
+  });
+}
+
+export async function postAssetReactionBatch({
+  config,
+  downloadAction,
+  fetchImpl = globalThis.fetch,
+  items,
+  reactionType,
+  requestTimeoutMs,
+}) {
+  return atlasExtensionJson({
+    body: {
+      ...(downloadAction ? { download_action: downloadAction } : {}),
+      items: normalizeBatchItems(items),
+      type: reactionType,
+    },
+    config,
+    fetchImpl,
+    method: 'POST',
+    path: '/reactions/batch',
     requestTimeoutMs,
   });
 }
@@ -142,6 +166,15 @@ function buildAssetMetadata(asset) {
   return Object.fromEntries(
     Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined && value !== ''),
   );
+}
+
+function normalizeBatchItems(items) {
+  return (items ?? []).map((item) => ({
+    asset_url: item.asset?.source,
+    metadata: buildAssetMetadata(item.asset ?? {}),
+    referrer_url: item.referrerUrl,
+    source: item.source,
+  }));
 }
 
 function uniqueNonEmptyStrings(values) {

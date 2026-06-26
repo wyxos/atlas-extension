@@ -67,6 +67,7 @@ test('creates static asset badge presentation data', () => {
     {
       activeReaction: null,
       atlasFileUrl: null,
+      batch: null,
       canDeleteFile: false,
       download: null,
       file: null,
@@ -110,6 +111,7 @@ test('formats badge state from Atlas asset status payloads', () => {
     {
       activeReaction: 'love',
       atlasFileUrl: 'https://atlas.test/browse/file/123',
+      batch: null,
       canDeleteFile: true,
       download: {
         downloaded_at: '2025-01-02T03:04:05',
@@ -163,6 +165,7 @@ test('formats active transfer stages without treating idle assets as complete', 
     {
       activeReaction: null,
       atlasFileUrl: null,
+      batch: null,
       canDeleteFile: false,
       download: {
         downloaded_at: null,
@@ -211,6 +214,7 @@ test('active transfer progress takes precedence over stale downloaded timestamps
     {
       activeReaction: 'like',
       atlasFileUrl: null,
+      batch: null,
       canDeleteFile: false,
       download: {
         downloaded_at: '2025-01-02T03:04:05',
@@ -253,6 +257,24 @@ test('tracks clicked reaction spinner before the active state changes', () => {
   assert.equal(badge.activeReaction, null);
   assert.equal(badge.submittingReaction, 'funny');
   assert.equal(badge.isBusy, true);
+});
+
+test('creates batch presentation data when the page has related files', () => {
+  const badge = createBadgePresentation({
+    resolution: null,
+    source: 'https://example.test/file-1.jpg',
+    type: 'image',
+  }, null, 4, {
+    batch: {
+      available: true,
+      checked: true,
+    },
+  });
+
+  assert.deepEqual(badge.batch, {
+    available: true,
+    checked: true,
+  });
 });
 
 test('marks blacklist as the active reaction from blacklisted state', () => {

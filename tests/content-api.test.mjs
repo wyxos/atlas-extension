@@ -5,6 +5,7 @@ import {
   deleteAtlasFile,
   fetchAssetStatuses,
   loadAtlasContentConfig,
+  postAssetReactionBatch,
   postAssetReaction,
 } from '../src/content/atlas-api.js';
 import {
@@ -128,6 +129,157 @@ test('posts asset reactions to the extension endpoint', async () => {
     source: 'example.test',
     type: 'like',
   });
+});
+
+test('posts asset reactions with an explicit download action', async () => {
+  const requests = [];
+
+  await postAssetReaction({
+    asset: {
+      resolution: '1280x720',
+      source: 'https://cdn.example.test/media/art.jpg',
+      type: 'image',
+    },
+    config: {
+      apiKey: 'local-key',
+      domain: 'https://atlas.test',
+    },
+    downloadAction: 'skip',
+    fetchImpl: async (url, options) => {
+      requests.push({ options, url });
+
+      return {
+        ok: true,
+        async json() {
+          return {
+            reaction: { type: 'love' },
+          };
+        },
+      };
+    },
+    reactionType: 'love',
+    referrerUrl: 'https://www.example.test/post/123',
+    source: 'example.test',
+  });
+
+  assert.equal(JSON.parse(requests[0].options.body).download_action, 'skip');
+});
+
+test('posts batch asset reactions to the extension endpoint', async () => {
+  const requests = [];
+  const response = await postAssetReactionBatch({
+    config: {
+      apiKey: 'local-key',
+      domain: 'https://atlas.test',
+    },
+    fetchImpl: async (url, options) => {
+      requests.push({ options, url });
+
+      return {
+        ok: true,
+        async json() {
+          return {
+            items: [
+              {
+                asset_url: 'https://cdn.example.test/media/art-1.jpg',
+                reaction: { type: 'love' },
+              },
+              {
+                asset_url: 'https://cdn.example.test/media/art-2.jpg',
+                reaction: { type: 'love' },
+              },
+            ],
+          };
+        },
+      };
+    },
+    items: [
+      {
+        asset: {
+          resolution: '1000x1400',
+          source: 'https://cdn.example.test/media/art-1.jpg',
+          type: 'image',
+        },
+        referrerUrl: 'https://www.example.test/post/123?file=1',
+        source: 'example.test',
+      },
+      {
+        asset: {
+          resolution: '1200x1600',
+          source: 'https://cdn.example.test/media/art-2.jpg',
+          type: 'image',
+        },
+        referrerUrl: 'https://www.example.test/post/123?file=2',
+        source: 'example.test',
+      },
+    ],
+    reactionType: 'love',
+  });
+
+  assert.equal(response.items.length, 2);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://atlas.test/api/extension/reactions/batch');
+  assert.equal(requests[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    items: [
+      {
+        asset_url: 'https://cdn.example.test/media/art-1.jpg',
+        metadata: {
+          asset_type: 'image',
+          resolution: '1000x1400',
+        },
+        referrer_url: 'https://www.example.test/post/123?file=1',
+        source: 'example.test',
+      },
+      {
+        asset_url: 'https://cdn.example.test/media/art-2.jpg',
+        metadata: {
+          asset_type: 'image',
+          resolution: '1200x1600',
+        },
+        referrer_url: 'https://www.example.test/post/123?file=2',
+        source: 'example.test',
+      },
+    ],
+    type: 'love',
+  });
+});
+
+test('posts batch asset reactions with an explicit download action', async () => {
+  const requests = [];
+
+  await postAssetReactionBatch({
+    config: {
+      apiKey: 'local-key',
+      domain: 'https://atlas.test',
+    },
+    downloadAction: 'force',
+    fetchImpl: async (url, options) => {
+      requests.push({ options, url });
+
+      return {
+        ok: true,
+        async json() {
+          return {
+            items: [],
+          };
+        },
+      };
+    },
+    items: [
+      {
+        asset: {
+          source: 'https://cdn.example.test/media/art-1.jpg',
+          type: 'image',
+        },
+        referrerUrl: 'https://www.example.test/post/123?file=1',
+        source: 'example.test',
+      },
+    ],
+    reactionType: 'love',
+  });
+
+  assert.equal(JSON.parse(requests[0].options.body).download_action, 'force');
 });
 
 test('checks existing Atlas state once by asset url', async () => {

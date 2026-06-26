@@ -117,18 +117,34 @@ if (manifest !== null) {
     'manifest.json must allow Reverb WebSocket connections',
   );
   expect(Array.isArray(manifest.content_scripts), 'manifest.json must define content scripts for asset detection');
-  expect(manifest.content_scripts?.length === 1, 'manifest.json must define exactly one content script');
+  expect(manifest.content_scripts?.length === 2, 'manifest.json must define location bridge and badge content scripts');
   expect(
     JSON.stringify(manifest.content_scripts?.[0]?.matches) === JSON.stringify(['<all_urls>']),
-    'manifest.json content script must run on normal web pages',
+    'manifest.json location bridge must run on normal web pages',
   );
   expect(
-    JSON.stringify(manifest.content_scripts?.[0]?.js) === JSON.stringify(['assets/content.js']),
-    'manifest.json content script must load the compiled content asset detector',
+    JSON.stringify(manifest.content_scripts?.[0]?.js) === JSON.stringify(['assets/location-bridge.js']),
+    'manifest.json location bridge must load before the badge content script',
   );
   expect(
-    manifest.content_scripts?.[0]?.run_at === 'document_idle',
-    'manifest.json content script must run after page content is available',
+    manifest.content_scripts?.[0]?.run_at === 'document_start',
+    'manifest.json location bridge must run before SPA routers initialize',
+  );
+  expect(
+    manifest.content_scripts?.[0]?.world === 'MAIN',
+    'manifest.json location bridge must run in the page main world',
+  );
+  expect(
+    JSON.stringify(manifest.content_scripts?.[1]?.matches) === JSON.stringify(['<all_urls>']),
+    'manifest.json badge content script must run on normal web pages',
+  );
+  expect(
+    JSON.stringify(manifest.content_scripts?.[1]?.js) === JSON.stringify(['assets/content.js']),
+    'manifest.json badge content script must load the compiled content asset detector',
+  );
+  expect(
+    manifest.content_scripts?.[1]?.run_at === 'document_idle',
+    'manifest.json badge content script must run after page content is available',
   );
 
   expect(
@@ -220,6 +236,7 @@ const connectionModule = readText('src/options/connection.js');
 const connectionStateModule = readText('src/options/connection-state.js');
 const contentDetector = readText('src/content/assets.js');
 const contentScript = readText('src/content/main.js');
+const contentRuntime = readText('src/content/content-runtime.js');
 const contentBadge = readText('src/content/AssetBadge.vue');
 const contentOverlay = readText('src/content/AssetOverlay.vue');
 const contentOverlayController = readText('src/content/overlay-controller.js');
@@ -245,9 +262,14 @@ if (contentScript !== null) {
   expect(contentScript.includes('attachShadow'), 'src/content/main.js must isolate asset badges in a shadow overlay');
   expect(contentScript.includes('createAssetOverlay'), 'src/content/main.js must mount a Vue asset overlay');
   expect(contentScript.includes('createBadgePresentation'), 'src/content/main.js must pass badge model data to Vue');
-  expect(contentScript.includes('MutationObserver'), 'src/content/main.js must watch dynamically added page assets');
+  expect(contentScript.includes('startContentRuntime'), 'src/content/main.js must start the content runtime');
   expect(contentScript.includes('createReferrerOpenGuard'), 'src/content/main.js must guard reacted and already-open referrers');
-  expect(contentScript.includes('open-tab-counts-changed'), 'src/content/main.js must react to open tab count changes');
+}
+
+if (contentRuntime !== null) {
+  expect(contentRuntime.includes('MutationObserver'), 'src/content/content-runtime.js must watch dynamically added page assets');
+  expect(contentRuntime.includes('open-tab-counts-changed'), 'src/content/content-runtime.js must react to open tab count changes');
+  expect(contentRuntime.includes('atlas-extension-location-change'), 'src/content/content-runtime.js must react to page-world location changes');
 }
 
 if (contentOverlayController !== null) {
@@ -276,7 +298,7 @@ if (contentBadge !== null) {
   expect(contentBadge.includes('Volume2'), 'src/content/AssetBadge.vue must render an audio type icon');
   expect(contentBadge.includes('data-atlas-asset-badge'), 'src/content/AssetBadge.vue must render static asset badges');
   expect(contentBadge.includes('atlas-static-icons'), 'src/content/AssetBadge.vue must render static reaction icons');
-  expect(contentBadge.includes('defineEmits(["delete", "react"])'), 'src/content/AssetBadge.vue must emit reaction and delete clicks');
+  expect(contentBadge.includes('defineEmits(["batch-toggle", "delete", "react"])'), 'src/content/AssetBadge.vue must emit batch, reaction, and delete clicks');
   expect(contentBadge.includes('atlasFileUrl'), 'src/content/AssetBadge.vue must render downloaded file links');
   expect(contentBadge.includes('canDeleteFile'), 'src/content/AssetBadge.vue must render downloaded file delete actions');
   expect(contentBadge.includes('progressLabel'), 'src/content/AssetBadge.vue must render dynamic progress text');

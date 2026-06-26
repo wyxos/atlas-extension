@@ -1,21 +1,17 @@
 import { describeAssetElement } from './assets.js';
-import {
-  deleteAtlasFileViaBackground,
-  fetchAssetStatusesViaBackground,
-  fetchOpenReferrerCountsViaBackground,
-  openReferrerInTabViaBackground,
-  postAssetReactionViaBackground,
-} from './background-api.js';
+import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
+import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openReferrerInTabViaBackground } from './background-api.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
-import {
-  shouldApplyAssetResponse,
-  stateForSyncedAsset,
-} from './asset-state.js';
+import { shouldApplyAssetResponse, stateForSyncedAsset } from './asset-state.js';
+import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
+import { resolveAssetBatchContext } from './batch-providers/index.js';
 import { createBadgePresentation } from './badge-model.js';
 import { createAssetOverlay } from './overlay-controller.js';
 import { createReferrerBadgeManager } from './referrer-badges.js';
 import { createReferrerOpenGuard } from './referrer-open-guard.js';
+import { resolveDownloadActionForReaction } from './reaction-download-action.js';
 import { createStatusCheckQueue } from './status-checks.js';
+import { startContentRuntime } from './content-runtime.js';
 import { resolveVisibleRect } from './visible-rect.js';
 
 const assetSelector = 'img, video, audio';
@@ -27,10 +23,11 @@ const viewportPadding = 4;
 
 const assetIds = new Map();
 const assetsById = new Map();
+const batchContextsById = new Map();
+const batchEnabledByProvider = new Map();
 const badgeStatesById = new Map();
 const elementsById = new Map();
 let openReferrerCounts = {};
-
 let scheduledScan = null;
 let scheduledPositionUpdate = null;
 let nextAssetId = 0;
@@ -87,13 +84,12 @@ function getOverlayController() {
   ].join(';'));
 
   const overlayRoot = host.attachShadow({ mode: 'open' });
-
   (document.body ?? document.documentElement).append(host);
   overlayController = createAssetOverlay(overlayRoot, {
+    onBatchToggle: handleBadgeBatchToggle,
     onDelete: handleBadgeDelete,
     onReact: handleBadgeReaction,
   });
-
   return overlayController;
 }
 
@@ -123,6 +119,7 @@ function removeBadge(element) {
   overlayController?.removeBadge(id);
   assetIds.delete(element);
   assetsById.delete(id);
+  batchContextsById.delete(id);
   badgeStatesById.delete(id);
   elementsById.delete(id);
 }
@@ -141,17 +138,33 @@ function syncAsset(element) {
   const visibleRect = getVisibleRect(element);
   const id = getAssetId(element);
   const nextState = stateForSyncedAsset(assetsById.get(id), asset, badgeStatesById.get(id));
+  const batchContext = resolveAssetBatchContext({
+    asset,
+    documentContext: document,
+    element,
+    locationContext: window.location,
+  });
+  const nextBadgeState = stateWithBatchContext(
+    nextState,
+    batchContext,
+    isBatchProviderEnabled(batchContext?.provider),
+  );
 
   assetsById.set(id, asset);
-  if (nextState === null) {
+  if (batchContext === null) {
+    batchContextsById.delete(id);
+  } else {
+    batchContextsById.set(id, batchContext);
+  }
+  if (nextBadgeState === null) {
     badgeStatesById.delete(id);
   } else {
-    badgeStatesById.set(id, nextState);
+    badgeStatesById.set(id, nextBadgeState);
   }
 
   getOverlayController().upsertBadge(
     id,
-    createBadgePresentation(asset, visibleRect, viewportPadding, nextState ?? {}),
+    createBadgePresentation(asset, visibleRect, viewportPadding, nextBadgeState ?? {}),
   );
   queueAssetStatusCheck(asset.source);
 
@@ -202,6 +215,53 @@ function replaceBadgeStateBySource(source, nextState) {
   }
 }
 
+function isBatchProviderEnabled(provider) {
+  return typeof provider === 'string' && batchEnabledByProvider.get(provider) === true;
+}
+
+function setBatchProviderEnabled(provider, enabled) {
+  if (typeof provider !== 'string' || provider.trim() === '') {
+    return;
+  }
+
+  if (enabled === true) {
+    batchEnabledByProvider.set(provider, true);
+  } else {
+    batchEnabledByProvider.delete(provider);
+  }
+}
+
+function replaceBatchProviderPreferences(preferences) {
+  batchEnabledByProvider.clear();
+
+  for (const [provider, enabled] of Object.entries(preferences ?? {})) {
+    if (enabled === true) {
+      batchEnabledByProvider.set(provider, true);
+    }
+  }
+
+  updateAllBatchBadges();
+}
+
+function updateAllBatchBadges() {
+  for (const provider of new Set([...batchContextsById.values()].map((context) => context.provider))) {
+    updateBatchBadgesForProvider(provider);
+  }
+}
+
+function updateBatchBadgesForProvider(provider) {
+  for (const [id, context] of batchContextsById.entries()) {
+    if (context.provider === provider) {
+      updateBadgeState(id, {
+        batch: {
+          available: true,
+          checked: isBatchProviderEnabled(provider),
+        },
+      });
+    }
+  }
+}
+
 function queueAssetStatusCheck(source) {
   statusChecks.queueAssetStatusCheck(source);
 }
@@ -232,18 +292,46 @@ async function handleBadgeReaction(event) {
     return;
   }
 
+  const downloadAction = await resolveDownloadActionForReaction({
+    asset,
+    confirmReactionUpdate: (request) => getOverlayController().confirmReactionUpdate(request),
+    currentState,
+    event,
+  });
+  if (downloadAction === null) {
+    return;
+  }
+
   updateBadgeState(event.id, {
     isBusy: true,
     submittingReaction: event.type,
   });
 
   try {
-    const payload = await postAssetReactionViaBackground({
+    const payload = await postAssetOrBatchReaction({
       asset,
-      reactionType: event.type,
-      referrerUrl: window.location.href,
-      source: window.location.hostname,
+      batchContext: batchContextsById.get(event.id),
+      currentState,
+      documentContext: document,
+      downloadAction,
+      event,
+      locationContext: window.location,
     });
+
+    if (Array.isArray(payload.items)) {
+      applyBatchReactionPayload(payload, {
+        markAssetSourceChecked: (source) => statusChecks.markAssetSourceChecked(source),
+        updateBadgeStateBySource,
+      });
+      if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
+        updateBadgeState(event.id, {
+          isBusy: false,
+          submittingReaction: null,
+        });
+      }
+
+      return;
+    }
 
     statusChecks.markAssetSourceChecked(asset.source);
     if (!shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
@@ -269,6 +357,18 @@ async function handleBadgeReaction(event) {
       submittingReaction: null,
     });
   }
+}
+
+function handleBadgeBatchToggle(event) {
+  const context = batchContextsById.get(event.id);
+
+  if (context === undefined) {
+    return;
+  }
+
+  setBatchProviderEnabled(context.provider, event.checked === true);
+  updateBatchBadgesForProvider(context.provider);
+  void saveBatchProviderPreference(context.provider, event.checked === true);
 }
 
 function handleAssetShortcut(event) {
@@ -384,114 +484,16 @@ function schedulePositionUpdate() {
   }, scanDelayMs);
 }
 
-function ensureBackgroundReverb() {
-  try {
-    globalThis.chrome?.runtime?.sendMessage?.({
-      type: 'atlas-extension.ensure-reverb',
-    });
-  } catch {
-    // Chrome can reject messages while an unpacked extension is reloading.
-  }
-}
-
-function listenForDownloadEvents() {
-  globalThis.chrome?.runtime?.onMessage?.addListener?.((message) => {
-    if (message?.type !== 'atlas-extension.download-event') {
-      return;
-    }
-
-    const assetUrl = typeof message.payload?.assetUrl === 'string'
-      ? message.payload.assetUrl
-      : null;
-
-    if (assetUrl === null) {
-      return;
-    }
-
-    updateBadgeStateBySource(assetUrl, {
-      download: message.payload.download,
-      file: message.payload.file,
-      reaction: message.payload.reaction,
-    });
-    referrerBadges.updateByDownloadEvent(message.payload);
-  });
-}
-
-function listenForOpenTabCounts() {
-  globalThis.chrome?.runtime?.onMessage?.addListener?.((message) => {
-    if (message?.type !== 'atlas-extension.open-tab-counts-changed') {
-      return;
-    }
-
-    mergeOpenReferrerCounts(message.urls ?? [], message.counts ?? {});
-  });
-}
-
-function listenForAssetShortcuts() {
-  window.addEventListener('click', handleAssetShortcut, true);
-  window.addEventListener('contextmenu', handleAssetShortcut, true);
-  window.addEventListener('mousedown', handleAssetShortcut, true);
-}
-
-function listenForReferrerOpenAttempts() {
-  window.addEventListener('click', referrerOpenGuard.handleBrowserEvent, true);
-  window.addEventListener('auxclick', referrerOpenGuard.handleBrowserEvent, true);
-  window.addEventListener('mousedown', (event) => {
-    if (event.button === 1) {
-      referrerOpenGuard.handleBrowserEvent(event);
-    }
-  }, true);
-}
-
-function listenForPageLocationChanges() {
-  const refresh = () => {
-    referrerBadges.updateOpenCounts(openReferrerCounts);
-  };
-  const originalPushState = window.history.pushState;
-  const originalReplaceState = window.history.replaceState;
-
-  window.history.pushState = function pushState(...args) {
-    const result = originalPushState.apply(this, args);
-
-    refresh();
-
-    return result;
-  };
-  window.history.replaceState = function replaceState(...args) {
-    const result = originalReplaceState.apply(this, args);
-
-    refresh();
-
-    return result;
-  };
-  window.addEventListener('popstate', refresh, { passive: true });
-  window.addEventListener('hashchange', refresh, { passive: true });
-}
-
-scanAssets();
-listenForDownloadEvents();
-listenForOpenTabCounts();
-listenForAssetShortcuts();
-listenForReferrerOpenAttempts();
-listenForPageLocationChanges();
-ensureBackgroundReverb();
-
-const observer = new MutationObserver((mutations) => {
-  for (const mutation of mutations) {
-    if (mutation.type === 'attributes') {
-      scanAssets(mutation.target?.parentElement ?? mutation.target);
-      continue;
-    }
-    for (const node of mutation.addedNodes) {
-      scanAssets(node);
-    }
-  }
+startContentRuntime({
+  getOpenReferrerCounts: () => openReferrerCounts,
+  handleAssetShortcut,
+  mergeOpenReferrerCounts,
+  referrerBadges,
+  referrerOpenGuard,
+  scanAssets,
+  schedulePositionUpdate,
+  updateBadgeStateBySource,
 });
-observer.observe(document.documentElement, {
-  attributeFilter: ['href', 'src', 'srcset', 'poster'],
-  attributes: true,
-  childList: true,
-  subtree: true,
+bindBatchProviderPreferences({
+  applyPreferences: replaceBatchProviderPreferences,
 });
-window.addEventListener('resize', schedulePositionUpdate, { passive: true });
-window.addEventListener('scroll', schedulePositionUpdate, { capture: true, passive: true });

@@ -15,6 +15,7 @@ export function createBadgePresentation(asset, visibleRect, viewportPadding, sta
   return {
     activeReaction,
     atlasFileUrl: isDownloaded ? file?.atlas_url ?? null : null,
+    batch: normalizeBatchState(state.batch),
     canDeleteFile: isDownloaded && file?.id !== null,
     download,
     file,
@@ -123,6 +124,17 @@ function normalizeDownloadState(download) {
     file_id: normalizePositiveInteger(download.file_id ?? download.fileId),
     progress_percent: normalizeProgress(download.progress_percent),
     status: typeof download.status === 'string' ? download.status : null,
+  };
+}
+
+function normalizeBatchState(batch) {
+  if (batch?.available !== true) {
+    return null;
+  }
+
+  return {
+    available: true,
+    checked: batch.checked === true,
   };
 }
 
