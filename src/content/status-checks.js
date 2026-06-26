@@ -10,6 +10,8 @@ export function createStatusCheckQueue({
   windowRef = window,
 }) {
   const checkedAssetSources = new Set();
+  const cachedAssetStates = new Map();
+  const cachedReferrerStates = new Map();
   const checkedReferrerUrls = new Set();
   const pendingAssetSources = new Set();
   const pendingOpenReferrerUrls = new Set();
@@ -17,7 +19,13 @@ export function createStatusCheckQueue({
   let scheduledStatusCheck = null;
 
   function queueAssetStatusCheck(source) {
-    if (checkedAssetSources.has(source) || pendingAssetSources.has(source)) {
+    if (checkedAssetSources.has(source)) {
+      reapplyCachedAssetState(source);
+
+      return;
+    }
+
+    if (pendingAssetSources.has(source)) {
       return;
     }
 
@@ -33,7 +41,9 @@ export function createStatusCheckQueue({
       shouldSchedule = true;
     }
 
-    if (!checkedReferrerUrls.has(referrerUrl) && !pendingReferrerUrls.has(referrerUrl)) {
+    if (checkedReferrerUrls.has(referrerUrl)) {
+      reapplyCachedReferrerState(referrerUrl);
+    } else if (!pendingReferrerUrls.has(referrerUrl)) {
       pendingReferrerUrls.add(referrerUrl);
       shouldSchedule = true;
     }
@@ -43,12 +53,14 @@ export function createStatusCheckQueue({
     }
   }
 
-  function markAssetSourceChecked(source) {
+  function markAssetSourceChecked(source, state = null) {
     checkedAssetSources.add(source);
+    cachedAssetStates.set(source, state);
   }
 
   function forgetAssetSource(source) {
     checkedAssetSources.delete(source);
+    cachedAssetStates.delete(source);
   }
 
   function scheduleFlush() {
@@ -74,9 +86,6 @@ export function createStatusCheckQueue({
     if (assetUrls.length === 0 && referrerUrls.length === 0 && openReferrerUrls.length === 0) {
       return;
     }
-
-    assetUrls.forEach((assetUrl) => checkedAssetSources.add(assetUrl));
-    referrerUrls.forEach((referrerUrl) => checkedReferrerUrls.add(referrerUrl));
 
     const shouldFetchStatus = assetUrls.length > 0 || referrerUrls.length > 0;
     const [statusResult, openCountResult] = await Promise.allSettled([
@@ -105,6 +114,8 @@ export function createStatusCheckQueue({
     for (const assetUrl of assetUrls) {
       const state = payload.assets?.[assetUrl] ?? null;
 
+      checkedAssetSources.add(assetUrl);
+      cachedAssetStates.set(assetUrl, state);
       if (state !== null) {
         applyAssetState(assetUrl, state);
       } else {
@@ -115,11 +126,33 @@ export function createStatusCheckQueue({
     for (const referrerUrl of referrerUrls) {
       const state = payload.referrers?.[referrerUrl] ?? null;
 
+      checkedReferrerUrls.add(referrerUrl);
+      cachedReferrerStates.set(referrerUrl, state);
       if (state !== null) {
         applyReferrerState(referrerUrl, state);
       } else {
         clearReferrerState(referrerUrl);
       }
+    }
+  }
+
+  function reapplyCachedAssetState(source) {
+    const state = cachedAssetStates.get(source) ?? null;
+
+    if (state !== null) {
+      applyAssetState(source, state);
+    } else {
+      clearAssetState(source);
+    }
+  }
+
+  function reapplyCachedReferrerState(referrerUrl) {
+    const state = cachedReferrerStates.get(referrerUrl) ?? null;
+
+    if (state !== null) {
+      applyReferrerState(referrerUrl, state);
+    } else {
+      clearReferrerState(referrerUrl);
     }
   }
 

@@ -333,7 +333,7 @@ async function handleBadgeReaction(event) {
       return;
     }
 
-    statusChecks.markAssetSourceChecked(asset.source);
+    statusChecks.markAssetSourceChecked(asset.source, payload);
     if (!shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
       return;
     }

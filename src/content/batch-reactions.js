@@ -66,7 +66,7 @@ export function applyBatchReactionPayload(payload, {
       continue;
     }
 
-    markAssetSourceChecked(source);
+    markAssetSourceChecked(source, item);
     updateBadgeStateBySource(source, item);
   }
 }
