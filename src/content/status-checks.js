@@ -12,6 +12,7 @@ export function createStatusCheckQueue({
   const checkedAssetSources = new Set();
   const checkedReferrerUrls = new Set();
   const pendingAssetSources = new Set();
+  const pendingOpenReferrerUrls = new Set();
   const pendingReferrerUrls = new Set();
   let scheduledStatusCheck = null;
 
@@ -24,13 +25,22 @@ export function createStatusCheckQueue({
     scheduleFlush();
   }
 
-  function queueReferrerStatusCheck(referrerUrl) {
-    if (checkedReferrerUrls.has(referrerUrl) || pendingReferrerUrls.has(referrerUrl)) {
-      return;
+  function queueReferrerStatusCheck(referrerUrl, options = {}) {
+    let shouldSchedule = false;
+
+    if (options.refreshOpenCounts === true && !pendingOpenReferrerUrls.has(referrerUrl)) {
+      pendingOpenReferrerUrls.add(referrerUrl);
+      shouldSchedule = true;
     }
 
-    pendingReferrerUrls.add(referrerUrl);
-    scheduleFlush();
+    if (!checkedReferrerUrls.has(referrerUrl) && !pendingReferrerUrls.has(referrerUrl)) {
+      pendingReferrerUrls.add(referrerUrl);
+      shouldSchedule = true;
+    }
+
+    if (shouldSchedule) {
+      scheduleFlush();
+    }
   }
 
   function markAssetSourceChecked(source) {
@@ -54,25 +64,30 @@ export function createStatusCheckQueue({
 
   async function flush() {
     const assetUrls = [...pendingAssetSources];
+    const openReferrerUrls = [...pendingOpenReferrerUrls];
     const referrerUrls = [...pendingReferrerUrls];
 
     pendingAssetSources.clear();
+    pendingOpenReferrerUrls.clear();
     pendingReferrerUrls.clear();
 
-    if (assetUrls.length === 0 && referrerUrls.length === 0) {
+    if (assetUrls.length === 0 && referrerUrls.length === 0 && openReferrerUrls.length === 0) {
       return;
     }
 
     assetUrls.forEach((assetUrl) => checkedAssetSources.add(assetUrl));
     referrerUrls.forEach((referrerUrl) => checkedReferrerUrls.add(referrerUrl));
 
+    const shouldFetchStatus = assetUrls.length > 0 || referrerUrls.length > 0;
     const [statusResult, openCountResult] = await Promise.allSettled([
-      fetchAssetStatuses({ assetUrls, referrerUrls }),
-      referrerUrls.length > 0 ? fetchOpenCounts({ referrerUrls }) : Promise.resolve({ counts: {} }),
+      shouldFetchStatus
+        ? fetchAssetStatuses({ assetUrls, referrerUrls })
+        : Promise.resolve({ assets: {}, referrers: {} }),
+      openReferrerUrls.length > 0 ? fetchOpenCounts({ referrerUrls: openReferrerUrls }) : Promise.resolve({ counts: {} }),
     ]);
 
     if (openCountResult.status === 'fulfilled') {
-      applyOpenCounts(referrerUrls, openCountResult.value.counts ?? {});
+      applyOpenCounts(openReferrerUrls, openCountResult.value.counts ?? {});
     }
 
     if (statusResult.status !== 'fulfilled') {

@@ -206,8 +206,8 @@ function queueAssetStatusCheck(source) {
   statusChecks.queueAssetStatusCheck(source);
 }
 
-function queueReferrerStatusCheck(referrerUrl) {
-  statusChecks.queueReferrerStatusCheck(referrerUrl);
+function queueReferrerStatusCheck(referrerUrl, options) {
+  statusChecks.queueReferrerStatusCheck(referrerUrl, options);
 }
 
 function mergeOpenReferrerCounts(referrerUrls, counts) {

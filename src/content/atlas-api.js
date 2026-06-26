@@ -1,6 +1,4 @@
 import {
-  defaultApiKey,
-  defaultDomain,
   loadConnectionConfig,
   normalizeDomain,
 } from '../options/connection.js';
@@ -8,12 +6,7 @@ import {
 const extensionBasePath = '/api/extension';
 
 export async function loadAtlasContentConfig(storage, options = {}) {
-  const config = await loadConnectionConfig(storage, options);
-
-  return config ?? {
-    apiKey: defaultApiKey,
-    domain: defaultDomain,
-  };
+  return loadConnectionConfig(storage, options);
 }
 
 export async function postAssetReaction({

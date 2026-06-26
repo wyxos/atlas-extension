@@ -32,7 +32,10 @@ export function createReferrerBadgeManager({
     removeDirectBadge(element);
 
     const id = getAssetId(element);
-    const nextState = stateForSyncedAsset(assetsById.get(id), asset, statesById.get(id));
+    const previousAsset = assetsById.get(id);
+    const nextState = stateForSyncedAsset(previousAsset, asset, statesById.get(id));
+    const refreshOpenCounts = previousAsset === undefined
+      || previousAsset.referrerUrl !== asset.referrerUrl;
 
     assetsById.set(id, asset);
     if (nextState === null) {
@@ -42,7 +45,7 @@ export function createReferrerBadgeManager({
     }
 
     render(id, nextState ?? {});
-    queueStatusCheck(asset.referrerUrl);
+    queueStatusCheck(asset.referrerUrl, { refreshOpenCounts });
 
     return getVisibleRect(element) !== null;
   }

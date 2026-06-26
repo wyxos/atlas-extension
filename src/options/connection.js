@@ -1,45 +1,35 @@
-export const defaultDomain = 'https://atlas.test';
+import {
+  connectionStatuses,
+  isConnectionMode,
+  normalizeDomain,
+  reverbStatuses,
+  saveConnectionConfig,
+} from './connection-state.js';
 
-export const defaultApiKey = 'atlas_local_development_key';
-
-export const storageKey = 'atlasExtensionConfig';
-
-export const connectionStatuses = Object.freeze({
-  connected: 'connected',
-  failed: 'failed',
-  idle: 'idle',
-});
-
-export const reverbStatuses = Object.freeze({
-  connected: 'connected',
-  disabled: 'disabled',
-  failed: 'failed',
-  idle: 'idle',
-});
-
-export function normalizeDomain(value) {
-  const trimmedValue = String(value ?? '').trim();
-
-  if (trimmedValue === '') {
-    return null;
-  }
-
-  const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmedValue)
-    ? trimmedValue
-    : `https://${trimmedValue}`;
-
-  try {
-    const url = new URL(candidate);
-
-    if (!['http:', 'https:'].includes(url.protocol)) {
-      return null;
-    }
-
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
+export {
+  connectionModes,
+  connectionStatuses,
+  createDefaultConnectionState,
+  defaultApiKey,
+  defaultDomain,
+  isConnectionMode,
+  isConnectionStatus,
+  isReverbStatus,
+  loadConnectionConfig,
+  loadConnectionState,
+  localApiKey,
+  localDomain,
+  normalizeConnectionState,
+  normalizeDomain,
+  normalizeReverbState,
+  reverbStatuses,
+  resolveActiveConnectionConfig,
+  resolveConnectionProfileConfig,
+  saveConnectionConfig,
+  saveConnectionMode,
+  saveConnectionState,
+  storageKey,
+} from './connection-state.js';
 
 export function isConnectableConfig(config) {
   return normalizeDomain(config?.domain) !== null
@@ -98,54 +88,6 @@ export function getReverbStatusVariant(status) {
   return 'outline';
 }
 
-export async function loadConnectionConfig(storage = getExtensionStorage(), options = {}) {
-  if (storage === null) {
-    return null;
-  }
-
-  const result = await readStorageValue(storage, storageKey, {
-    timeoutMs: options.storageTimeoutMs,
-  });
-
-  return result[storageKey] ?? null;
-}
-
-export async function saveConnectionConfig(config, storage = getExtensionStorage()) {
-  const domain = normalizeDomain(config?.domain);
-  const apiKey = String(config?.apiKey ?? '').trim();
-
-  if (storage === null || domain === null || apiKey === '') {
-    throw new Error('Connection settings are incomplete.');
-  }
-
-  const status = isConnectionStatus(config?.status)
-    ? config.status
-    : connectionStatuses.connected;
-  const checkedAt = typeof config?.checkedAt === 'string'
-    ? config.checkedAt
-    : new Date().toISOString();
-  const nextConfig = {
-    apiKey,
-    checkedAt,
-    domain,
-    status,
-  };
-
-  if (config?.reverb && typeof config.reverb === 'object') {
-    nextConfig.reverb = normalizeReverbState(config.reverb);
-  }
-
-  if (status === connectionStatuses.connected) {
-    nextConfig.connectedAt = typeof config?.connectedAt === 'string'
-      ? config.connectedAt
-      : checkedAt;
-  }
-
-  await storage.set({ [storageKey]: nextConfig });
-
-  return nextConfig;
-}
-
 export async function verifyConnection(config, options = {}) {
   const fetchImpl = typeof options === 'function'
     ? options
@@ -158,6 +100,7 @@ export async function verifyConnection(config, options = {}) {
     : 3000;
   const domain = normalizeDomain(config?.domain);
   const apiKey = String(config?.apiKey ?? '').trim();
+  const mode = isConnectionMode(config?.mode) ? config.mode : undefined;
   const checkedAt = new Date().toISOString();
   const unverifiedReverb = {
     checkedAt,
@@ -169,6 +112,7 @@ export async function verifyConnection(config, options = {}) {
       apiKey,
       checkedAt,
       domain,
+      ...(mode === undefined ? {} : { mode }),
       reverb: unverifiedReverb,
       status: connectionStatuses.failed,
     };
@@ -198,6 +142,7 @@ export async function verifyConnection(config, options = {}) {
       apiKey,
       checkedAt,
       domain,
+      ...(mode === undefined ? {} : { mode }),
       reverb,
       status,
     };
@@ -212,6 +157,7 @@ export async function verifyConnection(config, options = {}) {
       apiKey,
       checkedAt,
       domain,
+      ...(mode === undefined ? {} : { mode }),
       reverb: unverifiedReverb,
       status: connectionStatuses.failed,
     };
@@ -223,7 +169,7 @@ export async function connectAndSaveConnectionConfig(config, options = {}) {
 
   return saveConnectionConfig(
     verifiedConfig,
-    options.storage ?? getExtensionStorage(),
+    options.storage,
   );
 }
 
@@ -329,33 +275,8 @@ export async function verifyReverbConnection(reverb, options = {}) {
   });
 }
 
-function isConnectionStatus(value) {
-  return Object.values(connectionStatuses).includes(value);
-}
-
-function isReverbStatus(value) {
-  return Object.values(reverbStatuses).includes(value);
-}
-
 function isReverbAcceptable(status) {
   return [reverbStatuses.connected, reverbStatuses.disabled, reverbStatuses.idle].includes(status);
-}
-
-function normalizeReverbState(reverb) {
-  const status = isReverbStatus(reverb?.status)
-    ? reverb.status
-    : reverbStatuses.idle;
-  const normalized = {
-    status,
-  };
-
-  for (const key of ['checkedAt', 'channel', 'enabled', 'host', 'key', 'port', 'scheme']) {
-    if (reverb[key] !== undefined && reverb[key] !== null) {
-      normalized[key] = reverb[key];
-    }
-  }
-
-  return normalized;
 }
 
 function summarizeReverb(reverb, checkedAt) {
@@ -394,60 +315,4 @@ function closeSocket(socket) {
   } catch {
     // Ignore close errors; this is a one-shot connectivity check.
   }
-}
-
-function getExtensionStorage() {
-  return globalThis.chrome?.storage?.local ?? null;
-}
-
-function readStorageValue(storage, key, options = {}) {
-  if (typeof storage?.get !== 'function') {
-    return {};
-  }
-
-  const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 1000;
-
-  if (storage.get.length >= 2) {
-    return withTimeout(new Promise((resolve) => {
-      try {
-        storage.get(key, (result) => resolve(result ?? {}));
-      } catch {
-        resolve({});
-      }
-    }), timeoutMs, {});
-  }
-
-  try {
-    return withTimeout(storage.get(key), timeoutMs, {});
-  } catch {
-    return {};
-  }
-}
-
-function withTimeout(promise, timeoutMs, fallback) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const timeoutId = globalThis.setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        resolve(fallback);
-      }
-    }, timeoutMs);
-
-    Promise.resolve(promise)
-      .then((value) => {
-        if (!settled) {
-          settled = true;
-          globalThis.clearTimeout(timeoutId);
-          resolve(value ?? fallback);
-        }
-      })
-      .catch(() => {
-        if (!settled) {
-          settled = true;
-          globalThis.clearTimeout(timeoutId);
-          resolve(fallback);
-        }
-      });
-  });
 }

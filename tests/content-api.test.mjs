@@ -7,15 +7,23 @@ import {
   loadAtlasContentConfig,
   postAssetReaction,
 } from '../src/content/atlas-api.js';
+import {
+  connectionModes,
+  connectionStatuses,
+  localApiKey,
+  localDomain,
+} from '../src/options/connection.js';
 
-test('loads content config from storage or local defaults', async () => {
+test('loads content config from the active stored connection profile', async () => {
   assert.deepEqual(await loadAtlasContentConfig({
     async get() {
       return {};
     },
   }), {
-    apiKey: 'atlas_local_development_key',
-    domain: 'https://atlas.test',
+    apiKey: '',
+    domain: '',
+    mode: connectionModes.live,
+    status: connectionStatuses.idle,
   });
 
   assert.deepEqual(await loadAtlasContentConfig({
@@ -24,12 +32,41 @@ test('loads content config from storage or local defaults', async () => {
         [key]: {
           apiKey: 'stored-key',
           domain: 'https://stored.example.test',
+          status: connectionStatuses.failed,
         },
       });
     },
   }), {
     apiKey: 'stored-key',
     domain: 'https://stored.example.test',
+    mode: connectionModes.live,
+    status: connectionStatuses.failed,
+  });
+
+  assert.deepEqual(await loadAtlasContentConfig({
+    get(key, callback) {
+      callback({
+        [key]: {
+          mode: connectionModes.local,
+          profiles: {
+            live: {
+              apiKey: 'stored-key',
+              domain: 'https://stored.example.test',
+              status: connectionStatuses.connected,
+            },
+            local: {
+              status: connectionStatuses.connected,
+            },
+          },
+          version: 2,
+        },
+      });
+    },
+  }), {
+    apiKey: localApiKey,
+    domain: localDomain,
+    mode: connectionModes.local,
+    status: connectionStatuses.connected,
   });
 
   assert.deepEqual(await loadAtlasContentConfig({
@@ -37,8 +74,10 @@ test('loads content config from storage or local defaults', async () => {
   }, {
     storageTimeoutMs: 1,
   }), {
-    apiKey: 'atlas_local_development_key',
-    domain: 'https://atlas.test',
+    apiKey: '',
+    domain: '',
+    mode: connectionModes.live,
+    status: connectionStatuses.idle,
   });
 });
 

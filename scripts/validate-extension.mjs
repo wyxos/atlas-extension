@@ -199,9 +199,10 @@ if (overviewPage !== null) {
   expect(overviewPage.includes('Show API key'), 'src/options/pages/Overview.vue must render a show API key control');
   expect(overviewPage.includes('Hide API key'), 'src/options/pages/Overview.vue must render a hide API key control');
   expect(
-    overviewPage.includes('Atlas local database seeder'),
-    'src/options/pages/Overview.vue must explain the default local API key source',
+    overviewPage.includes('Local mode uses atlas.test'),
+    'src/options/pages/Overview.vue must explain the local mode connection source',
   );
+  expect(overviewPage.includes('connectionModes.local'), 'src/options/pages/Overview.vue must expose a local mode toggle');
 }
 
 const profilesPage = readText('src/options/pages/Profiles.vue');
@@ -216,6 +217,7 @@ if (logsPage !== null) {
 }
 
 const connectionModule = readText('src/options/connection.js');
+const connectionStateModule = readText('src/options/connection-state.js');
 const contentDetector = readText('src/content/assets.js');
 const contentScript = readText('src/content/main.js');
 const contentBadge = readText('src/content/AssetBadge.vue');
@@ -324,15 +326,10 @@ if (backgroundMain !== null) {
 }
 
 if (connectionModule !== null) {
-  expect(connectionModule.includes('https://atlas.test'), 'src/options/connection.js must default to https://atlas.test');
-  expect(
-    connectionModule.includes('atlas_local_development_key'),
-    'src/options/connection.js must default to the local seeded API key',
-  );
-  expect(connectionModule.includes('atlasExtensionConfig'), 'src/options/connection.js must define a storage key');
+  expect(connectionModule.includes("from './connection-state.js'"), 'src/options/connection.js must use the profile state module');
+  expect(connectionModule.includes('storageKey'), 'src/options/connection.js must re-export the storage key');
   expect(connectionModule.includes('Connected'), 'src/options/connection.js must expose Connected status');
   expect(connectionModule.includes('Failed'), 'src/options/connection.js must expose Failed status');
-  expect(connectionModule.includes('storage?.local'), 'src/options/connection.js must use extension storage');
   expect(connectionModule.includes('/api/extension/ping'), 'src/options/connection.js must verify via the extension ping endpoint');
   expect(connectionModule.includes('verifyReverbConnection'), 'src/options/connection.js must verify Reverb once');
   expect(connectionModule.includes('pusher:connection_established'), 'src/options/connection.js must confirm Reverb handshake');
@@ -340,6 +337,18 @@ if (connectionModule !== null) {
     !/setInterval|XMLHttpRequest|chrome\.tabs|chrome\.runtime/.test(`${optionsApp ?? ''}\n${connectionModule}`),
     'extension options must avoid polling, tab, and runtime integration',
   );
+}
+
+if (connectionStateModule !== null) {
+  expect(connectionStateModule.includes("export const defaultDomain = '';"), 'src/options/connection-state.js must default live domain to blank');
+  expect(connectionStateModule.includes("export const defaultApiKey = '';"), 'src/options/connection-state.js must default live API key to blank');
+  expect(connectionStateModule.includes("export const localDomain = 'https://atlas.test'"), 'src/options/connection-state.js must define the local Atlas domain');
+  expect(connectionStateModule.includes("export const localApiKey = 'atlas_local_development_key'"), 'src/options/connection-state.js must define the local seeded API key');
+  expect(connectionStateModule.includes('atlasExtensionConfig'), 'src/options/connection-state.js must define a storage key');
+  expect(connectionStateModule.includes('connectionModes'), 'src/options/connection-state.js must define connection modes');
+  expect(connectionStateModule.includes('loadConnectionState'), 'src/options/connection-state.js must load profile state');
+  expect(connectionStateModule.includes('saveConnectionMode'), 'src/options/connection-state.js must save active profile mode');
+  expect(connectionStateModule.includes('storage?.local'), 'src/options/connection-state.js must use extension storage');
 }
 
 const optionsStyles = readText('src/options/style.css');
