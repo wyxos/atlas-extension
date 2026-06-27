@@ -298,7 +298,12 @@ if (contentBadge !== null) {
   expect(contentBadge.includes('Volume2'), 'src/content/AssetBadge.vue must render an audio type icon');
   expect(contentBadge.includes('data-atlas-asset-badge'), 'src/content/AssetBadge.vue must render static asset badges');
   expect(contentBadge.includes('atlas-static-icons'), 'src/content/AssetBadge.vue must render static reaction icons');
-  expect(contentBadge.includes('defineEmits(["batch-toggle", "delete", "react"])'), 'src/content/AssetBadge.vue must emit batch, reaction, and delete clicks');
+  for (const eventName of ['batch-toggle', 'close-mode-change', 'delete', 'react']) {
+    expect(
+      contentBadge.includes(`"${eventName}"`),
+      `src/content/AssetBadge.vue must emit ${eventName} clicks`,
+    );
+  }
   expect(contentBadge.includes('atlasFileUrl'), 'src/content/AssetBadge.vue must render downloaded file links');
   expect(contentBadge.includes('canDeleteFile'), 'src/content/AssetBadge.vue must render downloaded file delete actions');
   expect(contentBadge.includes('progressLabel'), 'src/content/AssetBadge.vue must render dynamic progress text');

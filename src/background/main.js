@@ -8,6 +8,7 @@ import {
 import {
   resolveReverbConnectionConfig,
 } from './reverb-config.js';
+import { createCloseTabIntentManager } from './close-tab-intents.js';
 import { createPusherReverbClient } from './pusher-reverb-client.js';
 import { createOpenTabRegistry } from './tab-state.js';
 
@@ -15,8 +16,9 @@ let activeReverbClient = null;
 let activeConfigKey = null;
 let isConnecting = false;
 const openTabs = createOpenTabRegistry();
+const closeTabIntents = createCloseTabIntentManager();
 
-globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
+globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendResponse) => {
   if (message?.type === 'atlas-extension.open-referrer-counts') {
     sendResponse({
       ok: true,
@@ -34,6 +36,20 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResp
 
   if (message?.type === 'atlas-extension.ensure-reverb') {
     void ensureReverbConnection();
+
+    return false;
+  }
+
+  if (message?.type === 'atlas-extension.download-close-intent') {
+    sendResponse({
+      ok: true,
+      payload: closeTabIntents.armCloseIntent({
+        assetUrls: message.assetUrls,
+        mode: message.mode,
+        siteDomain: message.siteDomain,
+        tabId: sender?.tab?.id,
+      }),
+    });
 
     return false;
   }
@@ -161,6 +177,8 @@ function isAtlasApiMessage(message) {
 }
 
 function relayDownloadEvent(payload) {
+  closeTabIntents.handleDownloadEvent(payload);
+
   globalThis.chrome?.tabs?.query?.({}, (tabs) => {
     for (const tab of tabs) {
       if (!Number.isInteger(tab.id)) {
@@ -201,6 +219,7 @@ function bindOpenTabTracking() {
   });
 
   tabsApi.onRemoved?.addListener?.((tabId) => {
+    closeTabIntents.removeTab(tabId);
     broadcastOpenTabCountChanges(openTabs.removeTab(tabId));
   });
 }

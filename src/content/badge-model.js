@@ -1,3 +1,5 @@
+import { closeTabModes, normalizeCloseTabMode } from '../shared/close-tab-preferences.js';
+
 const videoControlOffset = 48;
 const compactBadgeHeight = 50;
 const compactBadgeWidth = 40;
@@ -17,6 +19,7 @@ export function createBadgePresentation(asset, visibleRect, viewportPadding, sta
     atlasFileUrl: isDownloaded ? file?.atlas_url ?? null : null,
     batch: normalizeBatchState(state.batch),
     canDeleteFile: isDownloaded && file?.id !== null,
+    ...optionalCloseTabState(state.closeTab),
     download,
     file,
     isBusy: state.isBusy === true,
@@ -135,6 +138,19 @@ function normalizeBatchState(batch) {
   return {
     available: true,
     checked: batch.checked === true,
+  };
+}
+
+function optionalCloseTabState(closeTab) {
+  if (closeTab?.available !== true) {
+    return {};
+  }
+
+  return {
+    closeTab: {
+      available: true,
+      mode: normalizeCloseTabMode(closeTab.mode ?? closeTabModes.off),
+    },
   };
 }
 

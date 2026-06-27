@@ -11,6 +11,7 @@ import {
   Video,
   Volume2,
 } from "@lucide/vue";
+import { closeTabModes } from "../shared/close-tab-preferences.js";
 
 defineProps({
   badge: {
@@ -19,10 +20,28 @@ defineProps({
   },
 });
 
-defineEmits(["batch-toggle", "delete", "react"]);
+defineEmits(["batch-toggle", "close-mode-change", "delete", "react"]);
 
 const iconSize = 18;
 const metaIconSize = 14;
+
+const closeModeOptions = [
+  {
+    label: "Off",
+    shortLabel: "Off",
+    value: closeTabModes.off,
+  },
+  {
+    label: "Close after queue",
+    shortLabel: "Queue",
+    value: closeTabModes.afterQueue,
+  },
+  {
+    label: "Close on complete",
+    shortLabel: "Done",
+    value: closeTabModes.onComplete,
+  },
+];
 
 const assetTypes = {
   audio: {
@@ -99,6 +118,12 @@ function assetTypeFor(badge) {
         v-if="badge.timestampLabel"
         class="atlas-static-timestamp"
       >{{ badge.timestampLabel }}</span>
+    </div>
+
+    <div
+      v-if="badge.batch?.available || badge.closeTab?.available"
+      class="atlas-static-controls"
+    >
       <label
         v-if="badge.batch?.available"
         class="atlas-static-batch"
@@ -113,6 +138,27 @@ function assetTypeFor(badge) {
         >
         <span>Batch</span>
       </label>
+      <div
+        v-if="badge.closeTab?.available"
+        class="atlas-static-close-mode"
+        role="group"
+        aria-label="Close tab mode"
+        title="Close tab mode"
+      >
+        <button
+          v-for="item in closeModeOptions"
+          :key="item.value"
+          type="button"
+          class="atlas-static-close-mode-option"
+          :class="{ 'atlas-static-close-mode-option-active': badge.closeTab.mode === item.value }"
+          :disabled="badge.isBusy || badge.isDeleting"
+          :aria-label="item.label"
+          :title="item.label"
+          @click.stop.prevent="$emit('close-mode-change', item.value)"
+        >
+          {{ item.shortLabel }}
+        </button>
+      </div>
     </div>
 
     <div class="atlas-static-icons">

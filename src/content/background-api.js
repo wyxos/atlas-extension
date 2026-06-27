@@ -35,6 +35,21 @@ export function openReferrerInTabViaBackground({
   }, { runtime, timeoutMs });
 }
 
+export function armDownloadCloseIntentViaBackground({
+  assetUrls,
+  mode,
+  runtime = globalThis.chrome?.runtime,
+  siteDomain,
+  timeoutMs = defaultTimeoutMs,
+}) {
+  return sendBackgroundRequest({
+    assetUrls,
+    mode,
+    siteDomain,
+    type: 'atlas-extension.download-close-intent',
+  }, { runtime, timeoutMs });
+}
+
 export function postAssetReactionViaBackground({
   asset,
   downloadAction,

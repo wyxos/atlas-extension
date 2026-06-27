@@ -1,11 +1,14 @@
 import { describeAssetElement } from './assets.js';
 import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
+import { createBatchProviderState } from './batch-provider-state.js';
 import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openReferrerInTabViaBackground } from './background-api.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
 import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
 import { resolveAssetBatchContext } from './batch-providers/index.js';
 import { createBadgePresentation } from './badge-model.js';
+import { armCloseTabForReaction } from './close-tab-reactions.js';
+import { createCloseTabModeState } from './close-tab-mode-state.js';
 import { createAssetOverlay } from './overlay-controller.js';
 import { createReferrerBadgeManager } from './referrer-badges.js';
 import { createReferrerOpenGuard } from './referrer-open-guard.js';
@@ -24,7 +27,6 @@ const viewportPadding = 4;
 const assetIds = new Map();
 const assetsById = new Map();
 const batchContextsById = new Map();
-const batchEnabledByProvider = new Map();
 const badgeStatesById = new Map();
 const elementsById = new Map();
 let openReferrerCounts = {};
@@ -32,6 +34,14 @@ let scheduledScan = null;
 let scheduledPositionUpdate = null;
 let nextAssetId = 0;
 let overlayController = null;
+const closeTabMode = createCloseTabModeState({
+  getLocationHref: () => window.location.href,
+  onChanged: updateAllAssetBadgePresentations,
+});
+const batchProviderState = createBatchProviderState({
+  getContextsById: () => batchContextsById,
+  onBadgeState: updateBadgeState,
+});
 
 const referrerBadges = createReferrerBadgeManager({
   getCurrentPageUrl: () => window.location.href,
@@ -59,12 +69,8 @@ const referrerOpenGuard = createReferrerOpenGuard({
   getAtlasState: (referrerUrl) => referrerBadges.getAtlasStateByReferrerUrl(referrerUrl),
   getCurrentPageUrl: () => window.location.href,
   getOpenCounts: () => openReferrerCounts,
-  navigate: (url) => {
-    window.location.assign(url);
-  },
-  openInNewTab: (url) => {
-    void openReferrerInTabViaBackground({ url });
-  },
+  navigate: (url) => window.location.assign(url),
+  openInNewTab: (url) => void openReferrerInTabViaBackground({ url }),
 });
 
 function getOverlayController() {
@@ -87,6 +93,7 @@ function getOverlayController() {
   (document.body ?? document.documentElement).append(host);
   overlayController = createAssetOverlay(overlayRoot, {
     onBatchToggle: handleBadgeBatchToggle,
+    onCloseModeChange: handleBadgeCloseModeChange,
     onDelete: handleBadgeDelete,
     onReact: handleBadgeReaction,
   });
@@ -147,7 +154,7 @@ function syncAsset(element) {
   const nextBadgeState = stateWithBatchContext(
     nextState,
     batchContext,
-    isBatchProviderEnabled(batchContext?.provider),
+    batchProviderState.isProviderEnabled(batchContext?.provider),
   );
 
   assetsById.set(id, asset);
@@ -164,7 +171,7 @@ function syncAsset(element) {
 
   getOverlayController().upsertBadge(
     id,
-    createBadgePresentation(asset, visibleRect, viewportPadding, nextBadgeState ?? {}),
+    createAssetBadgePresentation(asset, visibleRect, nextBadgeState ?? {}),
   );
   queueAssetStatusCheck(asset.source);
 
@@ -195,8 +202,15 @@ function renderBadgeState(id, nextState) {
   badgeStatesById.set(id, nextState);
   getOverlayController().upsertBadge(
     id,
-    createBadgePresentation(asset, getVisibleRect(element), viewportPadding, nextState),
+    createAssetBadgePresentation(asset, getVisibleRect(element), nextState),
   );
+}
+
+function createAssetBadgePresentation(asset, visibleRect, state) {
+  return createBadgePresentation(asset, visibleRect, viewportPadding, {
+    ...(state ?? {}),
+    closeTab: closeTabMode.presentationState(),
+  });
 }
 
 function updateBadgeStateBySource(source, nextState) {
@@ -211,53 +225,6 @@ function clearAtlasAssetStateBySource(source) {
   for (const [id, asset] of assetsById.entries()) {
     if (asset.source === source) {
       replaceBadgeState(id, stateWithoutAtlasAssetStatus(badgeStatesById.get(id)));
-    }
-  }
-}
-
-function isBatchProviderEnabled(provider) {
-  return typeof provider === 'string' && batchEnabledByProvider.get(provider) === true;
-}
-
-function setBatchProviderEnabled(provider, enabled) {
-  if (typeof provider !== 'string' || provider.trim() === '') {
-    return;
-  }
-
-  if (enabled === true) {
-    batchEnabledByProvider.set(provider, true);
-  } else {
-    batchEnabledByProvider.delete(provider);
-  }
-}
-
-function replaceBatchProviderPreferences(preferences) {
-  batchEnabledByProvider.clear();
-
-  for (const [provider, enabled] of Object.entries(preferences ?? {})) {
-    if (enabled === true) {
-      batchEnabledByProvider.set(provider, true);
-    }
-  }
-
-  updateAllBatchBadges();
-}
-
-function updateAllBatchBadges() {
-  for (const provider of new Set([...batchContextsById.values()].map((context) => context.provider))) {
-    updateBatchBadgesForProvider(provider);
-  }
-}
-
-function updateBatchBadgesForProvider(provider) {
-  for (const [id, context] of batchContextsById.entries()) {
-    if (context.provider === provider) {
-      updateBadgeState(id, {
-        batch: {
-          available: true,
-          checked: isBatchProviderEnabled(provider),
-        },
-      });
     }
   }
 }
@@ -318,6 +285,11 @@ async function handleBadgeReaction(event) {
       locationContext: window.location,
     });
 
+    void armCloseTabForReaction(payload, {
+      loadModeForSiteDomain: closeTabMode.loadModeForReaction,
+      locationContext: window.location,
+    });
+
     if (Array.isArray(payload.items)) {
       applyBatchReactionPayload(payload, {
         markAssetSourceChecked: (source) => statusChecks.markAssetSourceChecked(source),
@@ -366,9 +338,13 @@ function handleBadgeBatchToggle(event) {
     return;
   }
 
-  setBatchProviderEnabled(context.provider, event.checked === true);
-  updateBatchBadgesForProvider(context.provider);
+  batchProviderState.setProviderEnabled(context.provider, event.checked === true);
+  batchProviderState.updateProvider(context.provider);
   void saveBatchProviderPreference(context.provider, event.checked === true);
+}
+
+function handleBadgeCloseModeChange(event) {
+  void closeTabMode.setMode(event.mode);
 }
 
 function handleAssetShortcut(event) {
@@ -484,6 +460,12 @@ function schedulePositionUpdate() {
   }, scanDelayMs);
 }
 
+function updateAllAssetBadgePresentations() {
+  for (const [id, state] of badgeStatesById.entries()) {
+    renderBadgeState(id, state);
+  }
+}
+
 startContentRuntime({
   getOpenReferrerCounts: () => openReferrerCounts,
   handleAssetShortcut,
@@ -494,6 +476,5 @@ startContentRuntime({
   schedulePositionUpdate,
   updateBadgeStateBySource,
 });
-bindBatchProviderPreferences({
-  applyPreferences: replaceBatchProviderPreferences,
-});
+bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
+void closeTabMode.initialize();

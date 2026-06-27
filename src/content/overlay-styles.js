@@ -22,7 +22,7 @@ export function getOverlayStyles() {
       font: 600 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       gap: 4px;
       justify-content: center;
-      min-height: 74px;
+      min-height: 92px;
       overflow: hidden;
       padding: 6px 8px 17px;
       pointer-events: none;
@@ -86,6 +86,49 @@ export function getOverlayStyles() {
     .atlas-static-batch input:disabled {
       cursor: wait;
       opacity: 0.55;
+    }
+
+    .atlas-static-controls {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .atlas-static-close-mode {
+      align-items: center;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 5px;
+      display: inline-flex;
+      overflow: hidden;
+      pointer-events: auto;
+    }
+
+    .atlas-static-close-mode-option {
+      appearance: none;
+      background: transparent;
+      border: 0;
+      color: rgba(255, 255, 255, 0.82);
+      cursor: pointer;
+      font: 700 9px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      height: 20px;
+      padding: 0 6px;
+    }
+
+    .atlas-static-close-mode-option:hover:not(:disabled),
+    .atlas-static-close-mode-option:focus-visible {
+      background: rgba(255, 255, 255, 0.16);
+      color: #fff;
+      outline: none;
+    }
+
+    .atlas-static-close-mode-option-active {
+      background: #0f766e; color: #fff;
+    }
+
+    .atlas-static-close-mode-option:disabled {
+      cursor: wait; opacity: 0.55;
     }
 
     .atlas-static-icons {
@@ -236,29 +279,12 @@ export function getOverlayStyles() {
       transition: width 180ms ease;
     }
 
-    .atlas-static-progress-fill-idle {
-      background: transparent;
-    }
-
-    .atlas-static-progress-fill-active {
-      background: #14b8a6;
-    }
-
-    .atlas-static-progress-fill-success {
-      background: #22c55e;
-    }
-
-    .atlas-static-progress-fill-danger {
-      background: #dc2626;
-    }
-
-    .atlas-static-progress-fill-warning {
-      background: #f59e0b;
-    }
-
-    .atlas-static-progress-fill-muted {
-      background: #5c677d;
-    }
+    .atlas-static-progress-fill-idle { background: transparent; }
+    .atlas-static-progress-fill-active { background: #14b8a6; }
+    .atlas-static-progress-fill-success { background: #22c55e; }
+    .atlas-static-progress-fill-danger { background: #dc2626; }
+    .atlas-static-progress-fill-warning { background: #f59e0b; }
+    .atlas-static-progress-fill-muted { background: #5c677d; }
 
     .atlas-static-progress-text {
       align-items: center;

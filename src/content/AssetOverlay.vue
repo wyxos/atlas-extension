@@ -25,7 +25,7 @@ defineProps({
   },
 });
 
-defineEmits(["batch-toggle", "confirm", "delete", "react", "reaction-confirm"]);
+defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "react", "reaction-confirm"]);
 </script>
 
 <template>
@@ -41,6 +41,7 @@ defineEmits(["batch-toggle", "confirm", "delete", "react", "reaction-confirm"]);
       v-else
       :badge="badge"
       @batch-toggle="$emit('batch-toggle', { id: badge.id, checked: $event })"
+      @close-mode-change="$emit('close-mode-change', { mode: $event })"
       @delete="$emit('delete', { id: badge.id })"
       @react="$emit('react', { id: badge.id, type: $event })"
     />

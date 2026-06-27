@@ -20,6 +20,7 @@ export function createAssetOverlay(shadowRoot, options = {}) {
         badges: state.badges,
         confirmRequest: state.confirmRequest,
         onBatchToggle: options.onBatchToggle,
+        onCloseModeChange: options.onCloseModeChange,
         onDelete: options.onDelete,
         onConfirm: resolveConfirmRequest,
         onReact: options.onReact,

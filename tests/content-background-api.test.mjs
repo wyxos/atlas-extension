@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   deleteAtlasFileViaBackground,
+  armDownloadCloseIntentViaBackground,
   fetchAssetStatusesViaBackground,
   fetchOpenReferrerCountsViaBackground,
   openReferrerInTabViaBackground,
@@ -217,6 +218,34 @@ test('opens confirmed referrers through the background worker', async () => {
     url: 'https://www.example.test/post/123',
   }]);
   assert.equal(payload.opened, true);
+});
+
+test('arms download close intents through the background worker', async () => {
+  const messages = [];
+  const payload = await armDownloadCloseIntentViaBackground({
+    assetUrls: ['https://cdn.example.test/video.mp4'],
+    mode: 'after_queue',
+    runtime: {
+      sendMessage(message, callback) {
+        messages.push(message);
+        callback({
+          ok: true,
+          payload: {
+            armed: true,
+          },
+        });
+      },
+    },
+    siteDomain: 'x.com',
+  });
+
+  assert.deepEqual(messages, [{
+    assetUrls: ['https://cdn.example.test/video.mp4'],
+    mode: 'after_queue',
+    siteDomain: 'x.com',
+    type: 'atlas-extension.download-close-intent',
+  }]);
+  assert.equal(payload.armed, true);
 });
 
 test('rejects failed background responses', async () => {

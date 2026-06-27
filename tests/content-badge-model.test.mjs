@@ -277,6 +277,24 @@ test('creates batch presentation data when the page has related files', () => {
   });
 });
 
+test('creates close tab mode presentation data when available', () => {
+  const badge = createBadgePresentation({
+    resolution: null,
+    source: 'https://example.test/file-1.jpg',
+    type: 'image',
+  }, null, 4, {
+    closeTab: {
+      available: true,
+      mode: 'on_complete',
+    },
+  });
+
+  assert.deepEqual(badge.closeTab, {
+    available: true,
+    mode: 'on_complete',
+  });
+});
+
 test('marks blacklist as the active reaction from blacklisted state', () => {
   const badge = createBadgePresentation({
     resolution: null,
