@@ -2,7 +2,7 @@ import { describeAssetElement } from './assets.js';
 import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
 import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openReferrerInTabViaBackground } from './background-api.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
-import { shouldApplyAssetResponse, stateForSyncedAsset } from './asset-state.js';
+import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
 import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
 import { resolveAssetBatchContext } from './batch-providers/index.js';
 import { createBadgePresentation } from './badge-model.js';
@@ -47,7 +47,7 @@ const statusChecks = createStatusCheckQueue({
   applyAssetState: updateBadgeStateBySource,
   applyOpenCounts: mergeOpenReferrerCounts,
   applyReferrerState: referrerBadges.updateByReferrerUrl,
-  clearAssetState: (assetUrl) => replaceBadgeStateBySource(assetUrl, {}),
+  clearAssetState: clearAtlasAssetStateBySource,
   clearReferrerState: (referrerUrl) => referrerBadges.replaceByReferrerUrl(referrerUrl, {}),
   delayMs: statusCheckDelayMs,
   fetchAssetStatuses: fetchAssetStatusesViaBackground,
@@ -207,10 +207,10 @@ function updateBadgeStateBySource(source, nextState) {
   }
 }
 
-function replaceBadgeStateBySource(source, nextState) {
+function clearAtlasAssetStateBySource(source) {
   for (const [id, asset] of assetsById.entries()) {
     if (asset.source === source) {
-      replaceBadgeState(id, nextState);
+      replaceBadgeState(id, stateWithoutAtlasAssetStatus(badgeStatesById.get(id)));
     }
   }
 }

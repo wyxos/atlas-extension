@@ -24,6 +24,8 @@ export function startContentRuntime({
   ensureBackgroundReverb();
 
   const observer = new MutationObserver((mutations) => {
+    let shouldResyncKnownBadges = false;
+
     for (const mutation of mutations) {
       if (mutation.type === 'attributes') {
         scanAssets(mutation.target?.parentElement ?? mutation.target);
@@ -31,7 +33,12 @@ export function startContentRuntime({
       }
       for (const node of mutation.addedNodes) {
         scanAssets(node);
+        shouldResyncKnownBadges = true;
       }
+    }
+
+    if (shouldResyncKnownBadges) {
+      schedulePositionUpdate();
     }
   });
 
