@@ -6,7 +6,9 @@ export function createReferrerBadgeManager({
   getCurrentPageUrl = () => globalThis.location?.href ?? '',
   getOverlayController,
   getVisibleRect,
+  placeBadge = () => null,
   queueStatusCheck,
+  removeBadgeHost = () => {},
   removeDirectBadge,
   removeOverlayBadge,
   viewportPadding,
@@ -64,6 +66,7 @@ export function createReferrerBadgeManager({
       renderedIds.delete(id);
     }
 
+    removeBadgeHost(id);
     assetIds.delete(element);
     assetsById.delete(id);
     elementsById.delete(id);
@@ -80,6 +83,17 @@ export function createReferrerBadgeManager({
       }
 
       sync(element);
+    }
+  }
+
+  function refreshKnownReferrers(options = {}) {
+    const referrerUrls = new Set([...assetsById.values()].map((asset) => asset.referrerUrl));
+
+    for (const referrerUrl of referrerUrls) {
+      queueStatusCheck(referrerUrl, {
+        refreshOpenCounts: options.refreshOpenCounts !== false,
+        refreshStatus: options.refreshStatus !== false,
+      });
     }
   }
 
@@ -161,12 +175,14 @@ export function createReferrerBadgeManager({
         renderedIds.delete(id);
       }
 
+      removeBadgeHost(id);
       restoreOpacity(element);
 
       return;
     }
 
     dim(element);
+    const placement = placeBadge(id, element, asset) ?? {};
     getOverlayController().upsertBadge(
       id,
       createReferrerBadgePresentation(
@@ -174,6 +190,7 @@ export function createReferrerBadgeManager({
         getVisibleRect(element),
         viewportPadding,
         displayState,
+        placement,
       ),
     );
     renderedIds.add(id);
@@ -228,6 +245,7 @@ export function createReferrerBadgeManager({
   return {
     positionKnown,
     getAtlasStateByReferrerUrl,
+    refreshKnownReferrers,
     remove,
     replaceByReferrerUrl,
     sync,
@@ -246,7 +264,7 @@ function withoutUndefinedValues(values) {
 function stateForSyncedAsset(previousAsset, nextAsset, currentState) {
   if (
     !previousAsset
-    || (previousAsset.source === nextAsset.source && previousAsset.referrerUrl === nextAsset.referrerUrl)
+    || previousAsset.referrerUrl === nextAsset.referrerUrl
   ) {
     return currentState ?? null;
   }

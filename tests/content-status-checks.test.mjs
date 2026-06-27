@@ -130,6 +130,109 @@ test('reapplies cached referrer status when a checked referrer is surfaced again
   }]);
 });
 
+test('reapplies download event referrer status instead of stale open-tab state', async () => {
+  const referrerUrl = 'https://www.example.test/post/123';
+  const appliedStates = [];
+  const clearedStates = [];
+  const queue = createStatusCheckQueue({
+    applyAssetState: () => {},
+    applyOpenCounts: () => {},
+    applyReferrerState: (source, state) => {
+      appliedStates.push({ source, state });
+    },
+    clearAssetState: () => {},
+    clearReferrerState: (source) => {
+      clearedStates.push(source);
+    },
+    delayMs: 0,
+    fetchAssetStatuses: async () => ({
+      assets: {},
+      referrers: {},
+    }),
+    fetchOpenCounts: async () => ({ counts: {} }),
+    windowRef: globalThis,
+  });
+
+  queue.queueReferrerStatusCheck(referrerUrl);
+  await waitForFlush();
+  queue.markReferrerUrlChecked(referrerUrl, {
+    download: {
+      progress_percent: 42,
+      status: 'downloading',
+    },
+    reaction: {
+      type: 'love',
+    },
+  });
+  appliedStates.length = 0;
+  clearedStates.length = 0;
+
+  queue.queueReferrerStatusCheck(referrerUrl);
+  await waitForFlush();
+
+  assert.deepEqual(clearedStates, []);
+  assert.deepEqual(appliedStates, [{
+    source: referrerUrl,
+    state: {
+      download: {
+        progress_percent: 42,
+        status: 'downloading',
+      },
+      reaction: {
+        type: 'love',
+      },
+    },
+  }]);
+});
+
+test('force refresh refetches a checked referrer status', async () => {
+  const referrerUrl = 'https://www.example.test/post/123';
+  const appliedStates = [];
+  const statusRequests = [];
+  let requestCount = 0;
+  const queue = createStatusCheckQueue({
+    applyAssetState: () => {},
+    applyOpenCounts: () => {},
+    applyReferrerState: (source, state) => {
+      appliedStates.push({ source, state });
+    },
+    clearAssetState: () => {},
+    clearReferrerState: () => {},
+    delayMs: 0,
+    fetchAssetStatuses: async (request) => {
+      requestCount += 1;
+      statusRequests.push(request);
+
+      return requestCount === 1
+        ? { assets: {}, referrers: {} }
+        : {
+            assets: {},
+            referrers: {
+              [referrerUrl]: {
+                reaction: { type: 'love' },
+              },
+            },
+          };
+    },
+    fetchOpenCounts: async () => ({ counts: {} }),
+    windowRef: globalThis,
+  });
+
+  queue.queueReferrerStatusCheck(referrerUrl);
+  await waitForFlush();
+
+  queue.queueReferrerStatusCheck(referrerUrl, { refreshStatus: true });
+  await waitForFlush();
+
+  assert.equal(statusRequests.length, 2);
+  assert.deepEqual(appliedStates, [{
+    source: referrerUrl,
+    state: {
+      reaction: { type: 'love' },
+    },
+  }]);
+});
+
 test('retries asset status when the first status request fails', async () => {
   const assetUrl = 'https://cdn.example.test/retry.jpg';
   const appliedStates = [];

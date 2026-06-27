@@ -27,17 +27,18 @@ export function createBadgePresentation(asset, visibleRect, viewportPadding, sta
     progressLabel,
     progressPercent,
     progressTone: resolveProgressTone(download),
+    ...optionalPortalTarget(options.portalTarget),
     reaction,
     resolutionLabel: formatResolutionLabel(asset),
     source: asset.source,
-    style: createBadgeStyle(visibleRect, viewportPadding, asset, options),
+    style: options.badgeStyle ?? createBadgeStyle(visibleRect, viewportPadding, asset, options),
     submittingReaction: normalizeReaction(state.submittingReaction),
     timestampLabel: formatTimestamp(blacklistedAt ?? (isDownloaded ? download?.downloaded_at : null) ?? null),
     type: asset.type,
   };
 }
 
-export function createReferrerBadgePresentation(asset, visibleRect, viewportPadding, state = {}) {
+export function createReferrerBadgePresentation(asset, visibleRect, viewportPadding, state = {}, options = {}) {
   const download = normalizeDownloadState(state.download);
   const blacklistedAt = stringOrNull(state.blacklisted_at ?? state.blacklistedAt);
   const progressPercent = resolveProgressPercent(download);
@@ -50,10 +51,11 @@ export function createReferrerBadgePresentation(asset, visibleRect, viewportPadd
     download,
     progressPercent,
     progressTone: resolveProgressTone(download),
+    ...optionalPortalTarget(options.portalTarget),
     referrerStatus: activeReaction === null ? referrerStatus : null,
     reaction,
     source: asset.source,
-    style: createCompactBadgeStyle(visibleRect, viewportPadding, asset),
+    style: options.badgeStyle ?? createCompactBadgeStyle(visibleRect, viewportPadding, asset),
     variant: 'referrer',
   };
 }
@@ -152,6 +154,10 @@ function optionalCloseTabState(closeTab) {
       mode: normalizeCloseTabMode(closeTab.mode ?? closeTabModes.off),
     },
   };
+}
+
+function optionalPortalTarget(portalTarget) {
+  return portalTarget ? { portalTarget } : {};
 }
 
 function normalizeFileState(file) {

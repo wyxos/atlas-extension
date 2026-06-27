@@ -2,6 +2,7 @@ import { createApp, h, reactive } from 'vue';
 
 import AssetOverlay from './AssetOverlay.vue';
 import { createOverlayStyles } from './overlay-styles.js';
+import { upsertBadgeEntry } from './overlay-state.js';
 
 export function createAssetOverlay(shadowRoot, options = {}) {
   const state = reactive({
@@ -77,15 +78,7 @@ export function createAssetOverlay(shadowRoot, options = {}) {
       }
     },
     upsertBadge(id, badge) {
-      const existingBadge = state.badges.find((entry) => entry.id === id);
-
-      if (existingBadge === undefined) {
-        state.badges.push({ id, ...badge });
-
-        return;
-      }
-
-      Object.assign(existingBadge, badge);
+      upsertBadgeEntry(state.badges, id, badge);
     },
   };
 }

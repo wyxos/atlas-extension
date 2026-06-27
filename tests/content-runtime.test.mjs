@@ -86,6 +86,161 @@ test('added DOM nodes resync existing badges so late provider context is applied
   assert.equal(calls.includes('positionBadges'), true);
 });
 
+test('download events are delegated for state and cache updates', () => {
+  const calls = [];
+  const listeners = [];
+  const originalDocument = globalThis.document;
+  const originalMutationObserver = globalThis.MutationObserver;
+  const originalWindow = globalThis.window;
+  const originalChrome = globalThis.chrome;
+  const payload = {
+    assetUrl: 'https://cdn.example.test/file.jpg',
+    download: {
+      progress_percent: 42,
+      status: 'downloading',
+    },
+    referrerUrl: 'https://www.example.test/post/123',
+  };
+
+  globalThis.MutationObserver = class FakeMutationObserver {
+    observe() {}
+  };
+  globalThis.window = {
+    addEventListener() {},
+    history: {
+      pushState() {},
+      replaceState() {},
+    },
+  };
+  globalThis.document = {
+    documentElement: {},
+  };
+  globalThis.chrome = {
+    runtime: {
+      onMessage: {
+        addListener(listener) {
+          listeners.push(listener);
+        },
+      },
+    },
+  };
+
+  try {
+    startContentRuntime({
+      getOpenReferrerCounts: () => ({}),
+      handleAssetShortcut() {},
+      handleDownloadEvent: (eventPayload) => calls.push(eventPayload),
+      mergeOpenReferrerCounts() {},
+      referrerBadges: {
+        updateByDownloadEvent() {
+          throw new Error('download event should be handled by handleDownloadEvent');
+        },
+        updateOpenCounts() {},
+      },
+      referrerOpenGuard: {
+        handleBrowserEvent() {},
+      },
+      scanAssets() {},
+      schedulePositionUpdate() {},
+      updateBadgeStateBySource() {
+        throw new Error('download event should be handled by handleDownloadEvent');
+      },
+    });
+
+    listeners.forEach((listener) => listener({
+      payload,
+      type: 'atlas-extension.download-event',
+    }));
+  } finally {
+    globalThis.MutationObserver = originalMutationObserver;
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+    globalThis.chrome = originalChrome;
+  }
+
+  assert.deepEqual(calls, [payload]);
+});
+
+test('page activation rescans assets and refreshes known referrers', () => {
+  const calls = [];
+  const listeners = {};
+  const originalDocument = globalThis.document;
+  const originalMutationObserver = globalThis.MutationObserver;
+  const originalWindow = globalThis.window;
+  const originalChrome = globalThis.chrome;
+
+  globalThis.MutationObserver = class FakeMutationObserver {
+    observe() {}
+  };
+  globalThis.window = {
+    addEventListener(type, handler) {
+      listeners[`window:${type}`] = handler;
+    },
+    history: {
+      pushState() {},
+      replaceState() {},
+    },
+    setTimeout(callback, delay) {
+      calls.push(['timeout', delay]);
+      callback();
+
+      return 1;
+    },
+  };
+  globalThis.document = {
+    addEventListener(type, handler) {
+      listeners[`document:${type}`] = handler;
+    },
+    documentElement: {},
+    visibilityState: 'hidden',
+  };
+  globalThis.chrome = undefined;
+
+  try {
+    startContentRuntime({
+      getOpenReferrerCounts: () => ({}),
+      handleAssetShortcut() {},
+      mergeOpenReferrerCounts() {},
+      referrerBadges: {
+        refreshKnownReferrers(options) {
+          calls.push(['refreshReferrers', options]);
+        },
+        updateByDownloadEvent() {},
+        updateOpenCounts() {},
+      },
+      referrerOpenGuard: {
+        handleBrowserEvent() {},
+      },
+      scanAssets(root) {
+        calls.push(['scan', root?.id ?? 'document']);
+      },
+      schedulePositionUpdate() {
+        calls.push('positionBadges');
+      },
+      updateBadgeStateBySource() {},
+    });
+
+    calls.length = 0;
+    globalThis.document.visibilityState = 'visible';
+    listeners['document:visibilitychange']();
+  } finally {
+    globalThis.MutationObserver = originalMutationObserver;
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+    globalThis.chrome = originalChrome;
+  }
+
+  assert.deepEqual(calls, [
+    ['timeout', 75],
+    ['scan', 'document'],
+    ['refreshReferrers', {
+      refreshOpenCounts: true,
+      refreshStatus: true,
+    }],
+    'positionBadges',
+  ]);
+});
+
 test('page location changes refresh referrer state and rescan assets', () => {
   const calls = [];
   const listeners = {};

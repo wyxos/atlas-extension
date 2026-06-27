@@ -3,6 +3,7 @@ export const locationBridgeEventName = 'atlas-extension-location-change';
 export function startContentRuntime({
   handleAssetShortcut,
   getOpenReferrerCounts,
+  handleDownloadEvent,
   mergeOpenReferrerCounts,
   referrerBadges,
   referrerOpenGuard,
@@ -11,12 +12,17 @@ export function startContentRuntime({
   updateBadgeStateBySource,
 }) {
   scanAssets();
-  listenForDownloadEvents({ referrerBadges, updateBadgeStateBySource });
+  listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource });
   listenForOpenTabCounts({ mergeOpenReferrerCounts });
   listenForAssetShortcuts({ handleAssetShortcut });
   listenForReferrerOpenAttempts({ referrerOpenGuard });
   listenForPageLocationChanges({
     getOpenReferrerCounts,
+    referrerBadges,
+    refreshAssets: scanAssets,
+    schedulePositionUpdate,
+  });
+  listenForPageActivationChanges({
     referrerBadges,
     refreshAssets: scanAssets,
     schedulePositionUpdate,
@@ -64,7 +70,7 @@ function ensureBackgroundReverb() {
   }
 }
 
-function listenForDownloadEvents({ referrerBadges, updateBadgeStateBySource }) {
+function listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource }) {
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message) => {
     if (message?.type !== 'atlas-extension.download-event') {
       return;
@@ -75,6 +81,12 @@ function listenForDownloadEvents({ referrerBadges, updateBadgeStateBySource }) {
       : null;
 
     if (assetUrl === null) {
+      return;
+    }
+
+    if (typeof handleDownloadEvent === 'function') {
+      handleDownloadEvent(message.payload);
+
       return;
     }
 
@@ -155,4 +167,40 @@ export function listenForPageLocationChanges({
   windowContext.addEventListener(locationBridgeEventName, scheduleRefresh, { passive: true });
   windowContext.addEventListener('popstate', scheduleRefresh, { passive: true });
   windowContext.addEventListener('hashchange', scheduleRefresh, { passive: true });
+}
+
+export function listenForPageActivationChanges({
+  documentContext = globalThis.document,
+  referrerBadges,
+  refreshAssets = () => {},
+  refreshDelayMs = 75,
+  schedulePositionUpdate = () => {},
+  windowContext = window,
+}) {
+  let pendingRefresh = null;
+  const refresh = () => {
+    pendingRefresh = null;
+    refreshAssets();
+    referrerBadges.refreshKnownReferrers?.({
+      refreshOpenCounts: true,
+      refreshStatus: true,
+    });
+    schedulePositionUpdate();
+  };
+  const scheduleRefresh = () => {
+    if (pendingRefresh !== null) {
+      return;
+    }
+
+    pendingRefresh = windowContext.setTimeout(refresh, refreshDelayMs);
+  };
+  const scheduleVisibleRefresh = () => {
+    if (documentContext?.visibilityState === 'visible') {
+      scheduleRefresh();
+    }
+  };
+
+  windowContext.addEventListener('focus', scheduleRefresh, { passive: true });
+  windowContext.addEventListener('pageshow', scheduleRefresh, { passive: true });
+  documentContext?.addEventListener?.('visibilitychange', scheduleVisibleRefresh, { passive: true });
 }

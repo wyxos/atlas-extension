@@ -102,6 +102,77 @@ test('updates referrer badges from matching download events', () => {
   assert.equal(upserts.at(-1).badge.progressTone, 'active');
 });
 
+test('preserves reacted referrer state when the preview source changes', () => {
+  const upserts = [];
+  const element = createLinkedImage();
+  const manager = createReferrerBadgeManager({
+    getCurrentPageUrl: () => 'https://www.example.test/feed',
+    getOverlayController: () => ({
+      removeBadge: () => {},
+      upsertBadge: (id, badge) => upserts.push({ badge, id }),
+    }),
+    getVisibleRect: () => ({
+      bottom: 200,
+      left: 20,
+      width: 320,
+    }),
+    queueStatusCheck: () => {},
+    removeDirectBadge: () => {},
+    removeOverlayBadge: () => {},
+    viewportPadding: 4,
+  });
+
+  manager.sync(element);
+  manager.updateOpenCounts({ 'https://www.example.test/post/123': 1 });
+  manager.updateByReferrerUrl('https://www.example.test/post/123', {
+    reaction: {
+      type: 'love',
+    },
+  });
+  upserts.length = 0;
+  element.currentSrc = 'https://cdn.example.test/media/art-preview-v2.jpg';
+
+  manager.positionKnown();
+
+  assert.equal(upserts.at(-1).badge.activeReaction, 'love');
+  assert.equal(upserts.at(-1).badge.referrerStatus, null);
+});
+
+test('queues known referrers for a forced refresh', () => {
+  const queued = [];
+  const element = createLinkedImage();
+  const manager = createReferrerBadgeManager({
+    getOverlayController: () => ({
+      removeBadge: () => {},
+      upsertBadge: () => {},
+    }),
+    getVisibleRect: () => ({
+      bottom: 200,
+      left: 20,
+      width: 320,
+    }),
+    queueStatusCheck: (referrerUrl, options) => {
+      queued.push({ options, referrerUrl });
+    },
+    removeDirectBadge: () => {},
+    removeOverlayBadge: () => {},
+    viewportPadding: 4,
+  });
+
+  manager.sync(element);
+  queued.length = 0;
+
+  manager.refreshKnownReferrers();
+
+  assert.deepEqual(queued, [{
+    options: {
+      refreshOpenCounts: true,
+      refreshStatus: true,
+    },
+    referrerUrl: 'https://www.example.test/post/123',
+  }]);
+});
+
 function createLinkedImage() {
   const anchor = {
     href: 'https://www.example.test/post/123',

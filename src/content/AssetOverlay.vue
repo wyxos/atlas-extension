@@ -33,18 +33,37 @@ defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "react", 
     v-for="badge in badges"
     :key="badge.id"
   >
-    <ReferrerAssetBadge
-      v-if="badge.variant === 'referrer'"
-      :badge="badge"
-    />
-    <AssetBadge
-      v-else
-      :badge="badge"
-      @batch-toggle="$emit('batch-toggle', { id: badge.id, checked: $event })"
-      @close-mode-change="$emit('close-mode-change', { mode: $event })"
-      @delete="$emit('delete', { id: badge.id })"
-      @react="$emit('react', { id: badge.id, type: $event })"
-    />
+    <Teleport
+      v-if="badge.portalTarget"
+      :to="badge.portalTarget"
+    >
+      <ReferrerAssetBadge
+        v-if="badge.variant === 'referrer'"
+        :badge="badge"
+      />
+      <AssetBadge
+        v-else
+        :badge="badge"
+        @batch-toggle="$emit('batch-toggle', { id: badge.id, checked: $event })"
+        @close-mode-change="$emit('close-mode-change', { mode: $event })"
+        @delete="$emit('delete', { id: badge.id })"
+        @react="$emit('react', { id: badge.id, type: $event })"
+      />
+    </Teleport>
+    <template v-else>
+      <ReferrerAssetBadge
+        v-if="badge.variant === 'referrer'"
+        :badge="badge"
+      />
+      <AssetBadge
+        v-else
+        :badge="badge"
+        @batch-toggle="$emit('batch-toggle', { id: badge.id, checked: $event })"
+        @close-mode-change="$emit('close-mode-change', { mode: $event })"
+        @delete="$emit('delete', { id: badge.id })"
+        @react="$emit('react', { id: badge.id, type: $event })"
+      />
+    </template>
   </template>
   <ReferrerOpenDialog
     :portal-target="portalTarget"

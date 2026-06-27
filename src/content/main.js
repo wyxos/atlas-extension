@@ -7,8 +7,10 @@ import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetSt
 import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
 import { resolveAssetBatchContext } from './batch-providers/index.js';
 import { createBadgePresentation } from './badge-model.js';
+import { createBadgeHostManager } from './badge-hosts.js';
 import { armCloseTabForReaction } from './close-tab-reactions.js';
 import { createCloseTabModeState } from './close-tab-mode-state.js';
+import { applyDownloadEvent } from './download-events.js';
 import { createAssetOverlay } from './overlay-controller.js';
 import { createReferrerBadgeManager } from './referrer-badges.js';
 import { createReferrerOpenGuard } from './referrer-open-guard.js';
@@ -34,6 +36,7 @@ let scheduledScan = null;
 let scheduledPositionUpdate = null;
 let nextAssetId = 0;
 let overlayController = null;
+const badgeHosts = createBadgeHostManager();
 const closeTabMode = createCloseTabModeState({
   getLocationHref: () => window.location.href,
   onChanged: updateAllAssetBadgePresentations,
@@ -47,8 +50,13 @@ const referrerBadges = createReferrerBadgeManager({
   getCurrentPageUrl: () => window.location.href,
   getOverlayController,
   getVisibleRect: getReferrerVisibleRect,
+  placeBadge: (id, element, asset) => badgeHosts.placeBadge(id, element, asset, {
+    variant: 'referrer',
+    viewportPadding,
+  }),
   queueStatusCheck: queueReferrerStatusCheck,
   removeDirectBadge: removeBadge,
+  removeBadgeHost: (id) => badgeHosts.remove(id),
   removeOverlayBadge: (id) => overlayController?.removeBadge(id),
   viewportPadding,
 });
@@ -124,6 +132,7 @@ function removeBadge(element) {
   }
 
   overlayController?.removeBadge(id);
+  badgeHosts.remove(id);
   assetIds.delete(element);
   assetsById.delete(id);
   batchContextsById.delete(id);
@@ -171,7 +180,7 @@ function syncAsset(element) {
 
   getOverlayController().upsertBadge(
     id,
-    createAssetBadgePresentation(asset, visibleRect, nextBadgeState ?? {}),
+    createAssetBadgePresentation(id, element, asset, visibleRect, nextBadgeState ?? {}),
   );
   queueAssetStatusCheck(asset.source);
 
@@ -202,15 +211,20 @@ function renderBadgeState(id, nextState) {
   badgeStatesById.set(id, nextState);
   getOverlayController().upsertBadge(
     id,
-    createAssetBadgePresentation(asset, getVisibleRect(element), nextState),
+    createAssetBadgePresentation(id, element, asset, getVisibleRect(element), nextState),
   );
 }
 
-function createAssetBadgePresentation(asset, visibleRect, state) {
+function createAssetBadgePresentation(id, element, asset, visibleRect, state) {
+  const placement = badgeHosts.placeBadge(id, element, asset, {
+    variant: 'asset',
+    viewportPadding,
+  }) ?? {};
+
   return createBadgePresentation(asset, visibleRect, viewportPadding, {
     ...(state ?? {}),
     closeTab: closeTabMode.presentationState(),
-  });
+  }, placement);
 }
 
 function updateBadgeStateBySource(source, nextState) {
@@ -469,6 +483,12 @@ function updateAllAssetBadgePresentations() {
 startContentRuntime({
   getOpenReferrerCounts: () => openReferrerCounts,
   handleAssetShortcut,
+  handleDownloadEvent: (payload) => applyDownloadEvent(payload, {
+    markAssetSourceChecked: statusChecks.markAssetSourceChecked,
+    markReferrerUrlChecked: statusChecks.markReferrerUrlChecked,
+    updateBadgeStateBySource,
+    updateReferrerBadges: referrerBadges.updateByDownloadEvent,
+  }),
   mergeOpenReferrerCounts,
   referrerBadges,
   referrerOpenGuard,

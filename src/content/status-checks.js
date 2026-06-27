@@ -35,13 +35,17 @@ export function createStatusCheckQueue({
 
   function queueReferrerStatusCheck(referrerUrl, options = {}) {
     let shouldSchedule = false;
+    const shouldRefreshStatus = options.refreshStatus === true;
 
     if (options.refreshOpenCounts === true && !pendingOpenReferrerUrls.has(referrerUrl)) {
       pendingOpenReferrerUrls.add(referrerUrl);
       shouldSchedule = true;
     }
 
-    if (checkedReferrerUrls.has(referrerUrl)) {
+    if (shouldRefreshStatus) {
+      pendingReferrerUrls.add(referrerUrl);
+      shouldSchedule = true;
+    } else if (checkedReferrerUrls.has(referrerUrl)) {
       reapplyCachedReferrerState(referrerUrl);
     } else if (!pendingReferrerUrls.has(referrerUrl)) {
       pendingReferrerUrls.add(referrerUrl);
@@ -56,6 +60,11 @@ export function createStatusCheckQueue({
   function markAssetSourceChecked(source, state = null) {
     checkedAssetSources.add(source);
     cachedAssetStates.set(source, state);
+  }
+
+  function markReferrerUrlChecked(referrerUrl, state = null) {
+    checkedReferrerUrls.add(referrerUrl);
+    cachedReferrerStates.set(referrerUrl, state);
   }
 
   function forgetAssetSource(source) {
@@ -159,6 +168,7 @@ export function createStatusCheckQueue({
   return {
     forgetAssetSource,
     markAssetSourceChecked,
+    markReferrerUrlChecked,
     queueAssetStatusCheck,
     queueReferrerStatusCheck,
   };
