@@ -8,6 +8,7 @@ import { defineConfig } from 'vite';
 const rootDirectory = fileURLToPath(new URL('.', import.meta.url));
 const allowedBuildTargets = new Set(['background', 'content', 'location-bridge', 'options']);
 const buildTarget = process.env.ATLAS_EXTENSION_BUILD_TARGET ?? 'options';
+const strictModeDirective = "'use strict';";
 
 if (!allowedBuildTargets.has(buildTarget)) {
   throw new Error(`Unsupported Atlas extension build target: ${buildTarget}`);
@@ -48,6 +49,25 @@ function resolveOutput() {
   return output;
 }
 
+function strictContentScriptPlugin() {
+  return {
+    name: 'atlas-extension-strict-content-script',
+    generateBundle(_options, bundle) {
+      if (buildTarget !== 'content') {
+        return;
+      }
+
+      const contentChunk = bundle['assets/content.js'];
+
+      if (contentChunk?.type !== 'chunk' || contentChunk.code.startsWith(strictModeDirective)) {
+        return;
+      }
+
+      contentChunk.code = `${strictModeDirective}\n${contentChunk.code}`;
+    },
+  };
+}
+
 export default defineConfig({
   base: './',
   build: {
@@ -56,7 +76,7 @@ export default defineConfig({
       output: resolveOutput(),
     },
   },
-  plugins: [vue(), tailwindcss()],
+  plugins: [vue(), tailwindcss(), strictContentScriptPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(rootDirectory, 'src'),
