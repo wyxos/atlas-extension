@@ -140,6 +140,107 @@ test('ignores assets whose parent has an anchor sibling', () => {
   assert.equal(describeAssetElement(imageInsideSiblingLinkedWrapper), null);
 });
 
+test('ignores assets whose ancestor within five parent levels has an anchor sibling', () => {
+  const linkedAncestor = {
+    href: 'https://www.example.test/post/ancestor-sibling',
+    tagName: 'a',
+  };
+  const fifthParent = {
+    nextElementSibling: null,
+    parentElement: null,
+    previousElementSibling: linkedAncestor,
+    tagName: 'DIV',
+  };
+  const fourthParent = createParent('SECTION', fifthParent);
+  const thirdParent = createParent('ARTICLE', fourthParent);
+  const secondParent = createParent('DIV', thirdParent);
+  const firstParent = createParent('DIV', secondParent);
+  const imageInsideLinkedAncestorWrapper = {
+    closest: () => null,
+    currentSrc: 'https://cdn.example.test/ancestor-sibling-art.png',
+    nextElementSibling: null,
+    parentElement: firstParent,
+    previousElementSibling: null,
+    src: '',
+    tagName: 'IMG',
+  };
+
+  assert.equal(hasNearbyAnchorSibling(imageInsideLinkedAncestorWrapper), true);
+  assert.equal(
+    getAssetReferrerHref(imageInsideLinkedAncestorWrapper),
+    'https://www.example.test/post/ancestor-sibling',
+  );
+  assert.equal(describeAssetElement(imageInsideLinkedAncestorWrapper), null);
+  assert.equal(
+    describeReferrerAssetElement(imageInsideLinkedAncestorWrapper)?.referrerUrl,
+    'https://www.example.test/post/ancestor-sibling',
+  );
+});
+
+test('does not ignore assets from anchor siblings beyond five parent levels', () => {
+  const distantLinkedAncestor = {
+    href: 'https://www.example.test/post/distant-ancestor-sibling',
+    tagName: 'a',
+  };
+  const sixthParent = {
+    nextElementSibling: null,
+    parentElement: null,
+    previousElementSibling: distantLinkedAncestor,
+    tagName: 'DIV',
+  };
+  const fifthParent = createParent('DIV', sixthParent);
+  const fourthParent = createParent('SECTION', fifthParent);
+  const thirdParent = createParent('ARTICLE', fourthParent);
+  const secondParent = createParent('DIV', thirdParent);
+  const firstParent = createParent('DIV', secondParent);
+  const imageInsideDistantLinkedAncestorWrapper = {
+    closest: () => null,
+    currentSrc: 'https://cdn.example.test/distant-ancestor-sibling-art.png',
+    nextElementSibling: null,
+    parentElement: firstParent,
+    previousElementSibling: null,
+    src: '',
+    tagName: 'IMG',
+  };
+
+  assert.equal(hasNearbyAnchorSibling(imageInsideDistantLinkedAncestorWrapper), false);
+  assert.deepEqual(describeAssetElement(imageInsideDistantLinkedAncestorWrapper), {
+    resolution: null,
+    source: 'https://cdn.example.test/distant-ancestor-sibling-art.png',
+    type: 'image',
+  });
+});
+
+test('does not ignore assets from anchor siblings on document container tags', () => {
+  const bodySibling = {
+    href: 'https://www.example.test/post/body-sibling',
+    tagName: 'a',
+  };
+  const body = {
+    nextElementSibling: null,
+    parentElement: null,
+    previousElementSibling: bodySibling,
+    tagName: 'BODY',
+  };
+  const firstParent = createParent('DIV', body);
+  const imageInsideBodyWrapper = {
+    closest: () => null,
+    currentSrc: 'https://cdn.example.test/body-sibling-art.png',
+    nextElementSibling: null,
+    parentElement: firstParent,
+    previousElementSibling: null,
+    src: '',
+    tagName: 'IMG',
+  };
+
+  assert.equal(hasNearbyAnchorSibling(imageInsideBodyWrapper), false);
+  assert.deepEqual(describeAssetElement(imageInsideBodyWrapper), {
+    resolution: null,
+    source: 'https://cdn.example.test/body-sibling-art.png',
+    type: 'image',
+  });
+});
+
 test('describes skipped assets by anchor ancestor referrer href', () => {
   const anchor = {
     href: 'https://www.example.test/post/ancestor',
@@ -217,3 +318,12 @@ test('ignores skipped asset referrers without http links', () => {
   assert.equal(getAssetReferrerHref(mailLinkedImage), null);
   assert.equal(describeReferrerAssetElement(mailLinkedImage), null);
 });
+
+function createParent(tagName, parentElement) {
+  return {
+    nextElementSibling: null,
+    parentElement,
+    previousElementSibling: null,
+    tagName,
+  };
+}

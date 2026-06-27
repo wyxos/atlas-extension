@@ -3,6 +3,8 @@ const assetTypesByTag = new Map([
   ['IMG', 'image'],
   ['VIDEO', 'video'],
 ]);
+const ignoredAnchorSiblingAncestorTags = new Set(['BODY', 'HEAD', 'HTML', 'SCRIPT', 'STYLE']);
+const maxAnchorSiblingAncestorDepth = 5;
 
 export function getAssetType(element) {
   return assetTypesByTag.get(String(element?.tagName ?? '').toUpperCase()) ?? null;
@@ -97,13 +99,45 @@ export function hasAnchorAncestor(element) {
 }
 
 export function hasNearbyAnchorSibling(element) {
-  return hasAnchorSibling(element) || hasAnchorSibling(element?.parentElement);
+  return hasAnchorSibling(element) || findAnchorSiblingAncestor(element) !== null;
 }
 
 export function getAssetReferrerHref(element) {
   return normalizeAnchorHref(element?.closest?.('a[href]') ?? element?.closest?.('a'))
     ?? getAnchorSiblingHref(element)
-    ?? getAnchorSiblingHref(element?.parentElement);
+    ?? getAnchorSiblingAncestorHref(element);
+}
+
+function getAnchorSiblingAncestorHref(element) {
+  for (const ancestor of listAnchorSiblingAncestors(element)) {
+    const href = getAnchorSiblingHref(ancestor);
+
+    if (href !== null) {
+      return href;
+    }
+  }
+
+  return null;
+}
+
+function findAnchorSiblingAncestor(element) {
+  return listAnchorSiblingAncestors(element).find((ancestor) => hasAnchorSibling(ancestor)) ?? null;
+}
+
+function listAnchorSiblingAncestors(element) {
+  const ancestors = [];
+  let candidate = element?.parentElement;
+
+  for (let depth = 0; candidate && depth < maxAnchorSiblingAncestorDepth; depth += 1) {
+    if (isIgnoredAnchorSiblingAncestor(candidate)) {
+      break;
+    }
+
+    ancestors.push(candidate);
+    candidate = candidate.parentElement;
+  }
+
+  return ancestors;
 }
 
 function getAnchorSiblingHref(element) {
@@ -125,6 +159,10 @@ function hasAnchorSibling(element) {
 
 function isAnchorElement(element) {
   return String(element?.tagName ?? '').toUpperCase() === 'A';
+}
+
+function isIgnoredAnchorSiblingAncestor(element) {
+  return ignoredAnchorSiblingAncestorTags.has(String(element?.tagName ?? '').toUpperCase());
 }
 
 function normalizeAnchorHref(element) {
