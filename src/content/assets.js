@@ -3,8 +3,6 @@ const assetTypesByTag = new Map([
   ['IMG', 'image'],
   ['VIDEO', 'video'],
 ]);
-const ignoredAnchorSiblingAncestorTags = new Set(['BODY', 'HEAD', 'HTML', 'SCRIPT', 'STYLE']);
-const maxAnchorSiblingAncestorDepth = 10;
 
 export function getAssetType(element) {
   return assetTypesByTag.get(String(element?.tagName ?? '').toUpperCase()) ?? null;
@@ -99,96 +97,27 @@ export function hasAnchorAncestor(element) {
 }
 
 export function hasNearbyAnchorSibling(element) {
-  return hasAnchorSibling(element) || findAnchorSiblingAncestor(element) !== null;
+  return hasAnchorSibling(element) || hasAnchorSibling(element?.parentElement);
 }
 
 export function getAssetReferrerHref(element) {
   return normalizeAnchorHref(element?.closest?.('a[href]') ?? element?.closest?.('a'))
     ?? getAnchorSiblingHref(element)
-    ?? getAnchorSiblingAncestorHref(element);
-}
-
-function getAnchorSiblingAncestorHref(element) {
-  for (const ancestor of listAnchorSiblingAncestors(element)) {
-    const href = getAnchorSiblingHref(ancestor);
-
-    if (href !== null) {
-      return href;
-    }
-  }
-
-  return null;
-}
-
-function findAnchorSiblingAncestor(element) {
-  return listAnchorSiblingAncestors(element).find((ancestor) => hasAnchorSibling(ancestor)) ?? null;
-}
-
-function listAnchorSiblingAncestors(element) {
-  const ancestors = [];
-  let candidate = element?.parentElement;
-
-  for (let depth = 0; candidate && depth < maxAnchorSiblingAncestorDepth; depth += 1) {
-    if (isIgnoredAnchorSiblingAncestor(candidate)) {
-      break;
-    }
-
-    ancestors.push(candidate);
-    candidate = candidate.parentElement;
-  }
-
-  return ancestors;
+    ?? getAnchorSiblingHref(element?.parentElement);
 }
 
 function getAnchorSiblingHref(element) {
-  for (const sibling of listAnchorSiblingElements(element)) {
-    const href = normalizeAnchorHref(sibling);
-
-    if (href !== null) {
-      return href;
-    }
-  }
-
-  return null;
+  return normalizeAnchorHref(element?.previousElementSibling)
+    ?? normalizeAnchorHref(element?.nextElementSibling);
 }
 
 function hasAnchorSibling(element) {
-  return listAnchorSiblingElements(element).length > 0;
-}
-
-function listAnchorSiblingElements(element) {
-  if (!element) {
-    return [];
-  }
-
-  const candidates = [
-    element.previousElementSibling,
-    element.nextElementSibling,
-    ...Array.from(element.parentElement?.children ?? []),
-  ];
-  const seen = new Set([element]);
-  const siblings = [];
-
-  for (const candidate of candidates) {
-    if (seen.has(candidate)) {
-      continue;
-    }
-
-    seen.add(candidate);
-    if (isAnchorElement(candidate)) {
-      siblings.push(candidate);
-    }
-  }
-
-  return siblings;
+  return isAnchorElement(element?.previousElementSibling)
+    || isAnchorElement(element?.nextElementSibling);
 }
 
 function isAnchorElement(element) {
   return String(element?.tagName ?? '').toUpperCase() === 'A';
-}
-
-function isIgnoredAnchorSiblingAncestor(element) {
-  return ignoredAnchorSiblingAncestorTags.has(String(element?.tagName ?? '').toUpperCase());
 }
 
 function normalizeAnchorHref(element) {

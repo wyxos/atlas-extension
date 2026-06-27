@@ -140,7 +140,7 @@ test('ignores assets whose parent has an anchor sibling', () => {
   assert.equal(describeAssetElement(imageInsideSiblingLinkedWrapper), null);
 });
 
-test('ignores assets whose parent has a non-adjacent anchor sibling', () => {
+test('does not ignore assets whose parent has a non-adjacent anchor sibling', () => {
   const linkedSibling = {
     href: 'https://www.example.test/post/non-adjacent-sibling',
     tagName: 'A',
@@ -167,61 +167,49 @@ test('ignores assets whose parent has a non-adjacent anchor sibling', () => {
     tagName: 'IMG',
   };
 
-  assert.equal(hasNearbyAnchorSibling(imageInsideSiblingLinkedWrapper), true);
-  assert.equal(
-    getAssetReferrerHref(imageInsideSiblingLinkedWrapper),
-    'https://www.example.test/post/non-adjacent-sibling',
-  );
-  assert.equal(describeAssetElement(imageInsideSiblingLinkedWrapper), null);
-  assert.equal(
-    describeReferrerAssetElement(imageInsideSiblingLinkedWrapper)?.referrerUrl,
-    'https://www.example.test/post/non-adjacent-sibling',
-  );
+  assert.equal(hasNearbyAnchorSibling(imageInsideSiblingLinkedWrapper), false);
+  assert.equal(getAssetReferrerHref(imageInsideSiblingLinkedWrapper), null);
+  assert.deepEqual(describeAssetElement(imageInsideSiblingLinkedWrapper), {
+    resolution: null,
+    source: 'https://example.test/non-adjacent-sibling-linked-art.png',
+    type: 'image',
+  });
+  assert.equal(describeReferrerAssetElement(imageInsideSiblingLinkedWrapper), null);
 });
 
-test('ignores assets whose ancestor within ten parent levels has an anchor sibling', () => {
+test('does not ignore assets whose grandparent has an anchor sibling', () => {
   const linkedAncestor = {
     href: 'https://www.example.test/post/ancestor-sibling',
     tagName: 'a',
   };
-  const tenthParent = {
+  const grandParent = {
     nextElementSibling: null,
     parentElement: null,
     previousElementSibling: linkedAncestor,
     tagName: 'DIV',
   };
-  const ninthParent = createParent('DIV', tenthParent);
-  const eighthParent = createParent('SECTION', ninthParent);
-  const seventhParent = createParent('ARTICLE', eighthParent);
-  const sixthParent = createParent('DIV', seventhParent);
-  const fifthParent = createParent('DIV', sixthParent);
-  const fourthParent = createParent('SECTION', fifthParent);
-  const thirdParent = createParent('ARTICLE', fourthParent);
-  const secondParent = createParent('DIV', thirdParent);
-  const firstParent = createParent('DIV', secondParent);
+  const parent = createParent('DIV', grandParent);
   const imageInsideLinkedAncestorWrapper = {
     closest: () => null,
     currentSrc: 'https://cdn.example.test/ancestor-sibling-art.png',
     nextElementSibling: null,
-    parentElement: firstParent,
+    parentElement: parent,
     previousElementSibling: null,
     src: '',
     tagName: 'IMG',
   };
 
-  assert.equal(hasNearbyAnchorSibling(imageInsideLinkedAncestorWrapper), true);
-  assert.equal(
-    getAssetReferrerHref(imageInsideLinkedAncestorWrapper),
-    'https://www.example.test/post/ancestor-sibling',
-  );
-  assert.equal(describeAssetElement(imageInsideLinkedAncestorWrapper), null);
-  assert.equal(
-    describeReferrerAssetElement(imageInsideLinkedAncestorWrapper)?.referrerUrl,
-    'https://www.example.test/post/ancestor-sibling',
-  );
+  assert.equal(hasNearbyAnchorSibling(imageInsideLinkedAncestorWrapper), false);
+  assert.equal(getAssetReferrerHref(imageInsideLinkedAncestorWrapper), null);
+  assert.deepEqual(describeAssetElement(imageInsideLinkedAncestorWrapper), {
+    resolution: null,
+    source: 'https://cdn.example.test/ancestor-sibling-art.png',
+    type: 'image',
+  });
+  assert.equal(describeReferrerAssetElement(imageInsideLinkedAncestorWrapper), null);
 });
 
-test('does not ignore assets from anchor siblings beyond ten parent levels', () => {
+test('does not ignore assets from distant ancestor anchor siblings', () => {
   const distantLinkedAncestor = {
     href: 'https://www.example.test/post/distant-ancestor-sibling',
     tagName: 'a',
