@@ -86,6 +86,68 @@ test('added DOM nodes resync existing badges so late provider context is applied
   assert.equal(calls.includes('positionBadges'), true);
 });
 
+test('observes visibility-related media attributes for rescan', () => {
+  let observedOptions = null;
+  const originalDocument = globalThis.document;
+  const originalMutationObserver = globalThis.MutationObserver;
+  const originalWindow = globalThis.window;
+  const originalChrome = globalThis.chrome;
+
+  globalThis.MutationObserver = class FakeMutationObserver {
+    observe(_target, options) {
+      observedOptions = options;
+    }
+  };
+  globalThis.window = {
+    addEventListener() {},
+    history: {
+      pushState() {},
+      replaceState() {},
+    },
+  };
+  globalThis.document = {
+    documentElement: {
+      id: 'document-element',
+    },
+  };
+  globalThis.chrome = undefined;
+
+  try {
+    startContentRuntime({
+      getOpenReferrerCounts: () => ({}),
+      handleAssetShortcut() {},
+      mergeOpenReferrerCounts() {},
+      referrerBadges: {
+        updateByDownloadEvent() {},
+        updateOpenCounts() {},
+      },
+      referrerOpenGuard: {
+        handleBrowserEvent() {},
+      },
+      scanAssets() {},
+      schedulePositionUpdate() {},
+      updateBadgeStateBySource() {},
+    });
+  } finally {
+    globalThis.MutationObserver = originalMutationObserver;
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+    globalThis.chrome = originalChrome;
+  }
+
+  assert.deepEqual(observedOptions.attributeFilter, [
+    'class',
+    'hidden',
+    'href',
+    'poster',
+    'src',
+    'srcset',
+    'style',
+  ]);
+  assert.equal(observedOptions.attributes, true);
+  assert.equal(observedOptions.subtree, true);
+});
+
 test('download events are delegated for state and cache updates', () => {
   const calls = [];
   const listeners = [];

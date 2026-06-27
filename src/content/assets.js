@@ -4,7 +4,7 @@ const assetTypesByTag = new Map([
   ['VIDEO', 'video'],
 ]);
 const ignoredAnchorSiblingAncestorTags = new Set(['BODY', 'HEAD', 'HTML', 'SCRIPT', 'STYLE']);
-const maxAnchorSiblingAncestorDepth = 5;
+const maxAnchorSiblingAncestorDepth = 10;
 
 export function getAssetType(element) {
   return assetTypesByTag.get(String(element?.tagName ?? '').toUpperCase()) ?? null;
@@ -40,13 +40,13 @@ export function getAssetResolution(element) {
 }
 
 export function describeAssetElement(element) {
-  if (hasAnchorAncestor(element) || hasNearbyAnchorSibling(element)) {
+  const type = getAssetType(element);
+
+  if (type === null || isHiddenAssetElement(element)) {
     return null;
   }
 
-  const type = getAssetType(element);
-
-  if (type === null) {
+  if (hasAnchorAncestor(element) || hasNearbyAnchorSibling(element)) {
     return null;
   }
 
@@ -64,6 +64,12 @@ export function describeAssetElement(element) {
 }
 
 export function describeReferrerAssetElement(element) {
+  const type = getAssetType(element);
+
+  if (type === null || isHiddenAssetElement(element)) {
+    return null;
+  }
+
   if (!hasAnchorAncestor(element) && !hasNearbyAnchorSibling(element)) {
     return null;
   }
@@ -71,12 +77,6 @@ export function describeReferrerAssetElement(element) {
   const referrerUrl = getAssetReferrerHref(element);
 
   if (referrerUrl === null) {
-    return null;
-  }
-
-  const type = getAssetType(element);
-
-  if (type === null) {
     return null;
   }
 
@@ -141,20 +141,46 @@ function listAnchorSiblingAncestors(element) {
 }
 
 function getAnchorSiblingHref(element) {
-  if (!element) {
-    return null;
+  for (const sibling of listAnchorSiblingElements(element)) {
+    const href = normalizeAnchorHref(sibling);
+
+    if (href !== null) {
+      return href;
+    }
   }
 
-  return normalizeAnchorHref(element.previousElementSibling)
-    ?? normalizeAnchorHref(element.nextElementSibling);
+  return null;
 }
 
 function hasAnchorSibling(element) {
+  return listAnchorSiblingElements(element).length > 0;
+}
+
+function listAnchorSiblingElements(element) {
   if (!element) {
-    return false;
+    return [];
   }
 
-  return isAnchorElement(element.previousElementSibling) || isAnchorElement(element.nextElementSibling);
+  const candidates = [
+    element.previousElementSibling,
+    element.nextElementSibling,
+    ...Array.from(element.parentElement?.children ?? []),
+  ];
+  const seen = new Set([element]);
+  const siblings = [];
+
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) {
+      continue;
+    }
+
+    seen.add(candidate);
+    if (isAnchorElement(candidate)) {
+      siblings.push(candidate);
+    }
+  }
+
+  return siblings;
 }
 
 function isAnchorElement(element) {
@@ -181,6 +207,44 @@ function normalizeDeclaredSource(element) {
   }
 
   return normalizeSource(element?.src);
+}
+
+function isHiddenAssetElement(element) {
+  if (!element) {
+    return true;
+  }
+
+  const hiddenAttribute = typeof element.getAttribute === 'function'
+    ? element.getAttribute('hidden')
+    : null;
+
+  if (element.hidden === true || hiddenAttribute !== null) {
+    return true;
+  }
+
+  const style = styleFor(element);
+  const display = style?.display ?? element.style?.display;
+  const visibility = style?.visibility ?? element.style?.visibility;
+  const opacity = style?.opacity ?? element.style?.opacity;
+
+  return display === 'none'
+    || ['hidden', 'collapse'].includes(visibility)
+    || Number.parseFloat(opacity) === 0;
+}
+
+function styleFor(element) {
+  const view = element?.ownerDocument?.defaultView ?? globalThis;
+  const getComputedStyle = view?.getComputedStyle ?? globalThis.getComputedStyle;
+
+  if (typeof getComputedStyle !== 'function') {
+    return element?.style ?? null;
+  }
+
+  try {
+    return getComputedStyle.call(view, element);
+  } catch {
+    return element?.style ?? null;
+  }
 }
 
 function normalizeSource(source) {

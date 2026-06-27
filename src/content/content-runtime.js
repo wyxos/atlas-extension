@@ -49,7 +49,7 @@ export function startContentRuntime({
   });
 
   observer.observe(document.documentElement, {
-    attributeFilter: ['href', 'src', 'srcset', 'poster'],
+    attributeFilter: ['class', 'hidden', 'href', 'poster', 'src', 'srcset', 'style'],
     attributes: true,
     childList: true,
     subtree: true,
