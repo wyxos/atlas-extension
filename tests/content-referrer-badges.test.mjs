@@ -102,6 +102,42 @@ test('updates referrer badges from matching download events', () => {
   assert.equal(upserts.at(-1).badge.progressTone, 'active');
 });
 
+test('does not render or dim referrer badges without a visible rect', () => {
+  const element = createLinkedImage();
+  const removals = [];
+  const manager = createReferrerBadgeManager({
+    getOverlayController: () => ({
+      removeBadge: (id) => removals.push(['overlay', id]),
+      upsertBadge() {
+        throw new Error('hidden referrer assets should not render overlay badges');
+      },
+    }),
+    getVisibleRect: () => null,
+    placeBadge() {
+      throw new Error('hidden referrer assets should not place badge hosts');
+    },
+    queueStatusCheck: () => {},
+    removeBadgeHost: (id) => removals.push(['host', id]),
+    removeDirectBadge: () => {},
+    removeOverlayBadge: (id) => removals.push(['overlay', id]),
+    viewportPadding: 4,
+  });
+
+  manager.sync(element);
+  manager.updateByReferrerUrl('https://www.example.test/post/123', {
+    reaction: {
+      type: 'love',
+    },
+  });
+
+  assert.equal(element.style.opacity, '');
+  assert.equal(
+    removals.every(([type, id]) => type === 'host' && id === 'referrer-asset-0'),
+    true,
+  );
+  assert.equal(removals.some(([type]) => type === 'overlay'), false);
+});
+
 test('preserves reacted referrer state when the preview source changes', () => {
   const upserts = [];
   const element = createLinkedImage();

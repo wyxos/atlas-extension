@@ -6,6 +6,8 @@ import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
 import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
 import { resolveAssetBatchContext } from './batch-providers/index.js';
+import { placeVisibleAssetBadge } from './asset-badge-placement.js';
+import { listAssetElements, watchAssetReadiness } from './asset-scanner.js';
 import { createBadgePresentation } from './badge-model.js';
 import { createBadgeHostManager } from './badge-hosts.js';
 import { armCloseTabForReaction } from './close-tab-reactions.js';
@@ -15,6 +17,7 @@ import { createAssetOverlay } from './overlay-controller.js';
 import { createReferrerBadgeManager } from './referrer-badges.js';
 import { createReferrerOpenGuard } from './referrer-open-guard.js';
 import { resolveDownloadActionForReaction } from './reaction-download-action.js';
+import { resolveStateFileId } from './state-file-id.js';
 import { createStatusCheckQueue } from './status-checks.js';
 import { startContentRuntime } from './content-runtime.js';
 import { resolveVisibleRect } from './visible-rect.js';
@@ -178,13 +181,20 @@ function syncAsset(element) {
     badgeStatesById.set(id, nextBadgeState);
   }
 
+  if (visibleRect === null) {
+    overlayController?.removeBadge(id);
+    badgeHosts.remove(id);
+
+    return true;
+  }
+
   getOverlayController().upsertBadge(
     id,
     createAssetBadgePresentation(id, element, asset, visibleRect, nextBadgeState ?? {}),
   );
   queueAssetStatusCheck(asset.source);
 
-  return visibleRect !== null;
+  return true;
 }
 
 function updateBadgeState(id, nextState) {
@@ -208,17 +218,30 @@ function renderBadgeState(id, nextState) {
     return;
   }
 
+  const visibleRect = getVisibleRect(element);
+
   badgeStatesById.set(id, nextState);
+  if (visibleRect === null) {
+    overlayController?.removeBadge(id);
+    badgeHosts.remove(id);
+
+    return;
+  }
+
   getOverlayController().upsertBadge(
     id,
-    createAssetBadgePresentation(id, element, asset, getVisibleRect(element), nextState),
+    createAssetBadgePresentation(id, element, asset, visibleRect, nextState),
   );
 }
 
 function createAssetBadgePresentation(id, element, asset, visibleRect, state) {
-  const placement = badgeHosts.placeBadge(id, element, asset, {
-    variant: 'asset',
+  const placement = placeVisibleAssetBadge({
+    asset,
+    badgeHosts,
+    element,
+    id,
     viewportPadding,
+    visibleRect,
   }) ?? {};
 
   return createBadgePresentation(asset, visibleRect, viewportPadding, {
@@ -398,12 +421,6 @@ async function handleBadgeDelete(event) {
   }
 }
 
-function resolveStateFileId(state) {
-  const id = Number(state.file?.id ?? state.download?.file_id ?? state.download?.fileId);
-
-  return Number.isInteger(id) && id > 0 ? id : null;
-}
-
 function getVisibleRect(element) {
   return resolveVisibleRect(element, viewportPadding);
 }
@@ -412,30 +429,13 @@ function getReferrerVisibleRect(element) {
   return resolveVisibleRect(element, viewportPadding, { minVisibleWidth: referrerMinVisibleWidth });
 }
 
-function watchAssetReadiness(element) {
-  element.addEventListener('load', scheduleScan, { once: true });
-  element.addEventListener('loadedmetadata', scheduleScan, { once: true });
-}
-
-function listAssets(root) {
-  const assets = [];
-
-  if (root?.matches?.(assetSelector)) {
-    assets.push(root);
-  }
-
-  assets.push(...(root?.querySelectorAll?.(assetSelector) ?? []));
-
-  return assets;
-}
-
 function scanAssets(root = document) {
-  for (const element of listAssets(root)) {
+  for (const element of listAssetElements(root, assetSelector)) {
     if (!syncAsset(element)) {
       referrerBadges.sync(element);
     }
 
-    watchAssetReadiness(element);
+    watchAssetReadiness(element, scheduleScan);
   }
 }
 

@@ -1,6 +1,7 @@
 import { describeReferrerAssetElement } from './assets.js';
 import { createReferrerBadgePresentation } from './badge-model.js';
 import { resolveReferrerBadgeState } from './referrer-state.js';
+import { resolveStateFileId } from './state-file-id.js';
 
 export function createReferrerBadgeManager({
   getCurrentPageUrl = () => globalThis.location?.href ?? '',
@@ -181,13 +182,27 @@ export function createReferrerBadgeManager({
       return;
     }
 
+    const visibleRect = getVisibleRect(element);
+
+    if (visibleRect === null) {
+      if (renderedIds.has(id)) {
+        removeOverlayBadge(id);
+        renderedIds.delete(id);
+      }
+
+      removeBadgeHost(id);
+      restoreOpacity(element);
+
+      return;
+    }
+
     dim(element);
     const placement = placeBadge(id, element, asset) ?? {};
     getOverlayController().upsertBadge(
       id,
       createReferrerBadgePresentation(
         asset,
-        getVisibleRect(element),
+        visibleRect,
         viewportPadding,
         displayState,
         placement,
@@ -270,10 +285,4 @@ function stateForSyncedAsset(previousAsset, nextAsset, currentState) {
   }
 
   return null;
-}
-
-function resolveStateFileId(state) {
-  const id = Number(state.file?.id ?? state.download?.file_id ?? state.download?.fileId);
-
-  return Number.isInteger(id) && id > 0 ? id : null;
 }
