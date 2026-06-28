@@ -53,13 +53,17 @@ export function clearAtlasManagedOpacity(element) {
 }
 
 export function getAssetSource(element, options = {}) {
+  return getAssetTarget(element, options)?.source ?? null;
+}
+
+function getAssetTarget(element, options = {}) {
   const tagName = String(element?.tagName ?? '').toUpperCase();
 
   if (tagName === 'IMG' && shouldUseHighestSrcsetCandidate(element, options)) {
-    const srcsetSource = getHighestSrcsetSource(element);
+    const srcsetCandidate = getHighestSrcsetCandidate(element);
 
-    if (srcsetSource !== null) {
-      return srcsetSource;
+    if (srcsetCandidate !== null) {
+      return describeAssetTarget(element, srcsetCandidate);
     }
   }
 
@@ -69,11 +73,13 @@ export function getAssetSource(element, options = {}) {
   const directSource = declaredSource ?? nestedSource ?? responsiveSource;
 
   if (directSource !== null) {
-    return directSource;
+    return describeAssetTarget(element, { source: directSource });
   }
 
   if (['AUDIO', 'VIDEO'].includes(tagName)) {
-    return normalizeSource(element?.ownerDocument?.location?.href ?? globalThis.location?.href);
+    const pageSource = normalizeSource(element?.ownerDocument?.location?.href ?? globalThis.location?.href);
+
+    return pageSource === null ? null : describeAssetTarget(element, { source: pageSource });
   }
 
   return null;
@@ -101,15 +107,15 @@ export function describeAssetElement(element, options = {}) {
     return null;
   }
 
-  const source = getAssetSource(element, options);
+  const assetTarget = getAssetTarget(element, options);
 
-  if (source === null) {
+  if (assetTarget === null) {
     return null;
   }
 
   return {
-    resolution: getAssetResolution(element),
-    source,
+    resolution: assetTarget.resolution,
+    source: assetTarget.source,
     type,
   };
 }
@@ -131,16 +137,16 @@ export function describeReferrerAssetElement(element, options = {}) {
     return null;
   }
 
-  const source = getAssetSource(element, options);
+  const assetTarget = getAssetTarget(element, options);
 
-  if (source === null) {
+  if (assetTarget === null) {
     return null;
   }
 
   return {
     referrerUrl,
-    resolution: getAssetResolution(element),
-    source,
+    resolution: assetTarget.resolution,
+    source: assetTarget.source,
     type,
   };
 }
@@ -185,7 +191,120 @@ function shouldUseHighestSrcsetCandidate(element, options) {
   return sourcePreference === imageSourcePreferenceValues.highestSrcset;
 }
 
-function getHighestSrcsetSource(element) {
+function describeAssetTarget(element, target) {
+  return {
+    resolution: getAssetTargetResolution(element, target),
+    source: target.source,
+  };
+}
+
+function getAssetTargetResolution(element, target) {
+  const resolution = getResolutionFromDimensions(
+    getTargetDimensions(target),
+    getIntrinsicDimensions(element),
+  );
+
+  if (resolution !== null) {
+    return resolution;
+  }
+
+  return canUseElementResolutionForTarget(element, target) ? getAssetResolution(element) : null;
+}
+
+function getTargetDimensions(target) {
+  const sourceDimensions = getSourceDimensions(target.source);
+
+  return {
+    height: sourceDimensions.height ?? target.height ?? null,
+    width: sourceDimensions.width ?? target.width ?? null,
+  };
+}
+
+function getSourceDimensions(source) {
+  try {
+    const url = new URL(source);
+
+    return {
+      height: getUrlDimension(url, ['height', 'h']) ?? getPathDimension(url.pathname, 'h'),
+      width: getUrlDimension(url, ['width', 'w']) ?? getPathDimension(url.pathname, 'w'),
+    };
+  } catch {
+    return {
+      height: null,
+      width: null,
+    };
+  }
+}
+
+function getUrlDimension(url, keys) {
+  for (const key of keys) {
+    const dimension = normalizeDimension(url.searchParams.get(key));
+
+    if (dimension !== null) {
+      return dimension;
+    }
+  }
+
+  return null;
+}
+
+function getPathDimension(pathname, key) {
+  const match = String(pathname ?? '').match(new RegExp(`(?:^|[/,_-])${key}[_=](\\d+)(?=$|[/,_.-])`, 'i'));
+
+  return normalizeDimension(match?.[1]);
+}
+
+function getResolutionFromDimensions(dimensions, intrinsicDimensions) {
+  const width = normalizeDimension(dimensions?.width);
+  const height = normalizeDimension(dimensions?.height);
+
+  if (width !== null && height !== null) {
+    return `${width}x${height}`;
+  }
+
+  if (intrinsicDimensions === null) {
+    return null;
+  }
+
+  if (width !== null) {
+    return `${width}x${Math.round((width * intrinsicDimensions.height) / intrinsicDimensions.width)}`;
+  }
+
+  if (height !== null) {
+    return `${Math.round((height * intrinsicDimensions.width) / intrinsicDimensions.height)}x${height}`;
+  }
+
+  return null;
+}
+
+function normalizeDimension(value) {
+  const dimension = Number.parseInt(value, 10);
+
+  return Number.isFinite(dimension) && dimension > 0 ? dimension : null;
+}
+
+function getIntrinsicDimensions(element) {
+  const width = Number(element?.naturalWidth ?? element?.videoWidth ?? 0);
+  const height = Number(element?.naturalHeight ?? element?.videoHeight ?? 0);
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { height, width };
+}
+
+function canUseElementResolutionForTarget(element, target) {
+  const currentSource = normalizeSource(element?.currentSrc, element);
+
+  if (currentSource !== null) {
+    return currentSource === target.source;
+  }
+
+  return normalizeDeclaredSource(element) === target.source;
+}
+
+function getHighestSrcsetCandidate(element) {
   const rawSrcset = typeof element?.getAttribute === 'function'
     ? element.getAttribute('srcset')
     : element?.srcset;
@@ -197,7 +316,7 @@ function getHighestSrcsetSource(element) {
 
   candidates.sort((left, right) => right.score - left.score);
 
-  return candidates[0].source;
+  return candidates[0];
 }
 
 function parseSrcsetCandidates(srcset, element) {
@@ -225,25 +344,39 @@ function parseSrcsetCandidate(candidate, element) {
   }
 
   return {
-    score: parseSrcsetDescriptorScore(parts[1]),
+    ...parseSrcsetDescriptor(parts[1]),
     source,
   };
 }
 
-function parseSrcsetDescriptorScore(descriptor) {
+function parseSrcsetDescriptor(descriptor) {
   if (typeof descriptor !== 'string') {
-    return 1;
+    return {
+      score: 1,
+      width: null,
+    };
   }
 
   if (descriptor.endsWith('w')) {
-    return Number.parseFloat(descriptor.slice(0, -1)) || 1;
+    const width = normalizeDimension(descriptor.slice(0, -1));
+
+    return {
+      score: width ?? 1,
+      width,
+    };
   }
 
   if (descriptor.endsWith('x')) {
-    return Number.parseFloat(descriptor.slice(0, -1)) || 1;
+    return {
+      score: Number.parseFloat(descriptor.slice(0, -1)) || 1,
+      width: null,
+    };
   }
 
-  return 1;
+  return {
+    score: 1,
+    width: null,
+  };
 }
 
 function isHiddenAssetElement(element) {

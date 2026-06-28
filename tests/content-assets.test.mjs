@@ -85,6 +85,75 @@ test('uses the highest image srcset candidate when the site profile prefers srcs
   );
 });
 
+test('describes srcset-preferred image resolution from the selected download target', () => {
+  const asset = describeAssetElement(
+    {
+      closest: () => null,
+      currentSrc: 'https://preview.redd.it/example.png?width=640&auto=webp',
+      getAttribute: (name) => (name === 'srcset'
+        ? [
+          'https://preview.redd.it/example.png?width=320&auto=webp 320w',
+          'https://preview.redd.it/example.png?width=640&auto=webp 640w',
+          'https://preview.redd.it/example.png?width=1024&format=png&auto=webp 1024w',
+        ].join(', ')
+        : null),
+      naturalHeight: 360,
+      naturalWidth: 640,
+      ownerDocument: {
+        location: {
+          hostname: 'www.reddit.com',
+        },
+      },
+      src: 'https://preview.redd.it/example.png?width=640&auto=webp',
+      tagName: 'IMG',
+    },
+    {
+      assetSourcePreferences: {
+        domains: ['reddit.com'],
+        profiles: [
+          {
+            asset: {
+              imageSourcePreference: 'srcset-highest',
+            },
+            domain: 'reddit.com',
+            referrer: {
+              rules: [],
+            },
+          },
+        ],
+        version: 2,
+      },
+    },
+  );
+
+  assert.deepEqual(asset, {
+    resolution: '1024x576',
+    source: 'https://preview.redd.it/example.png?width=1024&format=png&auto=webp',
+    type: 'image',
+  });
+});
+
+test('describes src-preferred image resolution from the selected download target', () => {
+  assert.deepEqual(
+    describeAssetElement({
+      closest: () => null,
+      currentSrc: 'https://cdn.example.test/art-preview.jpg?width=640',
+      getAttribute: (name) => (name === 'src'
+        ? 'https://cdn.example.test/art-original.jpg?width=2048'
+        : null),
+      naturalHeight: 360,
+      naturalWidth: 640,
+      src: 'https://cdn.example.test/art-original.jpg?width=2048',
+      tagName: 'IMG',
+    }),
+    {
+      resolution: '2048x1152',
+      source: 'https://cdn.example.test/art-original.jpg?width=2048',
+      type: 'image',
+    },
+  );
+});
+
 test('uses the page url for media elements with browser-local sources', () => {
   assert.equal(
     getAssetSource({
