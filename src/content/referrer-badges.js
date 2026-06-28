@@ -1,4 +1,8 @@
-import { describeReferrerAssetElement } from './assets.js';
+import {
+  clearAtlasManagedOpacity,
+  describeReferrerAssetElement,
+  markAtlasManagedOpacity,
+} from './assets.js';
 import { createReferrerBadgePresentation } from './badge-model.js';
 import { resolveReferrerBadgeState } from './referrer-state.js';
 import { resolveStateFileId } from './state-file-id.js';
@@ -244,6 +248,7 @@ export function createReferrerBadgeManager({
     }
 
     if (element?.style) {
+      markAtlasManagedOpacity(element);
       element.style.opacity = '0.3';
     }
   }
@@ -254,6 +259,7 @@ export function createReferrerBadgeManager({
     }
 
     element.style.opacity = originalOpacityByElement.get(element);
+    clearAtlasManagedOpacity(element);
     originalOpacityByElement.delete(element);
   }
 

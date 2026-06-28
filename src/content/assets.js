@@ -12,7 +12,9 @@ const assetTypesByTag = new Map([
   ['IMG', 'image'],
   ['VIDEO', 'video'],
 ]);
+const hiddenOpacityThreshold = 0.5;
 let assetSourcePreferences = createDefaultAssetSourcePreferences();
+const atlasManagedOpacityElements = new WeakSet();
 
 export function getAssetType(element) {
   return assetTypesByTag.get(String(element?.tagName ?? '').toUpperCase()) ?? null;
@@ -35,6 +37,18 @@ export async function initializeAssetSourcePreferences({ onChanged = () => {} } 
     onChanged();
   } catch {
     // The scanner can continue with built-in defaults when extension storage is unavailable.
+  }
+}
+
+export function markAtlasManagedOpacity(element) {
+  if (typeof element === 'object' && element !== null) {
+    atlasManagedOpacityElements.add(element);
+  }
+}
+
+export function clearAtlasManagedOpacity(element) {
+  if (typeof element === 'object' && element !== null) {
+    atlasManagedOpacityElements.delete(element);
   }
 }
 
@@ -252,7 +266,19 @@ function isHiddenAssetElement(element) {
 
   return display === 'none'
     || ['hidden', 'collapse'].includes(visibility)
-    || Number.parseFloat(opacity) === 0;
+    || isConfiguredLowOpacity(opacity, element);
+}
+
+function isConfiguredLowOpacity(opacity, element) {
+  if (opacity === undefined || opacity === null || String(opacity).trim() === '') {
+    return false;
+  }
+
+  const numericOpacity = Number.parseFloat(opacity);
+
+  return Number.isFinite(numericOpacity)
+    && numericOpacity < hiddenOpacityThreshold
+    && !atlasManagedOpacityElements.has(element);
 }
 
 function styleFor(element) {

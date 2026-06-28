@@ -296,6 +296,48 @@ test('ignores hidden media for asset and referrer badges', () => {
   }
 });
 
+test('ignores media with configured opacity below the visibility threshold', () => {
+  const lowOpacityImage = {
+    closest: () => null,
+    currentSrc: 'https://cdn.example.test/low-opacity-art.png',
+    src: '',
+    tagName: 'IMG',
+  };
+  const thresholdOpacityImage = {
+    closest: () => null,
+    currentSrc: 'https://cdn.example.test/threshold-opacity-art.png',
+    src: '',
+    tagName: 'IMG',
+  };
+  const restoreLowOpacity = stubComputedStyle({
+    display: 'block',
+    opacity: '0.49',
+    visibility: 'visible',
+  });
+
+  try {
+    assert.equal(describeAssetElement(lowOpacityImage), null);
+  } finally {
+    restoreLowOpacity();
+  }
+
+  const restoreThresholdOpacity = stubComputedStyle({
+    display: 'block',
+    opacity: '0.5',
+    visibility: 'visible',
+  });
+
+  try {
+    assert.deepEqual(describeAssetElement(thresholdOpacityImage), {
+      resolution: null,
+      source: 'https://cdn.example.test/threshold-opacity-art.png',
+      type: 'image',
+    });
+  } finally {
+    restoreThresholdOpacity();
+  }
+});
+
 function stubComputedStyle(style) {
   const originalGetComputedStyle = globalThis.getComputedStyle;
 
