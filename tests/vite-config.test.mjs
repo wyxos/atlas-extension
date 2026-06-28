@@ -21,6 +21,12 @@ test('prefixes the emitted content script with a strict-mode directive', async (
   assert.equal(bundle['assets/content.js'].code, "'use strict';\nconst value = 1;");
 });
 
+test('builds the popup with the extension pages target', async () => {
+  const config = await loadViteConfigForTarget('options');
+
+  assert.equal(config.build.rollupOptions.input.popup, path.join(root, 'popup.html'));
+});
+
 async function loadViteConfigForTarget(target) {
   const previousTarget = process.env.ATLAS_EXTENSION_BUILD_TARGET;
 

@@ -14,6 +14,7 @@ export function startContentRuntime({
   scanAssets();
   listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource });
   listenForOpenTabCounts({ mergeOpenReferrerCounts });
+  listenForManualScanRequests({ scanAssets, schedulePositionUpdate });
   listenForAssetShortcuts({ handleAssetShortcut });
   listenForReferrerOpenAttempts({ referrerOpenGuard });
   listenForPageLocationChanges({
@@ -106,6 +107,25 @@ function listenForOpenTabCounts({ mergeOpenReferrerCounts }) {
     }
 
     mergeOpenReferrerCounts(message.urls ?? [], message.counts ?? {});
+  });
+}
+
+function listenForManualScanRequests({ scanAssets, schedulePositionUpdate }) {
+  globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
+    if (message?.type !== 'atlas-extension.manual-scan') {
+      return;
+    }
+
+    scanAssets();
+    schedulePositionUpdate();
+    sendResponse?.({
+      ok: true,
+      payload: {
+        scanned: true,
+      },
+    });
+
+    return false;
   });
 }
 

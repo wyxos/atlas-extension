@@ -1,4 +1,4 @@
-import { describeAssetElement } from './assets.js';
+import { describeAssetElement, initializeAssetSourcePreferences } from './assets.js';
 import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
 import { createBatchProviderState } from './batch-provider-state.js';
 import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openReferrerInTabViaBackground } from './background-api.js';
@@ -266,13 +266,9 @@ function clearAtlasAssetStateBySource(source) {
   }
 }
 
-function queueAssetStatusCheck(source) {
-  statusChecks.queueAssetStatusCheck(source);
-}
+function queueAssetStatusCheck(source) { statusChecks.queueAssetStatusCheck(source); }
 
-function queueReferrerStatusCheck(referrerUrl, options) {
-  statusChecks.queueReferrerStatusCheck(referrerUrl, options);
-}
+function queueReferrerStatusCheck(referrerUrl, options) { statusChecks.queueReferrerStatusCheck(referrerUrl, options); }
 
 function mergeOpenReferrerCounts(referrerUrls, counts) {
   for (const referrerUrl of referrerUrls) {
@@ -421,13 +417,9 @@ async function handleBadgeDelete(event) {
   }
 }
 
-function getVisibleRect(element) {
-  return resolveVisibleRect(element, viewportPadding);
-}
+function getVisibleRect(element) { return resolveVisibleRect(element, viewportPadding); }
 
-function getReferrerVisibleRect(element) {
-  return resolveVisibleRect(element, viewportPadding, { minVisibleWidth: referrerMinVisibleWidth });
-}
+function getReferrerVisibleRect(element) { return resolveVisibleRect(element, viewportPadding, { minVisibleWidth: referrerMinVisibleWidth }); }
 
 function scanAssets(root = document) {
   for (const element of listAssetElements(root, assetSelector)) {
@@ -498,3 +490,7 @@ startContentRuntime({
 });
 bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
 void closeTabMode.initialize();
+void initializeAssetSourcePreferences({ onChanged: () => {
+  scheduleScan();
+  schedulePositionUpdate();
+} });

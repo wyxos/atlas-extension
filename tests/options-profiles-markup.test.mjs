@@ -11,6 +11,13 @@ const source = fs.readFileSync(
 test('profiles page exposes asset source domain management controls', () => {
   assert.match(source, /atlas-source-domain/);
   assert.match(source, /atlas-source-filter/);
+  assert.match(source, /activeDomain/);
+  assert.match(source, /selectedProfile/);
+  assert.match(source, /selectedProfileTab/);
+  assert.match(source, /Asset/);
+  assert.match(source, /Referrer/);
+  assert.match(source, /imageSourcePreference/);
+  assert.match(source, /highestSrcset/);
   assert.match(source, /addAssetSourceDomain/);
   assert.match(source, /loadAssetSourcePreferences/);
   assert.match(source, /removeAssetSourceDomain/);

@@ -25,6 +25,12 @@ test('declares copied Atlas browser icons in the manifest', () => {
   }
 });
 
+test('declares a toolbar popup for manual page scanning', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+
+  assert.equal(manifest.action.default_popup, 'popup.html');
+});
+
 test('loads a main-world location bridge before the isolated content script', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 

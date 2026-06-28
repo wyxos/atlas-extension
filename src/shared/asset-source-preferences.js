@@ -1,10 +1,21 @@
 export const assetSourcePreferencesKey = 'atlasExtensionAssetSourcePreferences';
 
-const assetSourcePreferencesVersion = 1;
+const assetSourcePreferencesVersion = 2;
+
+export const imageSourcePreferenceValues = {
+  highestSrcset: 'srcset-highest',
+  src: 'src',
+};
+
+const fallbackAssetImageSourcePreference = imageSourcePreferenceValues.src;
+const domainAssetImageSourcePreferenceDefaults = new Map([
+  ['reddit.com', imageSourcePreferenceValues.highestSrcset],
+]);
 
 export function createDefaultAssetSourcePreferences() {
   return {
     domains: [],
+    profiles: [],
     version: assetSourcePreferencesVersion,
   };
 }
@@ -31,14 +42,10 @@ export async function addAssetSourceDomain(siteDomain, storage = getExtensionSto
   }
 
   const preferences = await loadAssetSourcePreferences(storage);
-  const domains = normalizeDomainList([
+  const nextPreferences = createAssetSourcePreferencesFromDomains([
     ...preferences.domains,
     normalizedDomain,
-  ]);
-  const nextPreferences = {
-    domains,
-    version: assetSourcePreferencesVersion,
-  };
+  ], preferences.profiles);
 
   await storage.set({ [assetSourcePreferencesKey]: nextPreferences });
 
@@ -57,10 +64,54 @@ export async function removeAssetSourceDomain(siteDomain, storage = getExtension
   }
 
   const preferences = await loadAssetSourcePreferences(storage);
-  const nextPreferences = {
-    domains: preferences.domains.filter((domain) => domain !== normalizedDomain),
-    version: assetSourcePreferencesVersion,
-  };
+  const nextPreferences = createAssetSourcePreferencesFromDomains(
+    preferences.domains.filter((domain) => domain !== normalizedDomain),
+    preferences.profiles,
+  );
+
+  await storage.set({ [assetSourcePreferencesKey]: nextPreferences });
+
+  return nextPreferences;
+}
+
+export async function setAssetImageSourcePreference(
+  siteDomain,
+  imageSourcePreference,
+  storage = getExtensionStorage(),
+) {
+  if (storage === null) {
+    throw new Error('Extension storage is unavailable.');
+  }
+
+  const normalizedDomain = normalizeAssetSourceDomain(siteDomain);
+  const normalizedImageSourcePreference = normalizeImageSourcePreference(imageSourcePreference);
+
+  if (normalizedDomain === null) {
+    throw new Error('A valid site domain is required.');
+  }
+
+  if (normalizedImageSourcePreference === null) {
+    throw new Error('A valid image source preference is required.');
+  }
+
+  const preferences = await loadAssetSourcePreferences(storage);
+  const profileOverrides = preferences.profiles.map((profile) => {
+    if (profile.domain !== normalizedDomain) {
+      return profile;
+    }
+
+    return {
+      ...profile,
+      asset: {
+        ...profile.asset,
+        imageSourcePreference: normalizedImageSourcePreference,
+      },
+    };
+  });
+  const nextPreferences = createAssetSourcePreferencesFromDomains(
+    preferences.domains,
+    profileOverrides,
+  );
 
   await storage.set({ [assetSourcePreferencesKey]: nextPreferences });
 
@@ -72,10 +123,15 @@ export function normalizeAssetSourcePreferences(value) {
     return createDefaultAssetSourcePreferences();
   }
 
-  return {
-    domains: normalizeDomainList(value.domains),
-    version: assetSourcePreferencesVersion,
-  };
+  const profiles = Array.isArray(value.profiles) ? value.profiles : [];
+
+  return createAssetSourcePreferencesFromDomains(
+    [
+      ...normalizeDomainList(value.domains),
+      ...profiles.map((profile) => profile?.domain),
+    ],
+    profiles,
+  );
 }
 
 export function filterAssetSourceDomains(domains, query) {
@@ -87,6 +143,23 @@ export function filterAssetSourceDomains(domains, query) {
   }
 
   return normalizedDomains.filter((domain) => domain.includes(normalizedQuery));
+}
+
+export function getAssetSourceProfile(preferences, siteDomain) {
+  const normalizedPreferences = normalizeAssetSourcePreferences(preferences);
+  const normalizedDomain = normalizeAssetSourceDomain(siteDomain);
+
+  if (normalizedDomain === null) {
+    return null;
+  }
+
+  return normalizedPreferences.profiles.find((profile) => profile.domain === normalizedDomain)
+    ?? createAssetSourceProfile(normalizedDomain);
+}
+
+export function resolveAssetImageSourcePreference(preferences, siteDomain) {
+  return getAssetSourceProfile(preferences, siteDomain)?.asset.imageSourcePreference
+    ?? fallbackAssetImageSourcePreference;
 }
 
 export function normalizeAssetSourceDomain(value) {
@@ -116,6 +189,62 @@ export function normalizeAssetSourceDomain(value) {
   } catch {
     return null;
   }
+}
+
+function createAssetSourcePreferencesFromDomains(domains, profileOverrides = []) {
+  const normalizedDomains = normalizeDomainList(domains);
+  const profileOverridesByDomain = new Map(
+    profileOverrides
+      .map((profile) => normalizeAssetSourceProfile(profile))
+      .filter((profile) => profile !== null)
+      .map((profile) => [profile.domain, profile]),
+  );
+
+  return {
+    domains: normalizedDomains,
+    profiles: normalizedDomains.map((domain) => profileOverridesByDomain.get(domain)
+      ?? createAssetSourceProfile(domain)),
+    version: assetSourcePreferencesVersion,
+  };
+}
+
+function createAssetSourceProfile(domain) {
+  return {
+    asset: {
+      imageSourcePreference: defaultImageSourcePreferenceForDomain(domain),
+    },
+    domain,
+    referrer: {
+      rules: [],
+    },
+  };
+}
+
+function normalizeAssetSourceProfile(value) {
+  const domain = normalizeAssetSourceDomain(value?.domain);
+
+  if (domain === null) {
+    return null;
+  }
+
+  return {
+    asset: {
+      imageSourcePreference: normalizeImageSourcePreference(value?.asset?.imageSourcePreference)
+        ?? defaultImageSourcePreferenceForDomain(domain),
+    },
+    domain,
+    referrer: {
+      rules: Array.isArray(value?.referrer?.rules) ? value.referrer.rules : [],
+    },
+  };
+}
+
+function defaultImageSourcePreferenceForDomain(domain) {
+  return domainAssetImageSourcePreferenceDefaults.get(domain) ?? fallbackAssetImageSourcePreference;
+}
+
+function normalizeImageSourcePreference(value) {
+  return Object.values(imageSourcePreferenceValues).includes(value) ? value : null;
 }
 
 function normalizeDomainList(value) {

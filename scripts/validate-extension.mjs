@@ -96,6 +96,7 @@ if (manifest !== null) {
     'manifest.json must declare copied Atlas extension icons',
   );
   expect(manifest.action?.default_title === 'Atlas', 'manifest.json must declare an Atlas toolbar action title');
+  expect(manifest.action?.default_popup === 'popup.html', 'manifest.json must declare the manual scan popup page');
   expect(
     JSON.stringify(manifest.action?.default_icon) === JSON.stringify({
       16: 'icons/favicon-16x16.png',
@@ -165,11 +166,18 @@ if (manifest !== null) {
 }
 
 const optionsHtml = readText('options.html');
+const popupHtml = readText('popup.html');
 
 if (optionsHtml !== null) {
   expect(optionsHtml.includes('<title>Atlas Extension Options</title>'), 'options.html must set the options page title');
   expect(optionsHtml.includes('id="app"'), 'options.html must expose a Vue mount point');
   expect(optionsHtml.includes('/src/options/main.js'), 'options.html must load the Vue options entry');
+}
+
+if (popupHtml !== null) {
+  expect(popupHtml.includes('<title>Atlas Extension</title>'), 'popup.html must set the popup page title');
+  expect(popupHtml.includes('atlas-popup-scan'), 'popup.html must expose a manual scan action');
+  expect(popupHtml.includes('/src/popup/main.js'), 'popup.html must load the popup entry');
 }
 
 const optionsMain = readText('src/options/main.js');
@@ -247,6 +255,8 @@ const contentReferrerOpenGuard = readText('src/content/referrer-open-guard.js');
 const contentReferrerState = readText('src/content/referrer-state.js');
 const backgroundTabState = readText('src/background/tab-state.js');
 const backgroundMain = readText('src/background/main.js');
+const popupScript = readText('src/popup/main.js');
+const popupScanHelper = readText('src/popup/scan-active-tab.js');
 
 if (contentDetector !== null) {
   expect(contentDetector.includes('describeAssetElement'), 'src/content/assets.js must expose asset descriptors');
@@ -268,8 +278,19 @@ if (contentScript !== null) {
 
 if (contentRuntime !== null) {
   expect(contentRuntime.includes('MutationObserver'), 'src/content/content-runtime.js must watch dynamically added page assets');
+  expect(contentRuntime.includes('atlas-extension.manual-scan'), 'src/content/content-runtime.js must accept manual popup scan requests');
   expect(contentRuntime.includes('open-tab-counts-changed'), 'src/content/content-runtime.js must react to open tab count changes');
   expect(contentRuntime.includes('atlas-extension-location-change'), 'src/content/content-runtime.js must react to page-world location changes');
+}
+
+if (popupScript !== null) {
+  expect(popupScript.includes('requestActiveTabScan'), 'src/popup/main.js must trigger an active-tab scan request');
+  expect(popupScript.includes('atlas-popup-scan'), 'src/popup/main.js must bind the popup scan button');
+}
+
+if (popupScanHelper !== null) {
+  expect(popupScanHelper.includes('chrome?.tabs'), 'src/popup/scan-active-tab.js must use the Chrome tabs API');
+  expect(popupScanHelper.includes('atlas-extension.manual-scan'), 'src/popup/scan-active-tab.js must send the manual scan message');
 }
 
 if (contentOverlayController !== null) {

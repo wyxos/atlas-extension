@@ -1,15 +1,54 @@
+import {
+  assetSourcePreferencesKey,
+  createDefaultAssetSourcePreferences,
+  imageSourcePreferenceValues,
+  loadAssetSourcePreferences,
+  normalizeAssetSourcePreferences,
+  resolveAssetImageSourcePreference,
+} from '../shared/asset-source-preferences.js';
+
 const assetTypesByTag = new Map([
   ['AUDIO', 'audio'],
   ['IMG', 'image'],
   ['VIDEO', 'video'],
 ]);
+let assetSourcePreferences = createDefaultAssetSourcePreferences();
 
 export function getAssetType(element) {
   return assetTypesByTag.get(String(element?.tagName ?? '').toUpperCase()) ?? null;
 }
 
-export function getAssetSource(element) {
+export async function initializeAssetSourcePreferences({ onChanged = () => {} } = {}) {
+  globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => {
+    if (areaName !== 'local' || changes?.[assetSourcePreferencesKey] === undefined) {
+      return;
+    }
+
+    assetSourcePreferences = normalizeAssetSourcePreferences(
+      changes[assetSourcePreferencesKey].newValue,
+    );
+    onChanged();
+  });
+
+  try {
+    assetSourcePreferences = await loadAssetSourcePreferences();
+    onChanged();
+  } catch {
+    // The scanner can continue with built-in defaults when extension storage is unavailable.
+  }
+}
+
+export function getAssetSource(element, options = {}) {
   const tagName = String(element?.tagName ?? '').toUpperCase();
+
+  if (tagName === 'IMG' && shouldUseHighestSrcsetCandidate(element, options)) {
+    const srcsetSource = getHighestSrcsetSource(element);
+
+    if (srcsetSource !== null) {
+      return srcsetSource;
+    }
+  }
+
   const declaredSource = normalizeDeclaredSource(element);
   const nestedSource = normalizeSource(element?.querySelector?.('source[src]')?.src);
   const responsiveSource = normalizeSource(element?.currentSrc);
@@ -37,18 +76,18 @@ export function getAssetResolution(element) {
   return `${width}x${height}`;
 }
 
-export function describeAssetElement(element) {
+export function describeAssetElement(element, options = {}) {
   const type = getAssetType(element);
 
   if (type === null || isHiddenAssetElement(element)) {
     return null;
   }
 
-  if (hasAnchorAncestor(element) || hasNearbyAnchorSibling(element)) {
+  if (hasAnchorAncestor(element)) {
     return null;
   }
 
-  const source = getAssetSource(element);
+  const source = getAssetSource(element, options);
 
   if (source === null) {
     return null;
@@ -61,14 +100,14 @@ export function describeAssetElement(element) {
   };
 }
 
-export function describeReferrerAssetElement(element) {
+export function describeReferrerAssetElement(element, options = {}) {
   const type = getAssetType(element);
 
   if (type === null || isHiddenAssetElement(element)) {
     return null;
   }
 
-  if (!hasAnchorAncestor(element) && !hasNearbyAnchorSibling(element)) {
+  if (!hasAnchorAncestor(element)) {
     return null;
   }
 
@@ -78,7 +117,7 @@ export function describeReferrerAssetElement(element) {
     return null;
   }
 
-  const source = getAssetSource(element);
+  const source = getAssetSource(element, options);
 
   if (source === null) {
     return null;
@@ -96,24 +135,8 @@ export function hasAnchorAncestor(element) {
   return Boolean(element?.closest?.('a'));
 }
 
-export function hasNearbyAnchorSibling(element) {
-  return hasAnchorSibling(element) || hasAnchorSibling(element?.parentElement);
-}
-
 export function getAssetReferrerHref(element) {
-  return normalizeAnchorHref(element?.closest?.('a[href]') ?? element?.closest?.('a'))
-    ?? getAnchorSiblingHref(element)
-    ?? getAnchorSiblingHref(element?.parentElement);
-}
-
-function getAnchorSiblingHref(element) {
-  return normalizeAnchorHref(element?.previousElementSibling)
-    ?? normalizeAnchorHref(element?.nextElementSibling);
-}
-
-function hasAnchorSibling(element) {
-  return isAnchorElement(element?.previousElementSibling)
-    || isAnchorElement(element?.nextElementSibling);
+  return normalizeAnchorHref(element?.closest?.('a[href]') ?? element?.closest?.('a'));
 }
 
 function isAnchorElement(element) {
@@ -136,6 +159,77 @@ function normalizeDeclaredSource(element) {
   }
 
   return normalizeSource(element?.src);
+}
+
+function shouldUseHighestSrcsetCandidate(element, options) {
+  const sourcePreference = options?.imageSourcePreference
+    ?? resolveAssetImageSourcePreference(
+      options?.assetSourcePreferences ?? assetSourcePreferences,
+      options?.siteDomain ?? element?.ownerDocument?.location?.hostname ?? globalThis.location?.hostname,
+    );
+
+  return sourcePreference === imageSourcePreferenceValues.highestSrcset;
+}
+
+function getHighestSrcsetSource(element) {
+  const rawSrcset = typeof element?.getAttribute === 'function'
+    ? element.getAttribute('srcset')
+    : element?.srcset;
+  const candidates = parseSrcsetCandidates(rawSrcset, element);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  candidates.sort((left, right) => right.score - left.score);
+
+  return candidates[0].source;
+}
+
+function parseSrcsetCandidates(srcset, element) {
+  if (typeof srcset !== 'string' || srcset.trim() === '') {
+    return [];
+  }
+
+  return srcset
+    .split(',')
+    .map((candidate) => parseSrcsetCandidate(candidate, element))
+    .filter((candidate) => candidate !== null);
+}
+
+function parseSrcsetCandidate(candidate, element) {
+  const parts = String(candidate ?? '').trim().split(/\s+/);
+
+  if (parts.length === 0 || parts[0] === '') {
+    return null;
+  }
+
+  const source = normalizeSource(parts[0], element);
+
+  if (source === null) {
+    return null;
+  }
+
+  return {
+    score: parseSrcsetDescriptorScore(parts[1]),
+    source,
+  };
+}
+
+function parseSrcsetDescriptorScore(descriptor) {
+  if (typeof descriptor !== 'string') {
+    return 1;
+  }
+
+  if (descriptor.endsWith('w')) {
+    return Number.parseFloat(descriptor.slice(0, -1)) || 1;
+  }
+
+  if (descriptor.endsWith('x')) {
+    return Number.parseFloat(descriptor.slice(0, -1)) || 1;
+  }
+
+  return 1;
 }
 
 function isHiddenAssetElement(element) {
@@ -176,7 +270,7 @@ function styleFor(element) {
   }
 }
 
-function normalizeSource(source) {
+function normalizeSource(source, element = null) {
   if (typeof source !== 'string') {
     return null;
   }
@@ -188,7 +282,10 @@ function normalizeSource(source) {
   }
 
   try {
-    const url = new URL(trimmed);
+    const baseUrl = element?.ownerDocument?.baseURI
+      ?? element?.ownerDocument?.location?.href
+      ?? globalThis.location?.href;
+    const url = typeof baseUrl === 'string' ? new URL(trimmed, baseUrl) : new URL(trimmed);
 
     return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
   } catch {

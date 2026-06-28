@@ -6,8 +6,11 @@ import {
   assetSourcePreferencesKey,
   createDefaultAssetSourcePreferences,
   filterAssetSourceDomains,
+  imageSourcePreferenceValues,
   loadAssetSourcePreferences,
   removeAssetSourceDomain,
+  resolveAssetImageSourcePreference,
+  setAssetImageSourcePreference,
 } from '../src/shared/asset-source-preferences.js';
 
 test('defaults to an empty asset source domain list', async () => {
@@ -15,16 +18,18 @@ test('defaults to an empty asset source domain list', async () => {
 
   assert.deepEqual(createDefaultAssetSourcePreferences(), {
     domains: [],
-    version: 1,
+    profiles: [],
+    version: 2,
   });
 
   assert.deepEqual(await loadAssetSourcePreferences(storage), {
     domains: [],
-    version: 1,
+    profiles: [],
+    version: 2,
   });
 });
 
-test('adds normalized asset source domains without duplicates', async () => {
+test('adds normalized asset source profile domains without duplicates', async () => {
   const storage = createStorage({
     [assetSourcePreferencesKey]: {
       domains: ['x.com'],
@@ -37,11 +42,31 @@ test('adds normalized asset source domains without duplicates', async () => {
 
   assert.deepEqual(await loadAssetSourcePreferences(storage), {
     domains: ['reddit.com', 'x.com'],
-    version: 1,
+    profiles: [
+      {
+        asset: {
+          imageSourcePreference: imageSourcePreferenceValues.highestSrcset,
+        },
+        domain: 'reddit.com',
+        referrer: {
+          rules: [],
+        },
+      },
+      {
+        asset: {
+          imageSourcePreference: imageSourcePreferenceValues.src,
+        },
+        domain: 'x.com',
+        referrer: {
+          rules: [],
+        },
+      },
+    ],
+    version: 2,
   });
 });
 
-test('removes normalized asset source domains', async () => {
+test('removes normalized asset source profile domains', async () => {
   const storage = createStorage({
     [assetSourcePreferencesKey]: {
       domains: ['reddit.com', 'x.com'],
@@ -53,7 +78,66 @@ test('removes normalized asset source domains', async () => {
 
   assert.deepEqual(await loadAssetSourcePreferences(storage), {
     domains: ['x.com'],
-    version: 1,
+    profiles: [
+      {
+        asset: {
+          imageSourcePreference: imageSourcePreferenceValues.src,
+        },
+        domain: 'x.com',
+        referrer: {
+          rules: [],
+        },
+      },
+    ],
+    version: 2,
+  });
+});
+
+test('stores per-profile image source preferences', async () => {
+  const storage = createStorage();
+
+  await addAssetSourceDomain('reddit.com', storage);
+  assert.equal(
+    resolveAssetImageSourcePreference(await loadAssetSourcePreferences(storage), 'https://www.reddit.com/r/art'),
+    imageSourcePreferenceValues.highestSrcset,
+  );
+
+  await setAssetImageSourcePreference('reddit.com', imageSourcePreferenceValues.src, storage);
+  assert.equal(
+    resolveAssetImageSourcePreference(await loadAssetSourcePreferences(storage), 'reddit.com'),
+    imageSourcePreferenceValues.src,
+  );
+});
+
+test('normalizes profile-only stored preferences into domains', async () => {
+  const storage = createStorage({
+    [assetSourcePreferencesKey]: {
+      profiles: [
+        {
+          asset: {
+            imageSourcePreference: imageSourcePreferenceValues.highestSrcset,
+          },
+          domain: 'reddit.com',
+        },
+      ],
+      version: 2,
+    },
+  });
+
+  assert.deepEqual(await loadAssetSourcePreferences(storage), {
+    domains: ['reddit.com'],
+    profiles: [
+      {
+        asset: {
+          imageSourcePreference: imageSourcePreferenceValues.highestSrcset,
+        },
+        domain: 'reddit.com',
+        referrer: {
+          rules: [],
+        },
+      },
+    ],
+    version: 2,
   });
 });
 

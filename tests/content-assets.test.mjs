@@ -9,7 +9,6 @@ import {
   getAssetSource,
   getAssetType,
   hasAnchorAncestor,
-  hasNearbyAnchorSibling,
 } from '../src/content/assets.js';
 
 test('detects supported asset element types', () => {
@@ -41,6 +40,48 @@ test('uses declared image src instead of responsive currentSrc variants', () => 
       tagName: 'IMG',
     }),
     'https://images-wixmp.example.test/f/example.png',
+  );
+});
+
+test('uses the highest image srcset candidate when the site profile prefers srcset', () => {
+  assert.equal(
+    getAssetSource(
+      {
+        currentSrc: 'https://preview.redd.it/example.png?width=640&auto=webp',
+        getAttribute: (name) => (name === 'srcset'
+          ? [
+            'https://preview.redd.it/example.png?width=320&auto=webp 320w',
+            'https://preview.redd.it/example.png?width=640&auto=webp 640w',
+            'https://preview.redd.it/example.png?width=1024&format=png&auto=webp 1024w',
+          ].join(', ')
+          : null),
+        ownerDocument: {
+          location: {
+            hostname: 'www.reddit.com',
+          },
+        },
+        src: 'https://preview.redd.it/example.png?width=320&auto=webp',
+        tagName: 'IMG',
+      },
+      {
+        assetSourcePreferences: {
+          domains: ['reddit.com'],
+          profiles: [
+            {
+              asset: {
+                imageSourcePreference: 'srcset-highest',
+              },
+              domain: 'reddit.com',
+              referrer: {
+                rules: [],
+              },
+            },
+          ],
+          version: 2,
+        },
+      },
+    ),
+    'https://preview.redd.it/example.png?width=1024&format=png&auto=webp',
   );
 });
 
@@ -104,7 +145,7 @@ test('ignores assets inside anchor ancestors', () => {
   assert.equal(describeAssetElement(linkedImage), null);
 });
 
-test('ignores assets with nearby anchor siblings', () => {
+test('keeps assets eligible when the media has anchor siblings', () => {
   const linkedSibling = { tagName: 'A' };
   const siblingLinkedImage = {
     closest: () => null,
@@ -116,11 +157,16 @@ test('ignores assets with nearby anchor siblings', () => {
     tagName: 'IMG',
   };
 
-  assert.equal(hasNearbyAnchorSibling(siblingLinkedImage), true);
-  assert.equal(describeAssetElement(siblingLinkedImage), null);
+  assert.deepEqual(describeAssetElement(siblingLinkedImage), {
+    resolution: null,
+    source: 'https://example.test/sibling-linked-art.png',
+    type: 'image',
+  });
+  assert.equal(getAssetReferrerHref(siblingLinkedImage), null);
+  assert.equal(describeReferrerAssetElement(siblingLinkedImage), null);
 });
 
-test('ignores assets whose parent has an anchor sibling', () => {
+test('keeps assets eligible when the media parent has anchor siblings', () => {
   const parent = {
     nextElementSibling: null,
     previousElementSibling: { tagName: 'a' },
@@ -136,146 +182,13 @@ test('ignores assets whose parent has an anchor sibling', () => {
     tagName: 'IMG',
   };
 
-  assert.equal(hasNearbyAnchorSibling(imageInsideSiblingLinkedWrapper), true);
-  assert.equal(describeAssetElement(imageInsideSiblingLinkedWrapper), null);
-});
-
-test('does not ignore assets whose parent has a non-adjacent anchor sibling', () => {
-  const linkedSibling = {
-    href: 'https://www.example.test/post/non-adjacent-sibling',
-    tagName: 'A',
-  };
-  const parent = createParent('DIV', null);
-  const grandParent = {
-    children: [
-      createParent('DIV', null),
-      linkedSibling,
-      createParent('FACEPLATE-LOADER', null),
-      parent,
-      createParent('DIV', null),
-    ],
-    tagName: 'DIV',
-  };
-  parent.parentElement = grandParent;
-  const imageInsideSiblingLinkedWrapper = {
-    closest: () => null,
-    currentSrc: 'https://example.test/non-adjacent-sibling-linked-art.png',
-    nextElementSibling: null,
-    parentElement: parent,
-    previousElementSibling: null,
-    src: '',
-    tagName: 'IMG',
-  };
-
-  assert.equal(hasNearbyAnchorSibling(imageInsideSiblingLinkedWrapper), false);
   assert.equal(getAssetReferrerHref(imageInsideSiblingLinkedWrapper), null);
   assert.deepEqual(describeAssetElement(imageInsideSiblingLinkedWrapper), {
     resolution: null,
-    source: 'https://example.test/non-adjacent-sibling-linked-art.png',
+    source: 'https://example.test/parent-sibling-linked-art.png',
     type: 'image',
   });
   assert.equal(describeReferrerAssetElement(imageInsideSiblingLinkedWrapper), null);
-});
-
-test('does not ignore assets whose grandparent has an anchor sibling', () => {
-  const linkedAncestor = {
-    href: 'https://www.example.test/post/ancestor-sibling',
-    tagName: 'a',
-  };
-  const grandParent = {
-    nextElementSibling: null,
-    parentElement: null,
-    previousElementSibling: linkedAncestor,
-    tagName: 'DIV',
-  };
-  const parent = createParent('DIV', grandParent);
-  const imageInsideLinkedAncestorWrapper = {
-    closest: () => null,
-    currentSrc: 'https://cdn.example.test/ancestor-sibling-art.png',
-    nextElementSibling: null,
-    parentElement: parent,
-    previousElementSibling: null,
-    src: '',
-    tagName: 'IMG',
-  };
-
-  assert.equal(hasNearbyAnchorSibling(imageInsideLinkedAncestorWrapper), false);
-  assert.equal(getAssetReferrerHref(imageInsideLinkedAncestorWrapper), null);
-  assert.deepEqual(describeAssetElement(imageInsideLinkedAncestorWrapper), {
-    resolution: null,
-    source: 'https://cdn.example.test/ancestor-sibling-art.png',
-    type: 'image',
-  });
-  assert.equal(describeReferrerAssetElement(imageInsideLinkedAncestorWrapper), null);
-});
-
-test('does not ignore assets from distant ancestor anchor siblings', () => {
-  const distantLinkedAncestor = {
-    href: 'https://www.example.test/post/distant-ancestor-sibling',
-    tagName: 'a',
-  };
-  const eleventhParent = {
-    nextElementSibling: null,
-    parentElement: null,
-    previousElementSibling: distantLinkedAncestor,
-    tagName: 'DIV',
-  };
-  const tenthParent = createParent('DIV', eleventhParent);
-  const ninthParent = createParent('DIV', tenthParent);
-  const eighthParent = createParent('SECTION', ninthParent);
-  const seventhParent = createParent('ARTICLE', eighthParent);
-  const sixthParent = createParent('DIV', seventhParent);
-  const fifthParent = createParent('DIV', sixthParent);
-  const fourthParent = createParent('SECTION', fifthParent);
-  const thirdParent = createParent('ARTICLE', fourthParent);
-  const secondParent = createParent('DIV', thirdParent);
-  const firstParent = createParent('DIV', secondParent);
-  const imageInsideDistantLinkedAncestorWrapper = {
-    closest: () => null,
-    currentSrc: 'https://cdn.example.test/distant-ancestor-sibling-art.png',
-    nextElementSibling: null,
-    parentElement: firstParent,
-    previousElementSibling: null,
-    src: '',
-    tagName: 'IMG',
-  };
-
-  assert.equal(hasNearbyAnchorSibling(imageInsideDistantLinkedAncestorWrapper), false);
-  assert.deepEqual(describeAssetElement(imageInsideDistantLinkedAncestorWrapper), {
-    resolution: null,
-    source: 'https://cdn.example.test/distant-ancestor-sibling-art.png',
-    type: 'image',
-  });
-});
-
-test('does not ignore assets from anchor siblings on document container tags', () => {
-  const bodySibling = {
-    href: 'https://www.example.test/post/body-sibling',
-    tagName: 'a',
-  };
-  const body = {
-    nextElementSibling: null,
-    parentElement: null,
-    previousElementSibling: bodySibling,
-    tagName: 'BODY',
-  };
-  const firstParent = createParent('DIV', body);
-  const imageInsideBodyWrapper = {
-    closest: () => null,
-    currentSrc: 'https://cdn.example.test/body-sibling-art.png',
-    nextElementSibling: null,
-    parentElement: firstParent,
-    previousElementSibling: null,
-    src: '',
-    tagName: 'IMG',
-  };
-
-  assert.equal(hasNearbyAnchorSibling(imageInsideBodyWrapper), false);
-  assert.deepEqual(describeAssetElement(imageInsideBodyWrapper), {
-    resolution: null,
-    source: 'https://cdn.example.test/body-sibling-art.png',
-    type: 'image',
-  });
 });
 
 test('describes skipped assets by anchor ancestor referrer href', () => {
@@ -301,7 +214,7 @@ test('describes skipped assets by anchor ancestor referrer href', () => {
   });
 });
 
-test('describes skipped assets by sibling and parent sibling referrer hrefs', () => {
+test('does not describe sibling anchors as referrers', () => {
   const siblingLinkedImage = {
     closest: () => null,
     currentSrc: 'https://cdn.example.test/sibling-art.png',
@@ -332,13 +245,10 @@ test('describes skipped assets by sibling and parent sibling referrer hrefs', ()
     tagName: 'IMG',
   };
 
-  assert.equal(getAssetReferrerHref(siblingLinkedImage), 'https://www.example.test/post/sibling');
-  assert.equal(getAssetReferrerHref(parentSiblingLinkedImage), 'https://www.example.test/post/parent-sibling');
-  assert.equal(describeReferrerAssetElement(siblingLinkedImage)?.referrerUrl, 'https://www.example.test/post/sibling');
-  assert.equal(
-    describeReferrerAssetElement(parentSiblingLinkedImage)?.referrerUrl,
-    'https://www.example.test/post/parent-sibling',
-  );
+  assert.equal(getAssetReferrerHref(siblingLinkedImage), null);
+  assert.equal(getAssetReferrerHref(parentSiblingLinkedImage), null);
+  assert.equal(describeReferrerAssetElement(siblingLinkedImage), null);
+  assert.equal(describeReferrerAssetElement(parentSiblingLinkedImage), null);
 });
 
 test('ignores skipped asset referrers without http links', () => {
@@ -385,15 +295,6 @@ test('ignores hidden media for asset and referrer badges', () => {
     restoreComputedStyle();
   }
 });
-
-function createParent(tagName, parentElement) {
-  return {
-    nextElementSibling: null,
-    parentElement,
-    previousElementSibling: null,
-    tagName,
-  };
-}
 
 function stubComputedStyle(style) {
   const originalGetComputedStyle = globalThis.getComputedStyle;

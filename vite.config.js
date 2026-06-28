@@ -20,6 +20,7 @@ function resolveInput() {
     'location-bridge': path.resolve(rootDirectory, 'src/content/location-bridge.js'),
     background: path.resolve(rootDirectory, 'src/background/main.js'),
     options: path.resolve(rootDirectory, 'options.html'),
+    popup: path.resolve(rootDirectory, 'popup.html'),
   };
 
   if (buildTarget === 'background') {
@@ -34,7 +35,10 @@ function resolveInput() {
     return { 'location-bridge': inputs['location-bridge'] };
   }
 
-  return { options: inputs.options };
+  return {
+    options: inputs.options,
+    popup: inputs.popup,
+  };
 }
 
 function resolveOutput() {

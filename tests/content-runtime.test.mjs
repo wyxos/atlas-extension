@@ -223,6 +223,84 @@ test('download events are delegated for state and cache updates', () => {
   assert.deepEqual(calls, [payload]);
 });
 
+test('manual popup scans rescan assets through the existing runtime pipeline', () => {
+  const calls = [];
+  const listeners = [];
+  const responses = [];
+  const originalDocument = globalThis.document;
+  const originalMutationObserver = globalThis.MutationObserver;
+  const originalWindow = globalThis.window;
+  const originalChrome = globalThis.chrome;
+
+  globalThis.MutationObserver = class FakeMutationObserver {
+    observe() {}
+  };
+  globalThis.window = {
+    addEventListener() {},
+    history: {
+      pushState() {},
+      replaceState() {},
+    },
+  };
+  globalThis.document = {
+    documentElement: {},
+  };
+  globalThis.chrome = {
+    runtime: {
+      onMessage: {
+        addListener(listener) {
+          listeners.push(listener);
+        },
+      },
+    },
+  };
+
+  try {
+    startContentRuntime({
+      getOpenReferrerCounts: () => ({}),
+      handleAssetShortcut() {},
+      mergeOpenReferrerCounts() {},
+      referrerBadges: {
+        updateByDownloadEvent() {},
+        updateOpenCounts() {},
+      },
+      referrerOpenGuard: {
+        handleBrowserEvent() {},
+      },
+      scanAssets(root) {
+        calls.push(['scan', root?.id ?? 'document']);
+      },
+      schedulePositionUpdate() {
+        calls.push('positionBadges');
+      },
+      updateBadgeStateBySource() {},
+    });
+
+    calls.length = 0;
+    const handled = listeners.map((listener) => listener({
+      type: 'atlas-extension.manual-scan',
+    }, {}, (response) => responses.push(response)));
+
+    assert.equal(handled.includes(false), true);
+  } finally {
+    globalThis.MutationObserver = originalMutationObserver;
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+    globalThis.chrome = originalChrome;
+  }
+
+  assert.deepEqual(calls, [
+    ['scan', 'document'],
+    'positionBadges',
+  ]);
+  assert.deepEqual(responses, [{
+    ok: true,
+    payload: {
+      scanned: true,
+    },
+  }]);
+});
+
 test('page activation rescans assets and refreshes known referrers', () => {
   const calls = [];
   const listeners = {};
