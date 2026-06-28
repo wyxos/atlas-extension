@@ -170,6 +170,38 @@ test('uses the page url for media elements with browser-local sources', () => {
   );
 });
 
+test('uses shadow host source for browser-local media inside a custom player', () => {
+  const shadowHost = {
+    getAttribute: (name) => (name === 'src'
+      ? 'https://media.example.test/video/HLSPlaylist.m3u8'
+      : null),
+    src: 'https://media.example.test/video/HLSPlaylist.m3u8',
+  };
+  const shadowRoot = {
+    host: shadowHost,
+  };
+  const video = {
+    closest: () => null,
+    currentSrc: 'blob:https://www.example.test/local-video',
+    getRootNode: () => shadowRoot,
+    ownerDocument: {
+      location: {
+        href: 'https://www.example.test/post/123',
+      },
+    },
+    src: 'blob:https://www.example.test/local-video',
+    tagName: 'VIDEO',
+    videoHeight: 480,
+    videoWidth: 854,
+  };
+
+  assert.deepEqual(describeAssetElement(video), {
+    resolution: '854x480',
+    source: 'https://media.example.test/video/HLSPlaylist.m3u8',
+    type: 'video',
+  });
+});
+
 test('reads image and video asset resolutions when available', () => {
   assert.equal(getAssetResolution({ naturalHeight: 720, naturalWidth: 1280 }), '1280x720');
   assert.equal(getAssetResolution({ videoHeight: 1080, videoWidth: 1920 }), '1920x1080');

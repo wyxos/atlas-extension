@@ -76,6 +76,12 @@ function getAssetTarget(element, options = {}) {
     return describeAssetTarget(element, { source: directSource });
   }
 
+  const shadowHostTarget = getShadowHostAssetTarget(element);
+
+  if (shadowHostTarget !== null) {
+    return describeAssetTarget(element, shadowHostTarget);
+  }
+
   if (['AUDIO', 'VIDEO'].includes(tagName)) {
     const pageSource = normalizeSource(element?.ownerDocument?.location?.href ?? globalThis.location?.href);
 
@@ -208,7 +214,9 @@ function getAssetTargetResolution(element, target) {
     return resolution;
   }
 
-  return canUseElementResolutionForTarget(element, target) ? getAssetResolution(element) : null;
+  return canUseElementResolutionForTarget(element, target) || target.allowIntrinsicResolution === true
+    ? getAssetResolution(element)
+    : null;
 }
 
 function getTargetDimensions(target) {
@@ -302,6 +310,35 @@ function canUseElementResolutionForTarget(element, target) {
   }
 
   return normalizeDeclaredSource(element) === target.source;
+}
+
+function getShadowHostAssetTarget(element) {
+  for (const host of getShadowHosts(element)) {
+    const source = normalizeDeclaredSource(host)
+      ?? normalizeSource(host?.currentSrc, host)
+      ?? normalizeSource(host?.querySelector?.('source[src]')?.src, host);
+
+    if (source !== null) {
+      return {
+        allowIntrinsicResolution: true,
+        source,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getShadowHosts(element) {
+  const hosts = [];
+  let root = element?.getRootNode?.();
+
+  while (root?.host) {
+    hosts.push(root.host);
+    root = root.host.getRootNode?.();
+  }
+
+  return hosts;
 }
 
 function getHighestSrcsetCandidate(element) {
