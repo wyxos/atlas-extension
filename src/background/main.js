@@ -11,6 +11,10 @@ import {
 import { createCloseTabIntentManager } from './close-tab-intents.js';
 import { createPusherReverbClient } from './pusher-reverb-client.js';
 import { createOpenTabRegistry } from './tab-state.js';
+import {
+  syncExtensionSettings,
+  uploadSettingsAfterStorageChange,
+} from '../shared/settings-sync.js';
 
 let activeReverbClient = null;
 let activeConfigKey = null;
@@ -69,21 +73,24 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
 });
 
 bindOpenTabTracking();
+void syncExtensionSettings();
 
 globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => {
-  if (areaName !== 'local' || !changes.atlasExtensionConfig) {
-    return;
+  if (areaName === 'local' && changes.atlasExtensionConfig) {
+    void ensureReverbConnection(null, { closeWhenMissing: true });
   }
 
-  void ensureReverbConnection(null, { closeWhenMissing: true });
+  void uploadSettingsAfterStorageChange(changes, areaName);
 });
 
 globalThis.chrome?.runtime?.onStartup?.addListener?.(() => {
   void ensureReverbConnection();
+  void syncExtensionSettings();
 });
 
 globalThis.chrome?.runtime?.onInstalled?.addListener?.(() => {
   void ensureReverbConnection();
+  void syncExtensionSettings();
 });
 
 async function ensureReverbConnection(configOverride = null, options = {}) {
