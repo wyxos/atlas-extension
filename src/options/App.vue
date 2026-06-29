@@ -1,8 +1,22 @@
 <script setup>
-import { RouterLink, RouterView } from "vue-router";
+import { onBeforeUnmount, onMounted } from "vue";
+import { RouterLink, RouterView, useRoute } from "vue-router";
+import { toast } from "vue-sonner";
+import "vue-sonner/style.css";
 import { Button } from "@ui/button";
+import { Toaster } from "@ui/sonner";
+import {
+  settingsSyncPreferencesKey,
+  settingsSyncStatuses,
+} from "../shared/settings-sync";
+
+const route = useRoute();
 
 const navigationItems = [
+  {
+    label: "Settings",
+    to: "/settings",
+  },
   {
     label: "Overview",
     to: "/",
@@ -16,6 +30,67 @@ const navigationItems = [
     to: "/logs",
   },
 ];
+
+const settingsSyncMessages = {
+  [settingsSyncStatuses.downloaded]: "Settings synced from Atlas.",
+  [settingsSyncStatuses.uploaded]: "Settings synced to Atlas.",
+};
+
+onMounted(() => {
+  if (typeof globalThis.chrome?.storage?.onChanged?.addListener === "function") {
+    globalThis.chrome.storage.onChanged.addListener(handleSettingsSyncPreferenceChange);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (typeof globalThis.chrome?.storage?.onChanged?.removeListener === "function") {
+    globalThis.chrome.storage.onChanged.removeListener(handleSettingsSyncPreferenceChange);
+  }
+});
+
+function handleSettingsSyncPreferenceChange(changes, areaName) {
+  if (areaName !== "local" || route.name === "settings") {
+    return;
+  }
+
+  const change = changes?.[settingsSyncPreferencesKey];
+  const newValue = change?.newValue;
+  const oldValue = change?.oldValue;
+
+  if (!newValue || !oldValue) {
+    return;
+  }
+
+  if (newValue.lastStatus === settingsSyncStatuses.conflict) {
+    if (oldValue.lastStatus !== settingsSyncStatuses.conflict) {
+      toast.error("Settings conflict detected.", {
+        description: newValue.lastError || "Open Settings to choose Download, Upload, or Merge.",
+      });
+    }
+
+    return;
+  }
+
+  if (newValue.lastStatus === settingsSyncStatuses.failed) {
+    if (newValue.lastError !== "" && newValue.lastError !== oldValue.lastError) {
+      toast.error("Settings sync failed.", {
+        description: newValue.lastError,
+      });
+    }
+
+    return;
+  }
+
+  if (newValue.lastSyncedAt === oldValue.lastSyncedAt) {
+    return;
+  }
+
+  const message = settingsSyncMessages[newValue.lastStatus];
+
+  if (message) {
+    toast.success(message);
+  }
+}
 </script>
 
 <template>
@@ -26,7 +101,7 @@ const navigationItems = [
           Atlas Extension
         </h1>
         <p class="text-base text-blue-slate-300">
-          Configure the Atlas connection.
+          Manage Atlas extension settings.
         </p>
         <nav class="mt-4 flex flex-wrap gap-1" aria-label="Options sections">
           <RouterLink
@@ -53,5 +128,6 @@ const navigationItems = [
         <RouterView />
       </div>
     </section>
+    <Toaster rich-colors position="bottom-right" />
   </main>
 </template>

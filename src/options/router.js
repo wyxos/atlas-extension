@@ -3,8 +3,14 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 import Logs from './pages/Logs.vue';
 import Overview from './pages/Overview.vue';
 import Profiles from './pages/Profiles.vue';
+import Settings from './pages/Settings.vue';
 
 const routes = [
+  {
+    component: Settings,
+    name: 'settings',
+    path: '/settings',
+  },
   {
     component: Overview,
     name: 'overview',
@@ -19,6 +25,10 @@ const routes = [
     component: Logs,
     name: 'logs',
     path: '/logs',
+  },
+  {
+    path: '/global',
+    redirect: '/settings',
   },
 ];
 
