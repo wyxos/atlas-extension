@@ -86,6 +86,12 @@ test('posts asset reactions to the extension endpoint', async () => {
   const requests = [];
   const response = await postAssetReaction({
     asset: {
+      matchIdentity: {
+        match_by: 'referrer',
+        match_url: 'https://www.example.test/post/123',
+        rule_digest: 'example-rule-v1',
+        rule_id: 'example-rule',
+      },
       resolution: '1280x720',
       source: 'https://cdn.example.test/media/art.jpg',
       type: 'image',
@@ -121,6 +127,12 @@ test('posts asset reactions to the extension endpoint', async () => {
   const body = JSON.parse(requests[0].options.body);
   assert.deepEqual(body, {
     asset_url: 'https://cdn.example.test/media/art.jpg',
+    match_identity: {
+      match_by: 'referrer',
+      match_url: 'https://www.example.test/post/123',
+      rule_digest: 'example-rule-v1',
+      rule_id: 'example-rule',
+    },
     metadata: {
       asset_type: 'image',
       resolution: '1280x720',
@@ -196,6 +208,12 @@ test('posts batch asset reactions to the extension endpoint', async () => {
     items: [
       {
         asset: {
+          matchIdentity: {
+            match_by: 'referrer',
+            match_url: 'https://www.example.test/post/123?file=1',
+            rule_digest: 'batch-rule-v1',
+            rule_id: 'batch-rule',
+          },
           resolution: '1000x1400',
           source: 'https://cdn.example.test/media/art-1.jpg',
           type: 'image',
@@ -224,6 +242,12 @@ test('posts batch asset reactions to the extension endpoint', async () => {
     items: [
       {
         asset_url: 'https://cdn.example.test/media/art-1.jpg',
+        match_identity: {
+          match_by: 'referrer',
+          match_url: 'https://www.example.test/post/123?file=1',
+          rule_digest: 'batch-rule-v1',
+          rule_id: 'batch-rule',
+        },
         metadata: {
           asset_type: 'image',
           resolution: '1000x1400',
@@ -362,6 +386,58 @@ test('checks existing Atlas state by asset and referrer urls', async () => {
     referrer_urls: ['https://www.example.test/post/123'],
   });
   assert.equal(response.referrers['https://www.example.test/post/123'].reaction.type, 'love');
+});
+
+test('checks existing Atlas state by derived match items', async () => {
+  const requests = [];
+  const response = await fetchAssetStatuses({
+    assetUrls: ['https://cdn.example.test/media/art.jpg'],
+    config: {
+      apiKey: 'local-key',
+      domain: 'https://atlas.test',
+    },
+    fetchImpl: async (url, options) => {
+      requests.push({ options, url });
+
+      return {
+        ok: true,
+        async json() {
+          return {
+            assets: {},
+            matches: {
+              'asset:https://cdn.example.test/media/art.jpg': {
+                reaction: { type: 'love' },
+              },
+            },
+            referrers: {},
+          };
+        },
+      };
+    },
+    matchItems: [
+      {
+        lookup_id: 'asset:https://cdn.example.test/media/art.jpg',
+        match_by: 'referrer',
+        match_url: 'https://www.facebook.com/photo/?fbid=122099716773370530',
+        rule_digest: 'facebook-photo-v1',
+        rule_id: 'facebook-photo',
+      },
+    ],
+  });
+
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    asset_urls: ['https://cdn.example.test/media/art.jpg'],
+    match_items: [
+      {
+        lookup_id: 'asset:https://cdn.example.test/media/art.jpg',
+        match_by: 'referrer',
+        match_url: 'https://www.facebook.com/photo/?fbid=122099716773370530',
+        rule_digest: 'facebook-photo-v1',
+        rule_id: 'facebook-photo',
+      },
+    ],
+  });
+  assert.equal(response.matches['asset:https://cdn.example.test/media/art.jpg'].reaction.type, 'love');
 });
 
 test('skips status checks when no asset or referrer urls are present', async () => {

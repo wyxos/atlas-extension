@@ -85,6 +85,137 @@ test('reapplies cached asset status when a checked source is surfaced again', as
   }]);
 });
 
+test('applies derived match status to the matching asset source', async () => {
+  const assetUrl = 'https://scontent.example.test/v/t39/photo.jpg?oh=volatile-token';
+  const appliedStates = [];
+  const statusRequests = [];
+  const queue = createStatusCheckQueue({
+    applyAssetState: (source, state) => {
+      appliedStates.push({ source, state });
+    },
+    applyOpenCounts: () => {},
+    applyReferrerState: () => {},
+    clearAssetState: () => {},
+    clearReferrerState: () => {},
+    delayMs: 0,
+    fetchAssetStatuses: async (request) => {
+      statusRequests.push(request);
+
+      return {
+        assets: {},
+        matches: {
+          [`asset:${assetUrl}`]: {
+            reaction: { type: 'love' },
+          },
+        },
+        referrers: {},
+      };
+    },
+    fetchOpenCounts: async () => ({ counts: {} }),
+    windowRef: globalThis,
+  });
+
+  queue.queueAssetStatusCheck(assetUrl, {
+    matchItem: {
+      lookup_id: `asset:${assetUrl}`,
+      match_by: 'referrer',
+      match_url: 'https://www.facebook.com/photo/?fbid=122099716773370530',
+      rule_digest: 'facebook-photo-v1',
+      rule_id: 'facebook-photo',
+    },
+  });
+  await waitForFlush();
+
+  assert.deepEqual(statusRequests, [{
+    assetUrls: [assetUrl],
+    matchItems: [
+      {
+        lookup_id: `asset:${assetUrl}`,
+        match_by: 'referrer',
+        match_url: 'https://www.facebook.com/photo/?fbid=122099716773370530',
+        rule_digest: 'facebook-photo-v1',
+        rule_id: 'facebook-photo',
+        targetKey: assetUrl,
+        targetType: 'asset',
+      },
+    ],
+    referrerUrls: [],
+  }]);
+  assert.deepEqual(appliedStates, [{
+    source: assetUrl,
+    state: {
+      reaction: { type: 'love' },
+    },
+  }]);
+});
+
+test('fetches derived match status after source miss was cached', async () => {
+  const assetUrl = 'https://scontent.example.test/v/t39/photo.jpg?oh=volatile-token';
+  const matchItem = {
+    lookup_id: `asset:${assetUrl}`,
+    match_by: 'referrer',
+    match_url: 'https://www.facebook.com/photo/?fbid=1577573303728044',
+    rule_digest: 'facebook-photo-v1',
+    rule_id: 'facebook-photo',
+  };
+  const appliedStates = [];
+  const statusRequests = [];
+  const queue = createStatusCheckQueue({
+    applyAssetState: (source, state) => {
+      appliedStates.push({ source, state });
+    },
+    applyOpenCounts: () => {},
+    applyReferrerState: () => {},
+    clearAssetState: () => {},
+    clearReferrerState: () => {},
+    delayMs: 0,
+    fetchAssetStatuses: async (request) => {
+      statusRequests.push(request);
+
+      return request.matchItems.length > 0
+        ? {
+            assets: {},
+            matches: {
+              [matchItem.lookup_id]: {
+                reaction: { type: 'love' },
+              },
+            },
+            referrers: {},
+          }
+        : {
+            assets: {},
+            matches: {},
+            referrers: {},
+          };
+    },
+    fetchOpenCounts: async () => ({ counts: {} }),
+    windowRef: globalThis,
+  });
+
+  queue.queueAssetStatusCheck(assetUrl);
+  await waitForFlush();
+
+  queue.queueAssetStatusCheck(assetUrl, { matchItem });
+  await waitForFlush();
+
+  assert.equal(statusRequests.length, 2);
+  assert.deepEqual(statusRequests[1], {
+    assetUrls: [],
+    matchItems: [{
+      ...matchItem,
+      targetKey: assetUrl,
+      targetType: 'asset',
+    }],
+    referrerUrls: [],
+  });
+  assert.deepEqual(appliedStates, [{
+    source: assetUrl,
+    state: {
+      reaction: { type: 'love' },
+    },
+  }]);
+});
+
 test('reapplies cached referrer status when a checked referrer is surfaced again', async () => {
   const referrerUrl = 'https://www.example.test/post/123';
   const appliedStates = [];

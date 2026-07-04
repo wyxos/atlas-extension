@@ -22,6 +22,7 @@ export async function postAssetReaction({
   return atlasExtensionJson({
     body: {
       asset_url: asset.source,
+      ...(asset.matchIdentity ? { match_identity: asset.matchIdentity } : {}),
       ...(downloadAction ? { download_action: downloadAction } : {}),
       metadata: buildAssetMetadata(asset),
       referrer_url: referrerUrl,
@@ -62,19 +63,22 @@ export async function fetchAssetStatuses({
   assetUrls,
   config,
   fetchImpl = globalThis.fetch,
+  matchItems,
   referrerUrls,
   requestTimeoutMs,
 }) {
   const uniqueAssetUrls = uniqueNonEmptyStrings(assetUrls);
+  const uniqueMatchItems = uniqueStatusMatchItems(matchItems);
   const uniqueReferrerUrls = uniqueNonEmptyStrings(referrerUrls);
 
-  if (uniqueAssetUrls.length === 0 && uniqueReferrerUrls.length === 0) {
+  if (uniqueAssetUrls.length === 0 && uniqueReferrerUrls.length === 0 && uniqueMatchItems.length === 0) {
     return { assets: {}, referrers: {} };
   }
 
   return atlasExtensionJson({
     body: {
       ...(uniqueAssetUrls.length > 0 ? { asset_urls: uniqueAssetUrls } : {}),
+      ...(uniqueMatchItems.length > 0 ? { match_items: uniqueMatchItems } : {}),
       ...(uniqueReferrerUrls.length > 0 ? { referrer_urls: uniqueReferrerUrls } : {}),
     },
     config,
@@ -171,6 +175,7 @@ function buildAssetMetadata(asset) {
 function normalizeBatchItems(items) {
   return (items ?? []).map((item) => ({
     asset_url: item.asset?.source,
+    ...(item.asset?.matchIdentity ? { match_identity: item.asset.matchIdentity } : {}),
     metadata: buildAssetMetadata(item.asset ?? {}),
     referrer_url: item.referrerUrl,
     source: item.source,
@@ -181,6 +186,39 @@ function uniqueNonEmptyStrings(values) {
   return [...new Set(values)]
     .map((value) => String(value ?? '').trim())
     .filter((value) => value !== '');
+}
+
+function uniqueStatusMatchItems(values) {
+  const itemsByLookupId = new Map();
+
+  for (const item of values ?? []) {
+    const normalized = normalizeStatusMatchItem(item);
+    if (normalized !== null) {
+      itemsByLookupId.set(normalized.lookup_id, normalized);
+    }
+  }
+
+  return [...itemsByLookupId.values()];
+}
+
+function normalizeStatusMatchItem(item) {
+  const lookupId = String(item?.lookup_id ?? '').trim();
+  const matchBy = String(item?.match_by ?? '').trim();
+  const matchUrl = String(item?.match_url ?? '').trim();
+
+  if (lookupId === '' || !['source', 'referrer'].includes(matchBy) || matchUrl === '') {
+    return null;
+  }
+
+  return Object.fromEntries(
+    Object.entries({
+      lookup_id: lookupId,
+      match_by: matchBy,
+      match_url: matchUrl,
+      rule_digest: item?.rule_digest,
+      rule_id: item?.rule_id,
+    }).filter(([, value]) => value !== null && value !== undefined && value !== ''),
+  );
 }
 
 async function readJson(response) {

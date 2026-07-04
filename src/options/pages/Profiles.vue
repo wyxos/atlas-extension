@@ -6,14 +6,18 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@ui/field";
 import { Input } from "@ui/input";
 import {
   addAssetSourceDomain,
+  createDefaultAssetMatchingRule,
   createDefaultAssetSourcePreferences,
   filterAssetSourceDomains,
   imageSourcePreferenceValues,
   loadAssetSourcePreferences,
   normalizeAssetSourceDomain,
   removeAssetSourceDomain,
+  setAssetMatchingRule,
   setAssetImageSourcePreference,
 } from "../../shared/asset-source-preferences";
+import { applyAssetMatchRule } from "../../shared/asset-match-rules-api";
+import AssetMatchingRules from "../components/AssetMatchingRules.vue";
 
 const domainInput = ref("");
 const filterInput = ref("");
@@ -22,6 +26,7 @@ const activeDomain = ref(null);
 const selectedProfileTab = ref("asset");
 const errorMessage = ref("");
 const isSaving = ref(false);
+const backfillStatus = ref("");
 
 const profileTabs = [
   {
@@ -61,6 +66,9 @@ const selectedProfile = computed(() => {
 });
 const imageSourcePreference = computed(() => (
   selectedProfile.value?.asset.imageSourcePreference ?? imageSourcePreferenceValues.src
+));
+const assetMatchingRule = computed(() => (
+  selectedProfile.value?.asset.matching ?? createDefaultAssetMatchingRule()
 ));
 
 onMounted(loadDomains);
@@ -126,6 +134,52 @@ async function setImageSourcePreference(value) {
     errorMessage.value = "";
   } catch {
     errorMessage.value = "Profile rules unavailable.";
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+async function updateAssetMatchingRule(patch) {
+  if (activeDomain.value === null) {
+    return;
+  }
+
+  isSaving.value = true;
+
+  try {
+    const nextRule = {
+      ...assetMatchingRule.value,
+      ...patch,
+    };
+    const nextPreferences = await setAssetMatchingRule(activeDomain.value, nextRule);
+
+    applyPreferences(nextPreferences, activeDomain.value);
+    backfillStatus.value = "";
+    errorMessage.value = "";
+  } catch {
+    errorMessage.value = "Profile rules unavailable.";
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+async function applyCurrentAssetMatchRule() {
+  if (selectedProfile.value === null) {
+    return;
+  }
+
+  isSaving.value = true;
+
+  try {
+    await applyAssetMatchRule({
+      domain: selectedProfile.value.domain,
+      matching: assetMatchingRule.value,
+    });
+    backfillStatus.value = "Backfill queued.";
+    errorMessage.value = "";
+  } catch {
+    backfillStatus.value = "";
+    errorMessage.value = "Atlas backfill unavailable.";
   } finally {
     isSaving.value = false;
   }
@@ -302,6 +356,13 @@ function selectProfile(domain) {
                   </Button>
                 </div>
               </Field>
+              <AssetMatchingRules
+                :backfill-status="backfillStatus"
+                :disabled="isSaving"
+                :matching="assetMatchingRule"
+                @apply="applyCurrentAssetMatchRule"
+                @update="updateAssetMatchingRule"
+              />
             </FieldGroup>
           </section>
 

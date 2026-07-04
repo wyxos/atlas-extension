@@ -1,7 +1,8 @@
-import { describeAssetElement, initializeAssetSourcePreferences } from './assets.js';
+import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
 import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
 import { createBatchProviderState } from './batch-provider-state.js';
 import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openReferrerInTabViaBackground } from './background-api.js';
+import { decorateAssetWithMatchIdentity as decorateAssetWithMatchIdentityForRuntime, statusMatchItemForAsset } from './asset-match-runtime.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
 import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
@@ -28,7 +29,6 @@ const scanDelayMs = 50;
 const statusCheckDelayMs = 100;
 const referrerMinVisibleWidth = 40;
 const viewportPadding = 4;
-
 const assetIds = new Map();
 const assetsById = new Map();
 const batchContextsById = new Map();
@@ -48,8 +48,8 @@ const batchProviderState = createBatchProviderState({
   getContextsById: () => batchContextsById,
   onBadgeState: updateBadgeState,
 });
-
 const referrerBadges = createReferrerBadgeManager({
+  decorateAsset: decorateAssetWithMatchIdentity,
   getCurrentPageUrl: () => window.location.href,
   getOverlayController,
   getVisibleRect: getReferrerVisibleRect,
@@ -63,7 +63,6 @@ const referrerBadges = createReferrerBadgeManager({
   removeOverlayBadge: (id) => overlayController?.removeBadge(id),
   viewportPadding,
 });
-
 const statusChecks = createStatusCheckQueue({
   applyAssetState: updateBadgeStateBySource,
   applyOpenCounts: mergeOpenReferrerCounts,
@@ -74,7 +73,6 @@ const statusChecks = createStatusCheckQueue({
   fetchAssetStatuses: fetchAssetStatusesViaBackground,
   fetchOpenCounts: fetchOpenReferrerCountsViaBackground,
 });
-
 const referrerOpenGuard = createReferrerOpenGuard({
   confirmOpen: (request) => getOverlayController().confirmReferrerOpen(request),
   getAtlasState: (referrerUrl) => referrerBadges.getAtlasStateByReferrerUrl(referrerUrl),
@@ -113,13 +111,10 @@ function getOverlayController() {
 
 function getAssetId(element) {
   const existingId = assetIds.get(element);
-
   if (existingId !== undefined) {
     return existingId;
   }
-
   const id = `asset-${nextAssetId}`;
-
   nextAssetId += 1;
   assetIds.set(element, id);
   elementsById.set(id, element);
@@ -144,7 +139,10 @@ function removeBadge(element) {
 }
 
 function syncAsset(element) {
-  const asset = describeAssetElement(element);
+  const rawAsset = describeAssetElement(element);
+  const asset = rawAsset === null
+    ? null
+    : decorateAssetWithMatchIdentity(rawAsset, { referrerUrl: window.location.href });
 
   if (asset === null || !element?.isConnected) {
     removeBadge(element);
@@ -192,7 +190,9 @@ function syncAsset(element) {
     id,
     createAssetBadgePresentation(id, element, asset, visibleRect, nextBadgeState ?? {}),
   );
-  queueAssetStatusCheck(asset.source);
+  queueAssetStatusCheck(asset.source, {
+    matchItem: statusMatchItemForAsset(asset, 'asset'),
+  });
 
   return true;
 }
@@ -266,9 +266,15 @@ function clearAtlasAssetStateBySource(source) {
   }
 }
 
-function queueAssetStatusCheck(source) { statusChecks.queueAssetStatusCheck(source); }
+function queueAssetStatusCheck(source, options) { statusChecks.queueAssetStatusCheck(source, options); }
 
 function queueReferrerStatusCheck(referrerUrl, options) { statusChecks.queueReferrerStatusCheck(referrerUrl, options); }
+
+function decorateAssetWithMatchIdentity(asset, options = {}) {
+  return decorateAssetWithMatchIdentityForRuntime({
+    asset, pageUrl: window.location.href, preferences: getCurrentAssetSourcePreferences(), referrerUrl: options.referrerUrl ?? asset.referrerUrl, siteDomain: window.location.hostname,
+  });
+}
 
 function mergeOpenReferrerCounts(referrerUrls, counts) {
   for (const referrerUrl of referrerUrls) {
@@ -370,15 +376,12 @@ function handleBadgeBatchToggle(event) {
   if (context === undefined) {
     return;
   }
-
   batchProviderState.setProviderEnabled(context.provider, event.checked === true);
   batchProviderState.updateProvider(context.provider);
   void saveBatchProviderPreference(context.provider, event.checked === true);
 }
 
-function handleBadgeCloseModeChange(event) {
-  void closeTabMode.setMode(event.mode);
-}
+function handleBadgeCloseModeChange(event) { void closeTabMode.setMode(event.mode); }
 
 function handleAssetShortcut(event) {
   handleAssetShortcutEvent(event, {

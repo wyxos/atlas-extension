@@ -8,6 +8,7 @@ import { resolveReferrerBadgeState } from './referrer-state.js';
 import { resolveStateFileId } from './state-file-id.js';
 
 export function createReferrerBadgeManager({
+  decorateAsset = (asset) => asset,
   getCurrentPageUrl = () => globalThis.location?.href ?? '',
   getOverlayController,
   getVisibleRect,
@@ -28,7 +29,8 @@ export function createReferrerBadgeManager({
   let openCounts = {};
 
   function sync(element) {
-    const asset = describeReferrerAssetElement(element);
+    const rawAsset = describeReferrerAssetElement(element);
+    const asset = rawAsset === null ? null : decorateAsset(rawAsset);
 
     if (asset === null || !element?.isConnected) {
       remove(element);
@@ -52,7 +54,10 @@ export function createReferrerBadgeManager({
     }
 
     render(id, nextState ?? {});
-    queueStatusCheck(asset.referrerUrl, { refreshOpenCounts });
+    queueStatusCheck(asset.referrerUrl, {
+      matchItem: statusMatchItemForAsset(asset),
+      refreshOpenCounts,
+    });
 
     return getVisibleRect(element) !== null;
   }
@@ -273,6 +278,17 @@ export function createReferrerBadgeManager({
     updateByDownloadEvent,
     updateByReferrerUrl,
     updateOpenCounts,
+  };
+}
+
+function statusMatchItemForAsset(asset) {
+  if (!asset?.matchIdentity) {
+    return null;
+  }
+
+  return {
+    ...asset.matchIdentity,
+    lookup_id: `referrer:${asset.referrerUrl}`,
   };
 }
 

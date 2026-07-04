@@ -40,6 +40,10 @@ export async function initializeAssetSourcePreferences({ onChanged = () => {} } 
   }
 }
 
+export function getCurrentAssetSourcePreferences() {
+  return assetSourcePreferences;
+}
+
 export function markAtlasManagedOpacity(element) {
   if (typeof element === 'object' && element !== null) {
     atlasManagedOpacityElements.add(element);

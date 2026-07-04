@@ -2,15 +2,17 @@ const defaultTimeoutMs = 15000;
 
 export function fetchAssetStatusesViaBackground({
   assetUrls,
+  matchItems,
   referrerUrls,
   runtime = globalThis.chrome?.runtime,
   timeoutMs = defaultTimeoutMs,
 }) {
-  return sendBackgroundRequest({
+  return sendBackgroundRequest(withoutUndefinedValues({
     assetUrls,
+    matchItems,
     referrerUrls,
     type: 'atlas-extension.asset-statuses',
-  }, { runtime, timeoutMs });
+  }), { runtime, timeoutMs });
 }
 
 export function fetchOpenReferrerCountsViaBackground({
@@ -147,4 +149,10 @@ export function sendBackgroundRequest(message, options = {}) {
       finish(reject, error);
     }
   });
+}
+
+function withoutUndefinedValues(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  );
 }

@@ -139,6 +139,7 @@ async function handleAtlasApiMessage(message) {
     return fetchAssetStatuses({
       assetUrls: message.assetUrls,
       config,
+      matchItems: message.matchItems,
       referrerUrls: message.referrerUrls,
     });
   }

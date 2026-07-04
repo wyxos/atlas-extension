@@ -1,10 +1,22 @@
 export const assetSourcePreferencesKey = 'atlasExtensionAssetSourcePreferences';
 
-const assetSourcePreferencesVersion = 2;
+const assetSourcePreferencesVersion = 3;
 
 export const imageSourcePreferenceValues = {
   highestSrcset: 'srcset-highest',
   src: 'src',
+};
+
+export const assetMatchByValues = {
+  referrer: 'referrer',
+  source: 'source',
+};
+
+export const assetMatchQueryCleanupModes = {
+  keepSelected: 'keep-selected',
+  none: 'none',
+  stripAll: 'strip-all',
+  stripSelected: 'strip-selected',
 };
 
 const fallbackAssetImageSourcePreference = imageSourcePreferenceValues.src;
@@ -118,6 +130,45 @@ export async function setAssetImageSourcePreference(
   return nextPreferences;
 }
 
+export async function setAssetMatchingRule(
+  siteDomain,
+  matchingRule,
+  storage = getExtensionStorage(),
+) {
+  if (storage === null) {
+    throw new Error('Extension storage is unavailable.');
+  }
+
+  const normalizedDomain = normalizeAssetSourceDomain(siteDomain);
+
+  if (normalizedDomain === null) {
+    throw new Error('A valid site domain is required.');
+  }
+
+  const preferences = await loadAssetSourcePreferences(storage);
+  const profileOverrides = preferences.profiles.map((profile) => {
+    if (profile.domain !== normalizedDomain) {
+      return profile;
+    }
+
+    return {
+      ...profile,
+      asset: {
+        ...profile.asset,
+        matching: normalizeAssetMatchingRule(matchingRule),
+      },
+    };
+  });
+  const nextPreferences = createAssetSourcePreferencesFromDomains(
+    preferences.domains,
+    profileOverrides,
+  );
+
+  await storage.set({ [assetSourcePreferencesKey]: nextPreferences });
+
+  return nextPreferences;
+}
+
 export function normalizeAssetSourcePreferences(value) {
   if (!value || typeof value !== 'object') {
     return createDefaultAssetSourcePreferences();
@@ -212,6 +263,7 @@ function createAssetSourceProfile(domain) {
   return {
     asset: {
       imageSourcePreference: defaultImageSourcePreferenceForDomain(domain),
+      matching: createDefaultAssetMatchingRule(),
     },
     domain,
     referrer: {
@@ -231,11 +283,58 @@ function normalizeAssetSourceProfile(value) {
     asset: {
       imageSourcePreference: normalizeImageSourcePreference(value?.asset?.imageSourcePreference)
         ?? defaultImageSourcePreferenceForDomain(domain),
+      matching: normalizeAssetMatchingRule(value?.asset?.matching),
     },
     domain,
     referrer: {
       rules: Array.isArray(value?.referrer?.rules) ? value.referrer.rules : [],
     },
+  };
+}
+
+export function createDefaultAssetMatchingRule() {
+  return {
+    cleanup: {
+      query: {
+        mode: assetMatchQueryCleanupModes.none,
+        params: [],
+      },
+      removeFragment: false,
+    },
+    matchBy: assetMatchByValues.source,
+    ruleId: '',
+  };
+}
+
+export function normalizeAssetMatchingRule(value) {
+  if (!value || typeof value !== 'object') {
+    return createDefaultAssetMatchingRule();
+  }
+
+  const matchBy = Object.values(assetMatchByValues).includes(value.matchBy)
+    ? value.matchBy
+    : assetMatchByValues.source;
+  const query = value.cleanup && typeof value.cleanup === 'object' && value.cleanup.query
+    && typeof value.cleanup.query === 'object'
+    ? value.cleanup.query
+    : {};
+  const queryMode = Object.values(assetMatchQueryCleanupModes).includes(query.mode)
+    ? query.mode
+    : assetMatchQueryCleanupModes.none;
+  const queryParams = queryMode === assetMatchQueryCleanupModes.none
+    ? []
+    : normalizeQueryParams(query.params);
+
+  return {
+    cleanup: {
+      query: {
+        mode: queryMode,
+        params: queryParams,
+      },
+      removeFragment: value.cleanup?.removeFragment === true,
+    },
+    matchBy,
+    ruleId: typeof value.ruleId === 'string' ? value.ruleId.trim() : '',
   };
 }
 
@@ -245,6 +344,18 @@ function defaultImageSourcePreferenceForDomain(domain) {
 
 function normalizeImageSourcePreference(value) {
   return Object.values(imageSourcePreferenceValues).includes(value) ? value : null;
+}
+
+function normalizeQueryParams(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [...new Set(
+    value
+      .map((param) => String(param ?? '').trim().toLowerCase())
+      .filter((param) => param !== ''),
+  )];
 }
 
 function normalizeDomainList(value) {

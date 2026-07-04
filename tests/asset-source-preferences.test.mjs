@@ -12,6 +12,19 @@ import {
   resolveAssetImageSourcePreference,
   setAssetImageSourcePreference,
 } from '../src/shared/asset-source-preferences.js';
+import * as assetSourcePreferences from '../src/shared/asset-source-preferences.js';
+
+const defaultMatching = {
+  cleanup: {
+    query: {
+      mode: 'none',
+      params: [],
+    },
+    removeFragment: false,
+  },
+  matchBy: 'source',
+  ruleId: '',
+};
 
 test('defaults to an empty asset source domain list', async () => {
   const storage = createStorage();
@@ -19,13 +32,13 @@ test('defaults to an empty asset source domain list', async () => {
   assert.deepEqual(createDefaultAssetSourcePreferences(), {
     domains: [],
     profiles: [],
-    version: 2,
+    version: 3,
   });
 
   assert.deepEqual(await loadAssetSourcePreferences(storage), {
     domains: [],
     profiles: [],
-    version: 2,
+    version: 3,
   });
 });
 
@@ -46,6 +59,7 @@ test('adds normalized asset source profile domains without duplicates', async ()
       {
         asset: {
           imageSourcePreference: imageSourcePreferenceValues.highestSrcset,
+          matching: defaultMatching,
         },
         domain: 'reddit.com',
         referrer: {
@@ -55,6 +69,7 @@ test('adds normalized asset source profile domains without duplicates', async ()
       {
         asset: {
           imageSourcePreference: imageSourcePreferenceValues.src,
+          matching: defaultMatching,
         },
         domain: 'x.com',
         referrer: {
@@ -62,7 +77,7 @@ test('adds normalized asset source profile domains without duplicates', async ()
         },
       },
     ],
-    version: 2,
+    version: 3,
   });
 });
 
@@ -82,6 +97,7 @@ test('removes normalized asset source profile domains', async () => {
       {
         asset: {
           imageSourcePreference: imageSourcePreferenceValues.src,
+          matching: defaultMatching,
         },
         domain: 'x.com',
         referrer: {
@@ -89,7 +105,7 @@ test('removes normalized asset source profile domains', async () => {
         },
       },
     ],
-    version: 2,
+    version: 3,
   });
 });
 
@@ -130,6 +146,7 @@ test('normalizes profile-only stored preferences into domains', async () => {
       {
         asset: {
           imageSourcePreference: imageSourcePreferenceValues.highestSrcset,
+          matching: defaultMatching,
         },
         domain: 'reddit.com',
         referrer: {
@@ -137,7 +154,140 @@ test('normalizes profile-only stored preferences into domains', async () => {
         },
       },
     ],
-    version: 2,
+    version: 3,
+  });
+});
+
+test('normalizes profile matching defaults and structured cleanup rules', async () => {
+  const storage = createStorage({
+    [assetSourcePreferencesKey]: {
+      domains: ['facebook.com', 'media.example.test', 'x.com'],
+      profiles: [
+        {
+          asset: {
+            matching: {
+              cleanup: {
+                query: {
+                  mode: 'keep-selected',
+                  params: ['fbid', 'set', 'fbid'],
+                },
+                removeFragment: true,
+              },
+              matchBy: 'referrer',
+              ruleId: 'facebook-photo',
+            },
+          },
+          domain: 'facebook.com',
+        },
+        {
+          asset: {
+            matching: {
+              cleanup: {
+                query: {
+                  mode: 'strip-selected',
+                  params: ['utm_source', ''],
+                },
+              },
+              matchBy: 'source',
+            },
+          },
+          domain: 'media.example.test',
+        },
+        {
+          asset: {
+            matching: {
+              cleanup: {
+                query: {
+                  mode: 'regex',
+                  params: ['ignored'],
+                },
+              },
+              matchBy: 'unsupported',
+            },
+          },
+          domain: 'x.com',
+        },
+      ],
+      version: 2,
+    },
+  });
+
+  assert.deepEqual((await loadAssetSourcePreferences(storage)).profiles.map((profile) => ({
+    domain: profile.domain,
+    matching: profile.asset.matching,
+  })), [
+    {
+      domain: 'facebook.com',
+      matching: {
+        cleanup: {
+          query: {
+            mode: 'keep-selected',
+            params: ['fbid', 'set'],
+          },
+          removeFragment: true,
+        },
+        matchBy: 'referrer',
+        ruleId: 'facebook-photo',
+      },
+    },
+    {
+      domain: 'media.example.test',
+      matching: {
+        cleanup: {
+          query: {
+            mode: 'strip-selected',
+            params: ['utm_source'],
+          },
+          removeFragment: false,
+        },
+        matchBy: 'source',
+        ruleId: '',
+      },
+    },
+    {
+      domain: 'x.com',
+      matching: defaultMatching,
+    },
+  ]);
+});
+
+test('stores per-profile matching rules without rewriting raw profile domains', async () => {
+  const storage = createStorage();
+
+  await addAssetSourceDomain('facebook.com', storage);
+  assert.equal(typeof assetSourcePreferences.setAssetMatchingRule, 'function');
+
+  await assetSourcePreferences.setAssetMatchingRule('https://www.facebook.com/photo/123', {
+    cleanup: {
+      query: {
+        mode: 'keep-selected',
+        params: ['fbid'],
+      },
+      removeFragment: true,
+    },
+    matchBy: 'referrer',
+    ruleId: 'facebook-photo',
+  }, storage);
+
+  assert.deepEqual((await loadAssetSourcePreferences(storage)).profiles[0], {
+    asset: {
+      imageSourcePreference: imageSourcePreferenceValues.src,
+      matching: {
+        cleanup: {
+          query: {
+            mode: 'keep-selected',
+            params: ['fbid'],
+          },
+          removeFragment: true,
+        },
+        matchBy: 'referrer',
+        ruleId: 'facebook-photo',
+      },
+    },
+    domain: 'facebook.com',
+    referrer: {
+      rules: [],
+    },
   });
 });
 
