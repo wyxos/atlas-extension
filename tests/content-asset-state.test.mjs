@@ -41,8 +41,8 @@ test('resets badge state when a reused asset element changes source', () => {
 
   assert.equal(
     stateForSyncedAsset(
-      { source: 'https://www.facebook.com/reel/982079264798911', type: 'video' },
-      { source: 'https://www.facebook.com/reel/next', type: 'video' },
+      { source: 'https://media.example.test/reel/current', type: 'video' },
+      { source: 'https://media.example.test/reel/next', type: 'video' },
       currentState,
     ),
     null,
@@ -50,8 +50,8 @@ test('resets badge state when a reused asset element changes source', () => {
 
   assert.equal(
     stateForSyncedAsset(
-      { source: 'https://www.facebook.com/reel/982079264798911', type: 'video' },
-      { source: 'https://www.facebook.com/reel/982079264798911', type: 'video' },
+      { source: 'https://media.example.test/reel/current', type: 'video' },
+      { source: 'https://media.example.test/reel/current', type: 'video' },
       currentState,
     ),
     currentState,
@@ -59,15 +59,15 @@ test('resets badge state when a reused asset element changes source', () => {
 });
 
 test('ignores async responses for asset elements recycled to another source', () => {
-  const reactedAsset = { source: 'https://www.facebook.com/reel/982079264798911', type: 'video' };
+  const reactedAsset = { source: 'https://media.example.test/reel/current', type: 'video' };
 
   assert.equal(
-    shouldApplyAssetResponse(reactedAsset, { source: 'https://www.facebook.com/reel/next', type: 'video' }),
+    shouldApplyAssetResponse(reactedAsset, { source: 'https://media.example.test/reel/next', type: 'video' }),
     false,
   );
 
   assert.equal(
-    shouldApplyAssetResponse(reactedAsset, { source: 'https://www.facebook.com/reel/982079264798911', type: 'video' }),
+    shouldApplyAssetResponse(reactedAsset, { source: 'https://media.example.test/reel/current', type: 'video' }),
     true,
   );
 

@@ -195,12 +195,12 @@ test('parses .env values used by local extension builds', () => {
   assert.deepEqual(
     parseDotEnvText([
       '# local extension output',
-      'ATLAS_EXTENSION_LOCAL_OUT=C:\\Users\\joeyj\\Downloads\\atlas-extension',
+      'ATLAS_EXTENSION_LOCAL_OUT=C:\\Users\\example\\Downloads\\atlas-extension',
       'QUOTED="C:/Users/example/Downloads/atlas-extension"',
       '',
     ].join('\n')),
     {
-      ATLAS_EXTENSION_LOCAL_OUT: 'C:\\Users\\joeyj\\Downloads\\atlas-extension',
+      ATLAS_EXTENSION_LOCAL_OUT: 'C:\\Users\\example\\Downloads\\atlas-extension',
       QUOTED: 'C:/Users/example/Downloads/atlas-extension',
     },
   );
