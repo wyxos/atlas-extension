@@ -177,6 +177,7 @@ if (optionsHtml !== null) {
 if (popupHtml !== null) {
   expect(popupHtml.includes('<title>Atlas Extension</title>'), 'popup.html must set the popup page title');
   expect(popupHtml.includes('atlas-popup-scan'), 'popup.html must expose a manual scan action');
+  expect(popupHtml.includes('atlas-popup-load-next-tabs'), 'popup.html must expose a next-tabs load action');
   expect(popupHtml.includes('atlas-popup-reload'), 'popup.html must expose an extension reload action');
   expect(popupHtml.includes('/src/popup/main.js'), 'popup.html must load the popup entry');
 }
@@ -255,8 +256,10 @@ const contentReferrerDialog = readText('src/content/ReferrerOpenDialog.vue');
 const contentReferrerOpenGuard = readText('src/content/referrer-open-guard.js');
 const contentReferrerState = readText('src/content/referrer-state.js');
 const backgroundTabState = readText('src/background/tab-state.js');
+const backgroundLoadNextTabs = readText('src/background/load-next-tabs.js');
 const backgroundMain = readText('src/background/main.js');
 const popupScript = readText('src/popup/main.js');
+const popupLoadNextTabsHelper = readText('src/popup/load-next-tabs.js');
 const popupReloadHelper = readText('src/popup/reload-extension.js');
 const popupScanHelper = readText('src/popup/scan-active-tab.js');
 
@@ -287,9 +290,16 @@ if (contentRuntime !== null) {
 
 if (popupScript !== null) {
   expect(popupScript.includes('requestActiveTabScan'), 'src/popup/main.js must trigger an active-tab scan request');
+  expect(popupScript.includes('requestNextTabsLoad'), 'src/popup/main.js must trigger a next-tabs load request');
   expect(popupScript.includes('requestExtensionReload'), 'src/popup/main.js must trigger an extension reload request');
   expect(popupScript.includes('atlas-popup-scan'), 'src/popup/main.js must bind the popup scan button');
+  expect(popupScript.includes('atlas-popup-load-next-tabs'), 'src/popup/main.js must bind the popup next-tabs load button');
   expect(popupScript.includes('atlas-popup-reload'), 'src/popup/main.js must bind the popup reload button');
+}
+
+if (popupLoadNextTabsHelper !== null) {
+  expect(popupLoadNextTabsHelper.includes('chrome?.tabs'), 'src/popup/load-next-tabs.js must use the Chrome tabs API');
+  expect(popupLoadNextTabsHelper.includes('loadNextTabsRequestType'), 'src/popup/load-next-tabs.js must send the next-tabs request message');
 }
 
 if (popupScanHelper !== null) {
@@ -380,8 +390,14 @@ if (backgroundMain !== null) {
   );
   expect(backgroundMain.includes('open-referrer-counts'), 'src/background/main.js must serve open referrer tab counts');
   expect(backgroundMain.includes('open-tab-counts-changed'), 'src/background/main.js must broadcast open tab count changes');
+  expect(backgroundMain.includes('loadNextTabsFromActive'), 'src/background/main.js must handle popup next-tabs load requests');
   expect(backgroundMain.includes('handleExtensionReloadRequest'), 'src/background/main.js must handle popup extension reload requests');
   expect(backgroundMain.includes('deliverPendingExtensionReloadNotice'), 'src/background/main.js must deliver pending reload notices');
+}
+
+if (backgroundLoadNextTabs !== null) {
+  expect(backgroundLoadNextTabs.includes('loadNextTabsDefaultLimit'), 'src/background/load-next-tabs.js must cap next-tab activation count');
+  expect(backgroundLoadNextTabs.includes('tabsApi.update'), 'src/background/load-next-tabs.js must activate tabs through Chrome tabs API');
 }
 
 if (connectionModule !== null) {

@@ -17,6 +17,8 @@ import {
 import { createPusherReverbClient } from './pusher-reverb-client.js';
 import { createOpenTabRegistry } from './tab-state.js';
 import { collectReactionRuntimeContext } from './reaction-runtime-context.js';
+import { loadNextTabsFromActive } from './load-next-tabs.js';
+import { loadNextTabsRequestType } from '../shared/load-next-tabs-messages.js';
 import {
   syncExtensionSettings,
   uploadSettingsAfterStorageChange,
@@ -62,6 +64,21 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     });
 
     return false;
+  }
+
+  if (message?.type === loadNextTabsRequestType) {
+    void loadNextTabsFromActive({
+      activeTabId: message.activeTabId,
+      limit: message.limit,
+      windowId: message.windowId,
+    })
+      .then((payload) => sendResponse({ ok: true, payload }))
+      .catch((error) => sendResponse({
+        error: error?.message ?? 'Tabs could not be loaded.',
+        ok: false,
+      }));
+
+    return true;
   }
 
   if (message?.type === extensionReloadRequestType) {
