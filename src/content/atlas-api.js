@@ -17,6 +17,7 @@ export async function postAssetReaction({
   reactionType,
   requestTimeoutMs,
   referrerUrl,
+  runtimeContext,
   source,
 }) {
   return atlasExtensionJson({
@@ -26,6 +27,7 @@ export async function postAssetReaction({
       ...(downloadAction ? { download_action: downloadAction } : {}),
       metadata: buildAssetMetadata(asset),
       referrer_url: referrerUrl,
+      ...buildRuntimeContextPayload(runtimeContext),
       source,
       type: reactionType,
     },
@@ -44,11 +46,13 @@ export async function postAssetReactionBatch({
   items,
   reactionType,
   requestTimeoutMs,
+  runtimeContext,
 }) {
   return atlasExtensionJson({
     body: {
       ...(downloadAction ? { download_action: downloadAction } : {}),
       items: normalizeBatchItems(items),
+      ...buildRuntimeContextPayload(runtimeContext),
       type: reactionType,
     },
     config,
@@ -180,6 +184,20 @@ function normalizeBatchItems(items) {
     referrer_url: item.referrerUrl,
     source: item.source,
   }));
+}
+
+function buildRuntimeContextPayload(runtimeContext) {
+  const cookies = Array.isArray(runtimeContext?.cookies)
+    ? runtimeContext.cookies
+    : [];
+  const userAgent = typeof runtimeContext?.user_agent === 'string'
+    ? runtimeContext.user_agent.trim()
+    : '';
+
+  return {
+    ...(cookies.length > 0 ? { cookies } : {}),
+    ...(userAgent !== '' ? { user_agent: userAgent } : {}),
+  };
 }
 
 function uniqueNonEmptyStrings(values) {

@@ -5,7 +5,9 @@
   "version": "0.1.0",
   "permissions": [
     "storage",
-    "tabs"
+    "tabs",
+    "cookies",
+    "scripting"
   ],
   "icons": {
     "16": "icons/favicon-16x16.png",

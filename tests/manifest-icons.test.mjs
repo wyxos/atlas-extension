@@ -31,6 +31,12 @@ test('declares a toolbar popup for manual page scanning', () => {
   assert.equal(manifest.action.default_popup, 'popup.html');
 });
 
+test('declares scripting permission for post-reload active tab prompts', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+
+  assert.deepEqual(manifest.permissions, ['storage', 'tabs', 'cookies', 'scripting']);
+});
+
 test('loads a main-world location bridge before the isolated content script', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 

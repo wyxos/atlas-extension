@@ -9,6 +9,8 @@ const popupHtml = fs.readFileSync(path.join(root, 'popup.html'), 'utf8');
 test('popup exposes a manual scan action', () => {
   assert.match(popupHtml, /Atlas Extension/);
   assert.match(popupHtml, /atlas-popup-scan/);
+  assert.match(popupHtml, /atlas-popup-reload/);
   assert.match(popupHtml, /\/src\/popup\/main\.js/);
   assert.match(popupHtml, /Scan page/);
+  assert.match(popupHtml, /Reload extension/);
 });

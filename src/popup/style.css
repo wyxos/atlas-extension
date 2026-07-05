@@ -30,7 +30,7 @@ body {
   line-height: 1.2;
 }
 
-.atlas-popup__scan {
+.atlas-popup__button {
   border: 1px solid #1d4ed8;
   border-radius: 6px;
   background: #0f3f88;
@@ -43,18 +43,28 @@ body {
   padding: 9px 12px;
 }
 
-.atlas-popup__scan:hover {
+.atlas-popup__button:hover {
   background: #1655b8;
 }
 
-.atlas-popup__scan:focus-visible {
+.atlas-popup__button:focus-visible {
   outline: 2px solid #93c5fd;
   outline-offset: 2px;
 }
 
-.atlas-popup__scan:disabled {
+.atlas-popup__button:disabled {
   cursor: default;
   opacity: 0.65;
+}
+
+.atlas-popup__button--secondary {
+  background: #111827;
+  border-color: #334155;
+  color: #dbeafe;
+}
+
+.atlas-popup__button--secondary:hover {
+  background: #1f2937;
 }
 
 .atlas-popup__status {

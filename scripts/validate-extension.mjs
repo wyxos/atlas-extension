@@ -81,10 +81,10 @@ if (manifest !== null) {
   expect(/^\d+\.\d+\.\d+$/.test(manifest.version ?? ''), 'manifest.json must use a three-part version');
   expect(manifest.options_ui?.page === 'options.html', 'manifest.json must point options_ui.page to options.html');
   expect(manifest.options_ui?.open_in_tab === true, 'manifest.json options_ui.open_in_tab must be true');
-  expect(Array.isArray(manifest.permissions), 'manifest.json must request storage and tabs permissions');
+  expect(Array.isArray(manifest.permissions), 'manifest.json must request storage, tabs, cookies, and scripting permissions');
   expect(
-    JSON.stringify(manifest.permissions) === JSON.stringify(['storage', 'tabs']),
-    'manifest.json must request storage and tabs permissions for config and event relay',
+    JSON.stringify(manifest.permissions) === JSON.stringify(['storage', 'tabs', 'cookies', 'scripting']),
+    'manifest.json must request storage, tabs, cookies, and scripting permissions for config, event relay, authenticated downloads, and reload prompts',
   );
   expect(
     JSON.stringify(manifest.icons) === JSON.stringify({
@@ -177,6 +177,7 @@ if (optionsHtml !== null) {
 if (popupHtml !== null) {
   expect(popupHtml.includes('<title>Atlas Extension</title>'), 'popup.html must set the popup page title');
   expect(popupHtml.includes('atlas-popup-scan'), 'popup.html must expose a manual scan action');
+  expect(popupHtml.includes('atlas-popup-reload'), 'popup.html must expose an extension reload action');
   expect(popupHtml.includes('/src/popup/main.js'), 'popup.html must load the popup entry');
 }
 
@@ -256,6 +257,7 @@ const contentReferrerState = readText('src/content/referrer-state.js');
 const backgroundTabState = readText('src/background/tab-state.js');
 const backgroundMain = readText('src/background/main.js');
 const popupScript = readText('src/popup/main.js');
+const popupReloadHelper = readText('src/popup/reload-extension.js');
 const popupScanHelper = readText('src/popup/scan-active-tab.js');
 
 if (contentDetector !== null) {
@@ -285,12 +287,19 @@ if (contentRuntime !== null) {
 
 if (popupScript !== null) {
   expect(popupScript.includes('requestActiveTabScan'), 'src/popup/main.js must trigger an active-tab scan request');
+  expect(popupScript.includes('requestExtensionReload'), 'src/popup/main.js must trigger an extension reload request');
   expect(popupScript.includes('atlas-popup-scan'), 'src/popup/main.js must bind the popup scan button');
+  expect(popupScript.includes('atlas-popup-reload'), 'src/popup/main.js must bind the popup reload button');
 }
 
 if (popupScanHelper !== null) {
   expect(popupScanHelper.includes('chrome?.tabs'), 'src/popup/scan-active-tab.js must use the Chrome tabs API');
   expect(popupScanHelper.includes('atlas-extension.manual-scan'), 'src/popup/scan-active-tab.js must send the manual scan message');
+}
+
+if (popupReloadHelper !== null) {
+  expect(popupReloadHelper.includes('chrome?.runtime'), 'src/popup/reload-extension.js must use the Chrome runtime API');
+  expect(popupReloadHelper.includes('extensionReloadRequestType'), 'src/popup/reload-extension.js must send the reload request message');
 }
 
 if (contentOverlayController !== null) {
@@ -371,6 +380,8 @@ if (backgroundMain !== null) {
   );
   expect(backgroundMain.includes('open-referrer-counts'), 'src/background/main.js must serve open referrer tab counts');
   expect(backgroundMain.includes('open-tab-counts-changed'), 'src/background/main.js must broadcast open tab count changes');
+  expect(backgroundMain.includes('handleExtensionReloadRequest'), 'src/background/main.js must handle popup extension reload requests');
+  expect(backgroundMain.includes('deliverPendingExtensionReloadNotice'), 'src/background/main.js must deliver pending reload notices');
 }
 
 if (connectionModule !== null) {

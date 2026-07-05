@@ -9,8 +9,14 @@ import {
   resolveReverbConnectionConfig,
 } from './reverb-config.js';
 import { createCloseTabIntentManager } from './close-tab-intents.js';
+import {
+  deliverPendingExtensionReloadNotice,
+  extensionReloadRequestType,
+  handleExtensionReloadRequest,
+} from './extension-reload.js';
 import { createPusherReverbClient } from './pusher-reverb-client.js';
 import { createOpenTabRegistry } from './tab-state.js';
+import { collectReactionRuntimeContext } from './reaction-runtime-context.js';
 import {
   syncExtensionSettings,
   uploadSettingsAfterStorageChange,
@@ -58,6 +64,17 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     return false;
   }
 
+  if (message?.type === extensionReloadRequestType) {
+    void handleExtensionReloadRequest()
+      .then((payload) => sendResponse({ ok: true, payload }))
+      .catch((error) => sendResponse({
+        error: error?.message ?? 'Extension reload failed.',
+        ok: false,
+      }));
+
+    return true;
+  }
+
   if (!isAtlasApiMessage(message)) {
     return false;
   }
@@ -74,6 +91,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
 
 bindOpenTabTracking();
 void syncExtensionSettings();
+void deliverPendingExtensionReloadNotice();
 
 globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => {
   if (areaName === 'local' && changes.atlasExtensionConfig) {
@@ -157,6 +175,7 @@ async function handleAtlasApiMessage(message) {
       downloadAction: message.downloadAction,
       items: message.items,
       reactionType: message.reactionType,
+      runtimeContext: await collectReactionRuntimeContext(message),
     })
     : await postAssetReaction({
       asset: message.asset,
@@ -164,6 +183,7 @@ async function handleAtlasApiMessage(message) {
       downloadAction: message.downloadAction,
       reactionType: message.reactionType,
       referrerUrl: message.referrerUrl,
+      runtimeContext: await collectReactionRuntimeContext(message),
       source: message.source,
     });
 
