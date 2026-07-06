@@ -1,4 +1,4 @@
-const suppressedShortcutTargetSelector = [
+const interactiveShortcutTargetSelector = [
   'a',
   'button',
   'input',
@@ -7,9 +7,12 @@ const suppressedShortcutTargetSelector = [
   'textarea',
   '[contenteditable=""]',
   '[contenteditable="true"]',
-  '[data-atlas-asset-badge="true"]',
   '[role="button"]',
   '[role="slider"]',
+].join(',');
+const suppressedShortcutTargetSelector = [
+  interactiveShortcutTargetSelector,
+  '[data-atlas-asset-badge="true"]',
 ].join(',');
 
 export function reactionFromAssetShortcutEvent(event) {
@@ -52,6 +55,16 @@ export function handleAssetShortcutEvent(event, options) {
   return true;
 }
 
+export function reactionFromBadgeShortcutEvent(event) {
+  const type = reactionFromAssetShortcutEvent(event);
+
+  if (type === null || hasShortcutTarget(event, interactiveShortcutTargetSelector)) {
+    return null;
+  }
+
+  return type;
+}
+
 function registeredAssetIdFromEvent(event, getAssetIdForElement) {
   if (typeof getAssetIdForElement !== 'function') {
     return null;
@@ -69,9 +82,11 @@ function registeredAssetIdFromEvent(event, getAssetIdForElement) {
 }
 
 function hasSuppressedShortcutTarget(event) {
-  return eventPath(event).some((target) => (
-    Boolean(target?.closest?.(suppressedShortcutTargetSelector))
-  ));
+  return hasShortcutTarget(event, suppressedShortcutTargetSelector);
+}
+
+function hasShortcutTarget(event, selector) {
+  return eventPath(event).some((target) => Boolean(target?.closest?.(selector)));
 }
 
 function eventPath(event) {

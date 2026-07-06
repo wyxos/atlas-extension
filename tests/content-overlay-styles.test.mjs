@@ -26,3 +26,11 @@ test('uses a compact non-interactive referrer badge surface', () => {
   assert.doesNotMatch(styles, /atlas-referrer-timestamp/);
   assert.doesNotMatch(styles, /atlas-static-icon-readonly/);
 });
+
+test('allows pointer events on visible asset badge shortcut surfaces', () => {
+  const styles = getOverlayStyles();
+
+  assert.match(styles, /\.atlas-static-meta[\s\S]*pointer-events: auto/);
+  assert.match(styles, /\.atlas-static-icons[\s\S]*pointer-events: auto/);
+  assert.match(styles, /\.atlas-static-progress[\s\S]*pointer-events: auto/);
+});

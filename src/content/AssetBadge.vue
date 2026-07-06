@@ -11,6 +11,7 @@ import {
   Video,
   Volume2,
 } from "@lucide/vue";
+import { reactionFromBadgeShortcutEvent } from "./asset-shortcuts.js";
 import { closeTabModes } from "../shared/close-tab-preferences.js";
 
 defineProps({
@@ -20,7 +21,7 @@ defineProps({
   },
 });
 
-defineEmits(["batch-toggle", "close-mode-change", "delete", "react"]);
+const emit = defineEmits(["batch-toggle", "close-mode-change", "delete", "react"]);
 
 const iconSize = 18;
 const metaIconSize = 14;
@@ -94,6 +95,18 @@ function progressClass(badge) {
 function assetTypeFor(badge) {
   return assetTypes[badge.type] ?? assetTypes.image;
 }
+
+function handleBadgeShortcut(event) {
+  const type = reactionFromBadgeShortcutEvent(event);
+
+  if (type === null) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  emit("react", type);
+}
 </script>
 
 <template>
@@ -101,6 +114,9 @@ function assetTypeFor(badge) {
     data-atlas-asset-badge="true"
     :data-atlas-asset-source="badge.source"
     :style="badge.style"
+    @click="handleBadgeShortcut"
+    @contextmenu="handleBadgeShortcut"
+    @mousedown="handleBadgeShortcut"
   >
     <div class="atlas-static-meta">
       <span

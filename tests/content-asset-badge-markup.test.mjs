@@ -28,3 +28,11 @@ test('asset badge exposes the close tab mode selector', () => {
   assert.match(source, /Close tab mode/);
   assert.match(source, /close-mode-change/);
 });
+
+test('asset badge listens for local shortcut reactions on non-control surfaces', () => {
+  assert.match(source, /reactionFromBadgeShortcutEvent/);
+  assert.match(source, /handleBadgeShortcut/);
+  assert.match(source, /@click="handleBadgeShortcut"/);
+  assert.match(source, /@mousedown="handleBadgeShortcut"/);
+  assert.match(source, /@contextmenu="handleBadgeShortcut"/);
+});

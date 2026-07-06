@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   handleAssetShortcutEvent,
   reactionFromAssetShortcutEvent,
+  reactionFromBadgeShortcutEvent,
 } from '../src/content/asset-shortcuts.js';
 
 function createNode({ closest = () => null } = {}) {
@@ -92,4 +93,46 @@ test('ignores shortcuts from interactive or badge targets', () => {
   }
 
   assert.deepEqual(reactions, []);
+});
+
+test('maps badge-local shortcut events without treating the badge as suppressed', () => {
+  const badgeTarget = createNode();
+
+  assert.equal(reactionFromBadgeShortcutEvent(createEvent({
+    path: [badgeTarget],
+    target: badgeTarget,
+    type: 'click',
+  })), 'love');
+  assert.equal(reactionFromBadgeShortcutEvent(createEvent({
+    button: 1,
+    path: [badgeTarget],
+    target: badgeTarget,
+    type: 'mousedown',
+  })), 'like');
+  assert.equal(reactionFromBadgeShortcutEvent(createEvent({
+    button: 2,
+    path: [badgeTarget],
+    target: badgeTarget,
+    type: 'contextmenu',
+  })), 'blacklist');
+});
+
+test('suppresses badge-local shortcuts from widget controls', () => {
+  const buttonTarget = createNode({
+    closest: (selector) => (selector.includes('button') ? createNode() : null),
+  });
+  const linkTarget = createNode({
+    closest: (selector) => (selector.includes('a') ? createNode() : null),
+  });
+  const inputTarget = createNode({
+    closest: (selector) => (selector.includes('input') ? createNode() : null),
+  });
+
+  for (const target of [buttonTarget, linkTarget, inputTarget]) {
+    assert.equal(reactionFromBadgeShortcutEvent(createEvent({
+      path: [target],
+      target,
+      type: 'click',
+    })), null);
+  }
 });

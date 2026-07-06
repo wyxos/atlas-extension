@@ -40,6 +40,7 @@ export function getOverlayStyles() {
       justify-content: space-between;
       line-height: 1.2;
       overflow: hidden;
+      pointer-events: auto;
       white-space: nowrap;
       width: 100%;
     }
@@ -136,6 +137,7 @@ export function getOverlayStyles() {
       display: flex;
       gap: 8px;
       justify-content: center;
+      pointer-events: auto;
       width: 100%;
     }
 
@@ -268,6 +270,7 @@ export function getOverlayStyles() {
       height: 13px;
       left: 0;
       overflow: hidden;
+      pointer-events: auto;
       position: absolute;
       right: 0;
     }
