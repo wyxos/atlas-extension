@@ -90,6 +90,8 @@ export function createTabCounterBadge({
     pill = documentContext.createElement('div');
     pill.className = 'atlas-tab-counter';
     style.textContent = `
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
       :host {
         all: initial;
         color-scheme: dark;

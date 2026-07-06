@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -9,6 +11,10 @@ import {
   tabCounterChangedMessageType,
   tabCounterSnapshotRequestType,
 } from '../src/shared/tab-counter-messages.js';
+
+const root = path.resolve(import.meta.dirname, '..');
+const optionsCss = fs.readFileSync(path.join(root, 'src/options/style.css'), 'utf8');
+const optionsInterFontImport = "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');";
 
 test('tab counter badge renders a fixed top-center domain ratio', () => {
   const documentContext = createFakeDocument();
@@ -31,6 +37,22 @@ test('tab counter badge renders a fixed top-center domain ratio', () => {
   assert.equal(host.style.pointerEvents, 'none');
   assert.equal(pill.textContent, '3 / 11');
   assert.equal(pill.ariaLabel, '3 tabs on example.test out of 11 tabs in this window');
+});
+
+test('tab counter badge loads the same Inter font source as the options page', () => {
+  const documentContext = createFakeDocument();
+  const badge = createTabCounterBadge({ documentContext });
+
+  badge.update({
+    domain: 'example.test',
+    sameDomainTabs: 3,
+    totalTabsInWindow: 11,
+  });
+
+  const shadowStyle = documentContext.body.children[0].shadowRoot.children[0];
+
+  assert.ok(optionsCss.includes(optionsInterFontImport));
+  assert.ok(shadowStyle.textContent.trimStart().startsWith(optionsInterFontImport));
 });
 
 test('tab counter badge hides when the current tab has no domain snapshot', () => {
