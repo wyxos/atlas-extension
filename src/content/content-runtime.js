@@ -1,3 +1,5 @@
+import { initializeTabCounterBadge } from './tab-counter-badge.js';
+
 export const locationBridgeEventName = 'atlas-extension-location-change';
 
 export function startContentRuntime({
@@ -12,6 +14,7 @@ export function startContentRuntime({
   updateBadgeStateBySource,
 }) {
   scanAssets();
+  void initializeTabCounterBadge();
   listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource });
   listenForOpenTabCounts({ mergeOpenReferrerCounts });
   listenForManualScanRequests({ scanAssets, schedulePositionUpdate });

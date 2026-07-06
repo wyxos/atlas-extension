@@ -18,9 +18,14 @@ import {
 } from './extension-reload.js';
 import { createPusherReverbClient } from './pusher-reverb-client.js';
 import { createOpenTabRegistry } from './tab-state.js';
+import {
+  broadcastTabCounterSnapshots,
+  handleTabCounterSnapshotRequest,
+} from './tab-counter.js';
 import { collectReactionRuntimeContext } from './reaction-runtime-context.js';
 import { loadNextTabsFromActive } from './load-next-tabs.js';
 import { loadNextTabsRequestType } from '../shared/load-next-tabs-messages.js';
+import { tabCounterSnapshotRequestType } from '../shared/tab-counter-messages.js';
 import {
   syncExtensionSettings,
   uploadSettingsAfterStorageChange,
@@ -63,6 +68,15 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
         siteDomain: message.siteDomain,
         tabId: sender?.tab?.id,
       }),
+    });
+
+    return false;
+  }
+
+  if (message?.type === tabCounterSnapshotRequestType) {
+    sendResponse({
+      ok: true,
+      payload: handleTabCounterSnapshotRequest({ message, openTabs, sender }),
     });
 
     return false;
@@ -256,20 +270,45 @@ function bindOpenTabTracking() {
   });
 
   tabsApi.onCreated?.addListener?.((tab) => {
-    broadcastOpenTabCountChanges(openTabs.updateTab(Number(tab?.id), tab?.url));
+    const tabId = Number(tab?.id);
+
+    broadcastOpenTabCountChanges(openTabs.updateTab(tabId, tab?.url, {
+      windowId: tab?.windowId,
+    }));
+    broadcastTabCounterChanges([tab?.windowId]);
   });
 
   tabsApi.onUpdated?.addListener?.((tabId, changeInfo, tab) => {
     const url = typeof changeInfo?.url === 'string' ? changeInfo.url : tab?.url;
 
     if (typeof url === 'string') {
-      broadcastOpenTabCountChanges(openTabs.updateTab(tabId, url));
+      const previousWindowId = openTabs.getWindowId(tabId);
+
+      broadcastOpenTabCountChanges(openTabs.updateTab(tabId, url, {
+        windowId: tab?.windowId,
+      }));
+      broadcastTabCounterChanges([previousWindowId, openTabs.getWindowId(tabId)]);
     }
   });
 
   tabsApi.onRemoved?.addListener?.((tabId) => {
+    const previousWindowId = openTabs.getWindowId(tabId);
+
     closeTabIntents.removeTab(tabId);
     broadcastOpenTabCountChanges(openTabs.removeTab(tabId));
+    broadcastTabCounterChanges([previousWindowId]);
+  });
+
+  tabsApi.onDetached?.addListener?.((tabId, detachInfo) => {
+    openTabs.moveTab(tabId, null);
+    broadcastTabCounterChanges([detachInfo?.oldWindowId]);
+  });
+
+  tabsApi.onAttached?.addListener?.((tabId, attachInfo) => {
+    const previousWindowId = openTabs.getWindowId(tabId);
+
+    openTabs.moveTab(tabId, attachInfo?.newWindowId);
+    broadcastTabCounterChanges([previousWindowId, attachInfo?.newWindowId]);
   });
 }
 
@@ -295,6 +334,14 @@ function broadcastOpenTabCountChanges(changedUrls) {
         void globalThis.chrome?.runtime?.lastError;
       });
     }
+  });
+}
+
+function broadcastTabCounterChanges(windowIds) {
+  broadcastTabCounterSnapshots({
+    openTabs,
+    tabsApi: globalThis.chrome?.tabs,
+    windowIds,
   });
 }
 
