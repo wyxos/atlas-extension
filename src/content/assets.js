@@ -6,6 +6,7 @@ import {
   normalizeAssetSourcePreferences,
   resolveAssetImageSourcePreference,
 } from '../shared/asset-source-preferences.js';
+import { shouldSkipAssetElement } from './background-backed-assets.js';
 
 const assetTypesByTag = new Map([
   ['AUDIO', 'audio'],
@@ -109,17 +110,17 @@ export function getAssetResolution(element) {
 export function describeAssetElement(element, options = {}) {
   const type = getAssetType(element);
 
-  if (type === null || isHiddenAssetElement(element)) {
-    return null;
-  }
-
-  if (hasAnchorAncestor(element)) {
+  if (type === null || hasAnchorAncestor(element)) {
     return null;
   }
 
   const assetTarget = getAssetTarget(element, options);
 
-  if (assetTarget === null) {
+  if (assetTarget === null || shouldSkipAsset({
+    element,
+    source: assetTarget.source,
+    type,
+  })) {
     return null;
   }
 
@@ -133,11 +134,7 @@ export function describeAssetElement(element, options = {}) {
 export function describeReferrerAssetElement(element, options = {}) {
   const type = getAssetType(element);
 
-  if (type === null || isHiddenAssetElement(element)) {
-    return null;
-  }
-
-  if (!hasAnchorAncestor(element)) {
+  if (type === null || !hasAnchorAncestor(element)) {
     return null;
   }
 
@@ -149,7 +146,11 @@ export function describeReferrerAssetElement(element, options = {}) {
 
   const assetTarget = getAssetTarget(element, options);
 
-  if (assetTarget === null) {
+  if (assetTarget === null || shouldSkipAsset({
+    element,
+    source: assetTarget.source,
+    type,
+  })) {
     return null;
   }
 
@@ -420,56 +421,6 @@ function parseSrcsetDescriptor(descriptor) {
   };
 }
 
-function isHiddenAssetElement(element) {
-  if (!element) {
-    return true;
-  }
-
-  const hiddenAttribute = typeof element.getAttribute === 'function'
-    ? element.getAttribute('hidden')
-    : null;
-
-  if (element.hidden === true || hiddenAttribute !== null) {
-    return true;
-  }
-
-  const style = styleFor(element);
-  const display = style?.display ?? element.style?.display;
-  const visibility = style?.visibility ?? element.style?.visibility;
-  const opacity = style?.opacity ?? element.style?.opacity;
-
-  return display === 'none'
-    || ['hidden', 'collapse'].includes(visibility)
-    || isConfiguredLowOpacity(opacity, element);
-}
-
-function isConfiguredLowOpacity(opacity, element) {
-  if (opacity === undefined || opacity === null || String(opacity).trim() === '') {
-    return false;
-  }
-
-  const numericOpacity = Number.parseFloat(opacity);
-
-  return Number.isFinite(numericOpacity)
-    && numericOpacity < hiddenOpacityThreshold
-    && !atlasManagedOpacityElements.has(element);
-}
-
-function styleFor(element) {
-  const view = element?.ownerDocument?.defaultView ?? globalThis;
-  const getComputedStyle = view?.getComputedStyle ?? globalThis.getComputedStyle;
-
-  if (typeof getComputedStyle !== 'function') {
-    return element?.style ?? null;
-  }
-
-  try {
-    return getComputedStyle.call(view, element);
-  } catch {
-    return element?.style ?? null;
-  }
-}
-
 function normalizeSource(source, element = null) {
   if (typeof source !== 'string') {
     return null;
@@ -491,4 +442,19 @@ function normalizeSource(source, element = null) {
   } catch {
     return null;
   }
+}
+
+function shouldSkipAsset({
+  element,
+  source,
+  type,
+}) {
+  return shouldSkipAssetElement({
+    element,
+    source,
+    type,
+  }, {
+    atlasManagedOpacityElements,
+    hiddenOpacityThreshold,
+  });
 }
