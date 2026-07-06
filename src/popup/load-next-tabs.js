@@ -1,6 +1,7 @@
 import {
   loadNextTabsDefaultLimit,
   loadNextTabsRequestType,
+  normalizeLoadNextTabsLimit,
 } from '../shared/load-next-tabs-messages.js';
 
 export async function requestNextTabsLoad({
@@ -33,7 +34,7 @@ export async function requestNextTabsLoad({
 
   return sendLoadNextTabsRequest({
     activeTabId: tab.id,
-    limit,
+    limit: normalizeLoadNextTabsLimit(limit),
     runtime,
     windowId: tab.windowId,
   });
@@ -81,6 +82,7 @@ function sendLoadNextTabsRequest({
       resolve({
         activated: Number(response?.payload?.activated) || 0,
         ok: true,
+        reloaded: Number(response?.payload?.reloaded) || 0,
         restored: response?.payload?.restored === true,
       });
     });

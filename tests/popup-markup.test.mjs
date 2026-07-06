@@ -11,8 +11,13 @@ test('popup exposes a manual scan action', () => {
   assert.match(popupHtml, /atlas-popup-scan/);
   assert.match(popupHtml, /atlas-popup-reload/);
   assert.match(popupHtml, /atlas-popup-load-next-tabs/);
+  assert.match(popupHtml, /atlas-popup-load-next-tabs-limit/);
+  assert.match(popupHtml, /atlas-popup-load-next-tabs-decrement/);
+  assert.match(popupHtml, /atlas-popup-load-next-tabs-increment/);
+  assert.match(popupHtml, /atlas-popup-reaction-widget-visibility/);
   assert.match(popupHtml, /\/src\/popup\/main\.js/);
   assert.match(popupHtml, /Scan page/);
   assert.match(popupHtml, /Reload extension/);
-  assert.match(popupHtml, /Load next 10 tabs/);
+  assert.match(popupHtml, /Load next tabs/);
+  assert.match(popupHtml, /Hide reaction widget/);
 });

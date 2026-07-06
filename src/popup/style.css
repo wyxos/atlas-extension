@@ -1,13 +1,21 @@
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --atlas-popup-background: #00040a;
+  --atlas-popup-border: #33415c;
+  --atlas-popup-foreground: #d0d7e5;
+  --atlas-popup-muted: #9ba3b5;
+  --atlas-popup-primary: #0f85fa;
+  --atlas-popup-primary-foreground: #ffffff;
+  --atlas-popup-ring: #0f85fa;
+  --atlas-popup-secondary: #1e2737;
 }
 
 body {
   margin: 0;
-  min-width: 240px;
-  background: #030712;
-  color: #dbeafe;
+  min-width: 280px;
+  background: var(--atlas-popup-background);
+  color: var(--atlas-popup-foreground);
 }
 
 .atlas-popup {
@@ -24,31 +32,35 @@ body {
 
 .atlas-popup h1 {
   margin: 0;
-  color: #bfdbfe;
+  color: var(--atlas-popup-foreground);
   font-size: 14px;
   font-weight: 700;
   line-height: 1.2;
 }
 
 .atlas-popup__button {
-  border: 1px solid #1d4ed8;
-  border-radius: 6px;
-  background: #0f3f88;
-  color: #eff6ff;
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--atlas-popup-primary);
+  color: var(--atlas-popup-primary-foreground);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.2;
-  padding: 9px 12px;
+  padding: 8px 10px;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .atlas-popup__button:hover {
-  background: #1655b8;
+  background: color-mix(in srgb, var(--atlas-popup-primary) 84%, transparent);
 }
 
-.atlas-popup__button:focus-visible {
-  outline: 2px solid #93c5fd;
+.atlas-popup__button:focus-visible,
+.atlas-popup__icon-button:focus-visible,
+.atlas-popup__input:focus-visible {
+  outline: 2px solid var(--atlas-popup-ring);
   outline-offset: 2px;
 }
 
@@ -58,19 +70,81 @@ body {
 }
 
 .atlas-popup__button--secondary {
-  background: #111827;
-  border-color: #334155;
-  color: #dbeafe;
+  background: var(--atlas-popup-background);
+  border-color: var(--atlas-popup-border);
+  color: var(--atlas-popup-foreground);
 }
 
 .atlas-popup__button--secondary:hover {
-  background: #1f2937;
+  background: var(--atlas-popup-secondary);
+}
+
+.atlas-popup__field {
+  display: grid;
+  gap: 6px;
+}
+
+.atlas-popup__label {
+  color: var(--atlas-popup-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.atlas-popup__stepper {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+}
+
+.atlas-popup__icon-button,
+.atlas-popup__input {
+  min-width: 0;
+  border: 1px solid var(--atlas-popup-border);
+  background: transparent;
+  color: var(--atlas-popup-foreground);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.atlas-popup__icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.atlas-popup__icon-button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.atlas-popup__icon-button:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.atlas-popup__icon-button:hover {
+  background: var(--atlas-popup-secondary);
+}
+
+.atlas-popup__input {
+  height: 32px;
+  margin: 0 -1px;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.atlas-popup__icon-button:disabled,
+.atlas-popup__input:disabled {
+  cursor: default;
+  opacity: 0.65;
 }
 
 .atlas-popup__status {
   min-height: 16px;
   margin: 0;
-  color: #93a4bc;
+  color: var(--atlas-popup-muted);
   font-size: 12px;
   line-height: 1.35;
 }

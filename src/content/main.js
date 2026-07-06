@@ -22,7 +22,7 @@ import { resolveStateFileId } from './state-file-id.js';
 import { createStatusCheckQueue } from './status-checks.js';
 import { startContentRuntime } from './content-runtime.js';
 import { resolveVisibleRect } from './visible-rect.js';
-
+import { initializeReactionWidgetVisibility } from './reaction-widget-visibility.js';
 const assetSelector = 'img, video, audio';
 const overlayHostId = 'atlas-extension-asset-overlay';
 const scanDelayMs = 50;
@@ -493,6 +493,7 @@ startContentRuntime({
 });
 bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
 void closeTabMode.initialize();
+void initializeReactionWidgetVisibility({ badgeHosts, getOverlayHost: () => document.getElementById(overlayHostId), onShown: () => { scheduleScan(); schedulePositionUpdate(); } });
 void initializeAssetSourcePreferences({ onChanged: () => {
   scheduleScan();
   schedulePositionUpdate();

@@ -14,6 +14,7 @@ export function createBadgeHostManager({
 } = {}) {
   const hostsById = new Map();
   const retainedOwners = new WeakMap();
+  let isVisible = true;
 
   function placeBadge(id, element, asset = {}, options = {}) {
     const owner = resolveBadgeContainer(element, { getComputedStyle });
@@ -40,6 +41,7 @@ export function createBadgeHostManager({
     }
 
     Object.assign(host.host.style, placement.hostStyle);
+    applyHostVisibility(host.host);
 
     return {
       badgeStyle: placement.badgeStyle,
@@ -135,7 +137,18 @@ export function createBadgeHostManager({
   return {
     placeBadge,
     remove,
+    setVisible(visible) {
+      isVisible = visible !== false;
+
+      for (const host of hostsById.values()) {
+        applyHostVisibility(host.host);
+      }
+    },
   };
+
+  function applyHostVisibility(host) {
+    host.style.display = isVisible ? 'block' : 'none';
+  }
 }
 
 export function resolveBadgeContainer(element, {

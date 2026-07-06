@@ -13,8 +13,48 @@
       <button id="atlas-popup-scan" class="atlas-popup__button atlas-popup__button--primary" type="button">
         Scan page
       </button>
+      <section class="atlas-popup__field" aria-labelledby="atlas-popup-load-next-tabs-label">
+        <label id="atlas-popup-load-next-tabs-label" class="atlas-popup__label" for="atlas-popup-load-next-tabs-limit">
+          Tabs to load
+        </label>
+        <div class="atlas-popup__stepper">
+          <button
+            id="atlas-popup-load-next-tabs-decrement"
+            class="atlas-popup__icon-button"
+            type="button"
+            aria-label="Decrease tab count"
+          >
+            -
+          </button>
+          <input
+            id="atlas-popup-load-next-tabs-limit"
+            class="atlas-popup__input"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            value="10"
+            aria-label="Tabs to load"
+          />
+          <button
+            id="atlas-popup-load-next-tabs-increment"
+            class="atlas-popup__icon-button"
+            type="button"
+            aria-label="Increase tab count"
+          >
+            +
+          </button>
+        </div>
+      </section>
       <button id="atlas-popup-load-next-tabs" class="atlas-popup__button atlas-popup__button--secondary" type="button">
-        Load next 10 tabs
+        Load next tabs
+      </button>
+      <button
+        id="atlas-popup-reaction-widget-visibility"
+        class="atlas-popup__button atlas-popup__button--secondary"
+        type="button"
+        aria-pressed="false"
+      >
+        Hide reaction widget
       </button>
       <button id="atlas-popup-reload" class="atlas-popup__button atlas-popup__button--secondary" type="button">
         Reload extension
