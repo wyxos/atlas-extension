@@ -252,6 +252,8 @@ const contentOverlay = readText('src/content/AssetOverlay.vue');
 const contentOverlayController = readText('src/content/overlay-controller.js');
 const contentOverlayStyles = readText('src/content/overlay-styles.js');
 const contentBadgeModel = readText('src/content/badge-model.js');
+const contentExtensionDialog = readText('src/content/ExtensionDialog.vue');
+const contentReactionDialog = readText('src/content/ReactionUpdateDialog.vue');
 const contentReferrerDialog = readText('src/content/ReferrerOpenDialog.vue');
 const contentReferrerOpenGuard = readText('src/content/referrer-open-guard.js');
 const contentReferrerState = readText('src/content/referrer-state.js');
@@ -358,8 +360,21 @@ if (contentOverlayStyles !== null) {
   expect(contentOverlayStyles.includes('[data-slot="alert-dialog-content"]'), 'src/content/overlay-styles.js must style the Shadow DOM referrer dialog');
 }
 
+if (contentExtensionDialog !== null) {
+  expect(contentExtensionDialog.includes('role="alertdialog"'), 'src/content/ExtensionDialog.vue must own alert dialog semantics');
+  expect(contentExtensionDialog.includes('aria-modal="true"'), 'src/content/ExtensionDialog.vue must mark the dialog modal');
+  expect(contentExtensionDialog.includes('event.key === "Escape"'), 'src/content/ExtensionDialog.vue must support Escape cancellation');
+  expect(contentExtensionDialog.includes('event.key !== "Tab"'), 'src/content/ExtensionDialog.vue must trap Tab focus locally');
+}
+
+if (contentReactionDialog !== null) {
+  expect(contentReactionDialog.includes('ExtensionDialog'), 'src/content/ReactionUpdateDialog.vue must use the extension-owned dialog');
+  expect(!contentReactionDialog.includes('@/components/ui/alert-dialog'), 'src/content/ReactionUpdateDialog.vue must not use shared Reka AlertDialog primitives in the content script');
+}
+
 if (contentReferrerDialog !== null) {
-  expect(contentReferrerDialog.includes('AlertDialog'), 'src/content/ReferrerOpenDialog.vue must use shadcn-vue AlertDialog primitives');
+  expect(contentReferrerDialog.includes('ExtensionDialog'), 'src/content/ReferrerOpenDialog.vue must use the extension-owned dialog');
+  expect(!contentReferrerDialog.includes('@/components/ui/alert-dialog'), 'src/content/ReferrerOpenDialog.vue must not use shared Reka AlertDialog primitives in the content script');
   expect(contentReferrerDialog.includes('Open anyway'), 'src/content/ReferrerOpenDialog.vue must expose a confirm action');
 }
 

@@ -1,16 +1,7 @@
 <script setup>
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import ExtensionDialog from "./ExtensionDialog.vue";
 
-const props = defineProps({
+defineProps({
   portalTarget: {
     type: null,
     required: false,
@@ -36,42 +27,36 @@ function descriptionFor(request) {
     : "This referrer is already open in another tab.";
 }
 
-function handleOpenChange(open) {
-  if (!open && props.request !== null) {
-    window.setTimeout(() => {
-      if (props.request !== null) {
-        emit("resolve", false);
-      }
-    }, 0);
-  }
-}
 </script>
 
 <template>
-  <AlertDialog
+  <ExtensionDialog
     :open="request !== null"
-    @update:open="handleOpenChange"
+    :portal-target="portalTarget"
+    :title="titleFor(request)"
+    :description="descriptionFor(request)"
+    @cancel="emit('resolve', false)"
   >
-    <AlertDialogContent :portal-to="portalTarget">
-      <AlertDialogHeader>
-        <AlertDialogTitle>{{ titleFor(request) }}</AlertDialogTitle>
-        <AlertDialogDescription>
-          {{ descriptionFor(request) }}
-        </AlertDialogDescription>
-      </AlertDialogHeader>
+    <div class="atlas-referrer-open-url">
+      {{ request?.url }}
+    </div>
 
-      <div class="atlas-referrer-open-url">
-        {{ request?.url }}
-      </div>
-
-      <AlertDialogFooter>
-        <AlertDialogCancel @click="emit('resolve', false)">
-          Cancel
-        </AlertDialogCancel>
-        <AlertDialogAction @click="emit('resolve', true)">
-          Open anyway
-        </AlertDialogAction>
-      </AlertDialogFooter>
-    </AlertDialogContent>
-  </AlertDialog>
+    <div data-slot="alert-dialog-footer">
+      <button
+        data-slot="alert-dialog-cancel"
+        data-autofocus
+        type="button"
+        @click="emit('resolve', false)"
+      >
+        Cancel
+      </button>
+      <button
+        data-slot="alert-dialog-action"
+        type="button"
+        @click="emit('resolve', true)"
+      >
+        Open anyway
+      </button>
+    </div>
+  </ExtensionDialog>
 </template>

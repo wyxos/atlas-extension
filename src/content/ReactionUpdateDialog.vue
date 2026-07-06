@@ -1,16 +1,7 @@
 <script setup>
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import ExtensionDialog from "./ExtensionDialog.vue";
 
-const props = defineProps({
+defineProps({
   portalTarget: {
     type: null,
     required: false,
@@ -42,41 +33,39 @@ function descriptionFor(request) {
   return `This asset already has a ${current} reaction. Choose whether to change it to ${next} only, or queue a fresh download too.`;
 }
 
-function handleOpenChange(open) {
-  if (!open && props.request !== null) {
-    window.setTimeout(() => {
-      if (props.request !== null) {
-        emit("resolve", "cancel");
-      }
-    }, 0);
-  }
-}
 </script>
 
 <template>
-  <AlertDialog
+  <ExtensionDialog
     :open="request !== null"
-    @update:open="handleOpenChange"
+    :portal-target="portalTarget"
+    title="Update reaction?"
+    :description="descriptionFor(request)"
+    @cancel="emit('resolve', 'cancel')"
   >
-    <AlertDialogContent :portal-to="portalTarget">
-      <AlertDialogHeader>
-        <AlertDialogTitle>Update reaction?</AlertDialogTitle>
-        <AlertDialogDescription>
-          {{ descriptionFor(request) }}
-        </AlertDialogDescription>
-      </AlertDialogHeader>
-
-      <AlertDialogFooter>
-        <AlertDialogCancel @click="emit('resolve', 'cancel')">
-          Cancel
-        </AlertDialogCancel>
-        <AlertDialogAction @click="emit('resolve', 'update-only')">
-          Update reaction only
-        </AlertDialogAction>
-        <AlertDialogAction @click="emit('resolve', 'redownload')">
-          React + redownload
-        </AlertDialogAction>
-      </AlertDialogFooter>
-    </AlertDialogContent>
-  </AlertDialog>
+    <div data-slot="alert-dialog-footer">
+      <button
+        data-slot="alert-dialog-cancel"
+        data-autofocus
+        type="button"
+        @click="emit('resolve', 'cancel')"
+      >
+        Cancel
+      </button>
+      <button
+        data-slot="alert-dialog-action"
+        type="button"
+        @click="emit('resolve', 'update-only')"
+      >
+        Update reaction only
+      </button>
+      <button
+        data-slot="alert-dialog-action"
+        type="button"
+        @click="emit('resolve', 'redownload')"
+      >
+        React + redownload
+      </button>
+    </div>
+  </ExtensionDialog>
 </template>
