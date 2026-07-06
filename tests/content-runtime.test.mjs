@@ -7,7 +7,9 @@ import {
   locationBridgeEventName,
 } from '../src/content/content-runtime.js';
 
-test('added DOM nodes resync existing badges so late provider context is applied', () => {
+const readyInitialDomMutationWindow = () => Promise.resolve();
+
+test('added DOM nodes resync existing badges so late provider context is applied', async () => {
   const calls = [];
   const originalDocument = globalThis.document;
   const originalMutationObserver = globalThis.MutationObserver;
@@ -66,7 +68,10 @@ test('added DOM nodes resync existing badges so late provider context is applied
         calls.push('positionBadges');
       },
       updateBadgeStateBySource() {},
+      waitForInitialDomMutationWindow: readyInitialDomMutationWindow,
     });
+    await readyInitialDomMutationWindow();
+    await Promise.resolve();
 
     mutationCallback([{
       addedNodes: [addedNode],
@@ -86,7 +91,7 @@ test('added DOM nodes resync existing badges so late provider context is applied
   assert.equal(calls.includes('positionBadges'), true);
 });
 
-test('observes visibility-related media attributes for rescan', () => {
+test('observes visibility-related media attributes for rescan', async () => {
   let observedOptions = null;
   const originalDocument = globalThis.document;
   const originalMutationObserver = globalThis.MutationObserver;
@@ -127,7 +132,10 @@ test('observes visibility-related media attributes for rescan', () => {
       scanAssets() {},
       schedulePositionUpdate() {},
       updateBadgeStateBySource() {},
+      waitForInitialDomMutationWindow: readyInitialDomMutationWindow,
     });
+    await readyInitialDomMutationWindow();
+    await Promise.resolve();
   } finally {
     globalThis.MutationObserver = originalMutationObserver;
     globalThis.document = originalDocument;
@@ -148,7 +156,7 @@ test('observes visibility-related media attributes for rescan', () => {
   assert.equal(observedOptions.subtree, true);
 });
 
-test('download events are delegated for state and cache updates', () => {
+test('download events are delegated for state and cache updates', async () => {
   const calls = [];
   const listeners = [];
   const originalDocument = globalThis.document;
@@ -207,7 +215,10 @@ test('download events are delegated for state and cache updates', () => {
       updateBadgeStateBySource() {
         throw new Error('download event should be handled by handleDownloadEvent');
       },
+      waitForInitialDomMutationWindow: readyInitialDomMutationWindow,
     });
+    await readyInitialDomMutationWindow();
+    await Promise.resolve();
 
     listeners.forEach((listener) => listener({
       payload,
@@ -223,7 +234,7 @@ test('download events are delegated for state and cache updates', () => {
   assert.deepEqual(calls, [payload]);
 });
 
-test('manual popup scans rescan assets through the existing runtime pipeline', () => {
+test('manual popup scans rescan assets through the existing runtime pipeline', async () => {
   const calls = [];
   const listeners = [];
   const responses = [];
@@ -274,7 +285,10 @@ test('manual popup scans rescan assets through the existing runtime pipeline', (
         calls.push('positionBadges');
       },
       updateBadgeStateBySource() {},
+      waitForInitialDomMutationWindow: readyInitialDomMutationWindow,
     });
+    await readyInitialDomMutationWindow();
+    await Promise.resolve();
 
     calls.length = 0;
     const handled = listeners.map((listener) => listener({
@@ -301,7 +315,7 @@ test('manual popup scans rescan assets through the existing runtime pipeline', (
   }]);
 });
 
-test('page activation rescans assets and refreshes known referrers', () => {
+test('page activation rescans assets and refreshes known referrers', async () => {
   const calls = [];
   const listeners = {};
   const originalDocument = globalThis.document;
@@ -358,7 +372,10 @@ test('page activation rescans assets and refreshes known referrers', () => {
         calls.push('positionBadges');
       },
       updateBadgeStateBySource() {},
+      waitForInitialDomMutationWindow: readyInitialDomMutationWindow,
     });
+    await readyInitialDomMutationWindow();
+    await Promise.resolve();
 
     calls.length = 0;
     globalThis.document.visibilityState = 'visible';

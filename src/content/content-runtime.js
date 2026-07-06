@@ -12,28 +12,61 @@ export function startContentRuntime({
   scanAssets,
   schedulePositionUpdate,
   updateBadgeStateBySource,
+  waitForInitialDomMutationWindow: waitForDomMutationWindow = waitForInitialDomMutationWindow,
 }) {
-  scanAssets();
-  void initializeTabCounterBadge();
+  let domMutationReady = false;
+  const scanAssetsWhenReady = (root = document) => {
+    if (!domMutationReady) {
+      return;
+    }
+
+    scanAssets(root);
+  };
+  const observer = createAssetObserver({
+    scanAssets: scanAssetsWhenReady,
+    schedulePositionUpdate,
+  });
+
   listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource });
   listenForOpenTabCounts({ mergeOpenReferrerCounts });
-  listenForManualScanRequests({ scanAssets, schedulePositionUpdate });
+  listenForManualScanRequests({ scanAssets: scanAssetsWhenReady, schedulePositionUpdate });
   listenForAssetShortcuts({ handleAssetShortcut });
   listenForReferrerOpenAttempts({ referrerOpenGuard });
   listenForPageLocationChanges({
     getOpenReferrerCounts,
     referrerBadges,
-    refreshAssets: scanAssets,
+    refreshAssets: scanAssetsWhenReady,
     schedulePositionUpdate,
   });
   listenForPageActivationChanges({
     referrerBadges,
-    refreshAssets: scanAssets,
+    refreshAssets: scanAssetsWhenReady,
     schedulePositionUpdate,
   });
   ensureBackgroundReverb();
 
-  const observer = new MutationObserver((mutations) => {
+  void waitForDomMutationWindow().then(() => {
+    domMutationReady = true;
+
+    void initializeTabCounterBadge();
+    scanAssets();
+    observer.observe(document.documentElement, initialObserverOptions);
+    window.addEventListener('resize', schedulePositionUpdate, { passive: true });
+    window.addEventListener('scroll', schedulePositionUpdate, { capture: true, passive: true });
+  });
+
+  return observer;
+}
+
+const initialObserverOptions = {
+  attributeFilter: ['class', 'hidden', 'href', 'poster', 'src', 'srcset', 'style'],
+  attributes: true,
+  childList: true,
+  subtree: true,
+};
+
+function createAssetObserver({ scanAssets, schedulePositionUpdate }) {
+  return new MutationObserver((mutations) => {
     let shouldResyncKnownBadges = false;
 
     for (const mutation of mutations) {
@@ -51,17 +84,57 @@ export function startContentRuntime({
       schedulePositionUpdate();
     }
   });
+}
 
-  observer.observe(document.documentElement, {
-    attributeFilter: ['class', 'hidden', 'href', 'poster', 'src', 'srcset', 'style'],
-    attributes: true,
-    childList: true,
-    subtree: true,
+export async function waitForInitialDomMutationWindow({
+  documentContext = document,
+  timeoutMs = 2500,
+  windowContext = window,
+} = {}) {
+  if (documentContext?.readyState && documentContext.readyState !== 'complete') {
+    await Promise.race([
+      waitForEvent(windowContext, 'load'),
+      delay(windowContext, timeoutMs),
+    ]);
+  }
+
+  await animationFrame(windowContext);
+  await animationFrame(windowContext);
+  await idle(windowContext, 250);
+}
+
+function waitForEvent(target, eventName) {
+  return new Promise((resolve) => {
+    if (typeof target?.addEventListener !== 'function') {
+      resolve();
+
+      return;
+    }
+
+    target.addEventListener(eventName, resolve, { once: true });
   });
-  window.addEventListener('resize', schedulePositionUpdate, { passive: true });
-  window.addEventListener('scroll', schedulePositionUpdate, { capture: true, passive: true });
+}
 
-  return observer;
+function animationFrame(windowContext) {
+  if (typeof windowContext?.requestAnimationFrame === 'function') {
+    return new Promise((resolve) => windowContext.requestAnimationFrame(() => resolve()));
+  }
+
+  return delay(windowContext, 0);
+}
+
+function idle(windowContext, timeout) {
+  if (typeof windowContext?.requestIdleCallback === 'function') {
+    return new Promise((resolve) => windowContext.requestIdleCallback(resolve, { timeout }));
+  }
+
+  return delay(windowContext, timeout);
+}
+
+function delay(windowContext, ms) {
+  const setTimeoutFunction = windowContext?.setTimeout ?? globalThis.setTimeout;
+
+  return new Promise((resolve) => setTimeoutFunction(resolve, ms));
 }
 
 function ensureBackgroundReverb() {
