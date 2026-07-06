@@ -5,18 +5,14 @@ import {
 
 export async function initializeReactionWidgetVisibility({
   badgeHosts,
-  getOverlayHost = () => null,
   onShown = () => {},
+  setOverlayBadgesVisible = () => {},
 } = {}) {
   const applyVisibility = (visible) => {
     const isVisible = visible !== false;
-    const overlayHost = getOverlayHost();
 
     badgeHosts?.setVisible?.(isVisible);
-
-    if (overlayHost !== null) {
-      overlayHost.style.display = isVisible ? 'block' : 'none';
-    }
+    setOverlayBadgesVisible(isVisible);
 
     if (isVisible) {
       onShown();

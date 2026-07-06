@@ -77,6 +77,9 @@ export function createAssetOverlay(shadowRoot, options = {}) {
         state.badges.splice(badgeIndex, 1);
       }
     },
+    setBadgesVisible(visible) {
+      mountElement.style.display = visible !== false ? '' : 'none';
+    },
     upsertBadge(id, badge) {
       upsertBadgeEntry(state.badges, id, badge);
     },

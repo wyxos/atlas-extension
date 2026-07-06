@@ -38,7 +38,7 @@ let openReferrerCounts = {};
 let scheduledScan = null;
 let scheduledPositionUpdate = null;
 let nextAssetId = 0;
-let overlayController = null;
+let overlayController = null, reactionWidgetVisible = true;
 const badgeHosts = createBadgeHostManager();
 const closeTabMode = createCloseTabModeState({
   getLocationHref: () => window.location.href,
@@ -86,7 +86,6 @@ function getOverlayController() {
   if (overlayController !== null) {
     return overlayController;
   }
-
   const host = document.createElement('div');
   host.id = overlayHostId;
   host.setAttribute('style', [
@@ -106,6 +105,7 @@ function getOverlayController() {
     onDelete: handleBadgeDelete,
     onReact: handleBadgeReaction,
   });
+  overlayController.setBadgesVisible(reactionWidgetVisible);
   return overlayController;
 }
 
@@ -493,7 +493,7 @@ startContentRuntime({
 });
 bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
 void closeTabMode.initialize();
-void initializeReactionWidgetVisibility({ badgeHosts, getOverlayHost: () => document.getElementById(overlayHostId), onShown: () => { scheduleScan(); schedulePositionUpdate(); } });
+void initializeReactionWidgetVisibility({ badgeHosts, setOverlayBadgesVisible: (visible) => { reactionWidgetVisible = visible; overlayController?.setBadgesVisible(visible); }, onShown: () => { scheduleScan(); schedulePositionUpdate(); } });
 void initializeAssetSourcePreferences({ onChanged: () => {
   scheduleScan();
   schedulePositionUpdate();
