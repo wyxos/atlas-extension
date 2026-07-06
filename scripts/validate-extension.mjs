@@ -392,6 +392,7 @@ if (backgroundMain !== null) {
   expect(backgroundMain.includes('open-tab-counts-changed'), 'src/background/main.js must broadcast open tab count changes');
   expect(backgroundMain.includes('loadNextTabsFromActive'), 'src/background/main.js must handle popup next-tabs load requests');
   expect(backgroundMain.includes('handleExtensionReloadRequest'), 'src/background/main.js must handle popup extension reload requests');
+  expect(backgroundMain.includes('handleExtensionReloadUpdate'), 'src/background/main.js must handle Chrome extension reload updates');
   expect(backgroundMain.includes('deliverPendingExtensionReloadNotice'), 'src/background/main.js must deliver pending reload notices');
 }
 

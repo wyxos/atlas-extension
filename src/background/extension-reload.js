@@ -24,15 +24,60 @@ export async function handleExtensionReloadRequest({
     throw new Error('Chrome storage API is unavailable.');
   }
 
-  await setStorageValues(storageArea, {
-    [extensionReloadNoticeStorageKey]: {
-      createdAt: now(),
-      version: normalizeVersion(runtime.getManifest?.().version),
-    },
-  });
+  await storePendingReloadNotice({ now, runtime, storageArea });
   setTimeout(() => runtime.reload(), 0);
 
   return { reloading: true };
+}
+
+export async function handleExtensionReloadUpdate({
+  details = {},
+  now = Date.now,
+  runtime = globalThis.chrome?.runtime,
+  scriptingApi = globalThis.chrome?.scripting,
+  storageArea = globalThis.chrome?.storage?.local,
+  tabsApi = globalThis.chrome?.tabs,
+} = {}) {
+  if (details?.reason !== 'update' || typeof storageArea?.set !== 'function') {
+    return {
+      notified: 0,
+      prompted: false,
+      recorded: false,
+    };
+  }
+
+  const activeDeliveryResult = await settleActiveDelivery();
+
+  if (activeDeliveryResult?.prompted === true) {
+    return {
+      ...(activeDeliveryResult ?? { notified: 0, prompted: false }),
+      recorded: false,
+    };
+  }
+
+  const pendingNotice = await readPendingNotice(storageArea);
+
+  if (pendingNotice !== null) {
+    return {
+      ...await deliverPendingExtensionReloadNotice({
+        scriptingApi,
+        storageArea,
+        tabsApi,
+      }),
+      recorded: false,
+    };
+  }
+
+  await storePendingReloadNotice({ now, runtime, storageArea });
+
+  return {
+    ...await deliverPendingExtensionReloadNotice({
+      scriptingApi,
+      storageArea,
+      tabsApi,
+    }),
+    recorded: true,
+  };
 }
 
 export async function deliverPendingExtensionReloadNotice(options = {}) {
@@ -95,6 +140,27 @@ async function readPendingNotice(storageArea) {
   return {
     version: normalizeVersion(value.version),
   };
+}
+
+async function settleActiveDelivery() {
+  if (activeDelivery === null) {
+    return null;
+  }
+
+  try {
+    return await activeDelivery;
+  } catch {
+    return null;
+  }
+}
+
+async function storePendingReloadNotice({ now, runtime, storageArea }) {
+  await setStorageValues(storageArea, {
+    [extensionReloadNoticeStorageKey]: {
+      createdAt: now(),
+      version: normalizeVersion(runtime?.getManifest?.().version),
+    },
+  });
 }
 
 async function injectReloadNotice({ notice, scriptingApi, tabId }) {

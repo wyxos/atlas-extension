@@ -11,6 +11,7 @@ import {
 import { createCloseTabIntentManager } from './close-tab-intents.js';
 import {
   deliverPendingExtensionReloadNotice,
+  handleExtensionReloadUpdate,
   extensionReloadRequestType,
   handleExtensionReloadRequest,
 } from './extension-reload.js';
@@ -123,9 +124,10 @@ globalThis.chrome?.runtime?.onStartup?.addListener?.(() => {
   void syncExtensionSettings();
 });
 
-globalThis.chrome?.runtime?.onInstalled?.addListener?.(() => {
+globalThis.chrome?.runtime?.onInstalled?.addListener?.((details) => {
   void ensureReverbConnection();
   void syncExtensionSettings();
+  void handleExtensionReloadUpdate({ details });
 });
 
 async function ensureReverbConnection(configOverride = null, options = {}) {

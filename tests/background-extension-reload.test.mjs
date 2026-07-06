@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   deliverPendingExtensionReloadNotice,
   extensionReloadNoticeStorageKey,
+  handleExtensionReloadUpdate,
   handleExtensionReloadRequest,
 } from '../src/background/extension-reload.js';
 
@@ -98,4 +99,145 @@ test('pending reload notice injects a dialog into active HTTP tabs', async () =>
   assert.equal(calls[3][1].target.tabId, 13);
   assert.equal(typeof calls[3][1].func, 'function');
   assert.deepEqual(calls[3][1].args, [{ version: '0.1.0' }]);
+});
+
+test('extension update stores and delivers a reload notice when no popup notice exists', async () => {
+  const calls = [];
+  const storageValues = {};
+  const tabsApi = {
+    query(query, callback) {
+      calls.push(['query', query]);
+      callback([{ id: 22, url: 'https://media.example.test/post/3' }]);
+    },
+  };
+  const scriptingApi = {
+    async executeScript(details) {
+      calls.push(['executeScript', details]);
+    },
+  };
+
+  const result = await handleExtensionReloadUpdate({
+    details: { reason: 'update' },
+    now: () => 67890,
+    runtime: {
+      getManifest: () => ({ version: '0.1.0' }),
+    },
+    scriptingApi,
+    storageArea: {
+      async get(key) {
+        calls.push(['get', key]);
+        return { [key]: storageValues[key] };
+      },
+      async remove(key) {
+        calls.push(['remove', key]);
+        delete storageValues[key];
+      },
+      async set(values) {
+        calls.push(['set', values]);
+        Object.assign(storageValues, values);
+      },
+    },
+    tabsApi,
+  });
+
+  assert.deepEqual(result, {
+    notified: 1,
+    prompted: true,
+    recorded: true,
+  });
+  assert.deepEqual(calls.find(([type]) => type === 'set')?.[1], {
+    [extensionReloadNoticeStorageKey]: {
+      createdAt: 67890,
+      version: '0.1.0',
+    },
+  });
+  assert.equal(calls.at(-1)[0], 'executeScript');
+  assert.equal(calls.at(-1)[1].target.tabId, 22);
+  assert.deepEqual(calls.at(-1)[1].args, [{ version: '0.1.0' }]);
+});
+
+test('extension update skips extension pages without falling back to inactive tabs', async () => {
+  const calls = [];
+  const storageValues = {};
+  const tabsApi = {
+    query(query, callback) {
+      calls.push(['query', query]);
+      callback(query.active === true
+        ? [{ id: 31, url: 'brave://extensions/?id=dhhmiflbhoaffjmlfpihmpioflgocekg' }]
+        : [
+          { id: 31, url: 'brave://extensions/?id=dhhmiflbhoaffjmlfpihmpioflgocekg' },
+          { id: 32, url: 'https://media.example.test/post/4' },
+        ]);
+    },
+  };
+  const scriptingApi = {
+    async executeScript(details) {
+      calls.push(['executeScript', details]);
+    },
+  };
+
+  const result = await handleExtensionReloadUpdate({
+    details: { reason: 'update' },
+    runtime: {
+      getManifest: () => ({ version: '0.1.0' }),
+    },
+    scriptingApi,
+    storageArea: {
+      async get(key) {
+        return { [key]: storageValues[key] };
+      },
+      async remove(key) {
+        delete storageValues[key];
+      },
+      async set(values) {
+        Object.assign(storageValues, values);
+      },
+    },
+    tabsApi,
+  });
+
+  assert.deepEqual(result, {
+    notified: 0,
+    prompted: true,
+    recorded: true,
+  });
+  assert.deepEqual(calls.filter(([type]) => type === 'query'), [
+    ['query', { active: true }],
+  ]);
+  assert.equal(calls.some(([type]) => type === 'executeScript'), false);
+});
+
+test('extension reload notices ignore first installs', async () => {
+  const calls = [];
+
+  const result = await handleExtensionReloadUpdate({
+    details: { reason: 'install' },
+    scriptingApi: {
+      async executeScript(details) {
+        calls.push(['executeScript', details]);
+      },
+    },
+    storageArea: {
+      async get(key) {
+        calls.push(['get', key]);
+        return {};
+      },
+      async set(values) {
+        calls.push(['set', values]);
+      },
+    },
+    tabsApi: {
+      query(query, callback) {
+        calls.push(['query', query]);
+        callback([{ id: 22, url: 'https://media.example.test/post/3' }]);
+      },
+    },
+  });
+
+  assert.deepEqual(result, {
+    notified: 0,
+    prompted: false,
+    recorded: false,
+  });
+  assert.deepEqual(calls, []);
 });
