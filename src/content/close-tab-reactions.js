@@ -8,9 +8,14 @@ import { armDownloadCloseIntentViaBackground } from './background-api.js';
 export async function armCloseTabForReaction(payload, {
   loadModeForSiteDomain = loadCloseTabModeForSiteDomain,
   locationContext = globalThis.location,
+  reactionType = null,
   sendIntent = armDownloadCloseIntentViaBackground,
 } = {}) {
-  const assetUrls = queuedAssetUrlsFromReactionPayload(payload);
+  const queuedAssetUrls = queuedAssetUrlsFromReactionPayload(payload);
+  const isBlacklistReaction = reactionType === 'blacklist';
+  const assetUrls = queuedAssetUrls.length > 0
+    ? queuedAssetUrls
+    : (isBlacklistReaction ? reactionAssetUrlsFromPayload(payload) : []);
   const siteDomain = normalizeSiteDomain(locationContext?.href);
 
   if (assetUrls.length === 0 || siteDomain === null) {
@@ -27,6 +32,7 @@ export async function armCloseTabForReaction(payload, {
     assetUrls,
     mode,
     siteDomain,
+    ...(queuedAssetUrls.length === 0 && isBlacklistReaction ? { waitForDownloads: false } : {}),
   };
 
   await sendIntent(intent);
@@ -45,11 +51,19 @@ export function queuedAssetUrlsFromReactionPayload(payload) {
 function uniqueQueuedAssetUrls(items) {
   return [...new Set(items
     .filter((item) => item?.download?.requested === true)
-    .map(downloadAssetUrl)
+    .map(reactionAssetUrl)
     .filter((assetUrl) => assetUrl !== null))];
 }
 
-function downloadAssetUrl(item) {
+function reactionAssetUrlsFromPayload(payload) {
+  const items = Array.isArray(payload?.items) ? payload.items : [payload];
+
+  return [...new Set(items
+    .map(reactionAssetUrl)
+    .filter((assetUrl) => assetUrl !== null))];
+}
+
+function reactionAssetUrl(item) {
   for (const value of [item?.file?.url, item?.asset_url]) {
     if (typeof value === 'string' && value.trim() !== '') {
       return value.trim();

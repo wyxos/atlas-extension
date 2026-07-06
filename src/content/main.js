@@ -326,7 +326,7 @@ async function handleBadgeReaction(event) {
 
     void armCloseTabForReaction(payload, {
       loadModeForSiteDomain: closeTabMode.loadModeForReaction,
-      locationContext: window.location,
+      locationContext: window.location, reactionType: event.type,
     });
 
     if (Array.isArray(payload.items)) {

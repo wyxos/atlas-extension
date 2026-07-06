@@ -67,6 +67,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
         mode: message.mode,
         siteDomain: message.siteDomain,
         tabId: sender?.tab?.id,
+        waitForDownloads: message.waitForDownloads,
       }),
     });
 

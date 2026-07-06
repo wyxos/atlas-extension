@@ -43,13 +43,15 @@ export function armDownloadCloseIntentViaBackground({
   runtime = globalThis.chrome?.runtime,
   siteDomain,
   timeoutMs = defaultTimeoutMs,
+  waitForDownloads,
 }) {
-  return sendBackgroundRequest({
+  return sendBackgroundRequest(withoutUndefinedValues({
     assetUrls,
     mode,
     siteDomain,
     type: 'atlas-extension.download-close-intent',
-  }, { runtime, timeoutMs });
+    waitForDownloads,
+  }), { runtime, timeoutMs });
 }
 
 export function postAssetReactionViaBackground({

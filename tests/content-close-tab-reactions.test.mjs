@@ -95,3 +95,31 @@ test('does not arm close intents when mode is off or no download was queued', as
 
   assert.deepEqual(intents, []);
 });
+
+test('arms blacklist close intents without queued downloads', async () => {
+  const intents = [];
+
+  await armCloseTabForReaction({
+    blacklisted_at: '2026-07-07T08:00:00Z',
+    download: { requested: false },
+    file: { url: 'https://cdn.example.test/video.mp4' },
+  }, {
+    async loadModeForSiteDomain() {
+      return closeTabModes.onComplete;
+    },
+    locationContext: {
+      href: 'https://www.x.com/user/status/123',
+    },
+    reactionType: 'blacklist',
+    sendIntent(intent) {
+      intents.push(intent);
+    },
+  });
+
+  assert.deepEqual(intents, [{
+    assetUrls: ['https://cdn.example.test/video.mp4'],
+    mode: closeTabModes.onComplete,
+    siteDomain: 'x.com',
+    waitForDownloads: false,
+  }]);
+});

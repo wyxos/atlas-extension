@@ -248,6 +248,37 @@ test('arms download close intents through the background worker', async () => {
   assert.equal(payload.armed, true);
 });
 
+test('passes non-download close intent mode through the background worker', async () => {
+  const messages = [];
+  const payload = await armDownloadCloseIntentViaBackground({
+    assetUrls: ['https://cdn.example.test/video.mp4'],
+    mode: 'on_complete',
+    runtime: {
+      sendMessage(message, callback) {
+        messages.push(message);
+        callback({
+          ok: true,
+          payload: {
+            armed: true,
+            closed: true,
+          },
+        });
+      },
+    },
+    siteDomain: 'x.com',
+    waitForDownloads: false,
+  });
+
+  assert.deepEqual(messages, [{
+    assetUrls: ['https://cdn.example.test/video.mp4'],
+    mode: 'on_complete',
+    siteDomain: 'x.com',
+    type: 'atlas-extension.download-close-intent',
+    waitForDownloads: false,
+  }]);
+  assert.equal(payload.closed, true);
+});
+
 test('rejects failed background responses', async () => {
   await assert.rejects(
     () => sendBackgroundRequest({

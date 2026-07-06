@@ -7,7 +7,7 @@ export function createCloseTabIntentManager({
 } = {}) {
   const intentsByTabId = new Map();
 
-  function armCloseIntent({ assetUrls, mode, siteDomain, tabId }) {
+  function armCloseIntent({ assetUrls, mode, siteDomain, tabId, waitForDownloads = true }) {
     const normalizedMode = normalizeCloseTabMode(mode);
     const normalizedTabId = normalizeTabId(tabId);
     const normalizedSiteDomain = normalizeSiteDomain(siteDomain);
@@ -27,7 +27,7 @@ export function createCloseTabIntentManager({
       };
     }
 
-    if (normalizedMode === closeTabModes.afterQueue) {
+    if (normalizedMode === closeTabModes.afterQueue || waitForDownloads === false) {
       closeTab(normalizedTabId);
 
       return {

@@ -90,3 +90,30 @@ test('failed or canceled tracked downloads keep the tab open and clear the inten
 
   assert.deepEqual(closedTabs, []);
 });
+
+test('non-download close intents close immediately after reaction completion', () => {
+  const closedTabs = [];
+  const manager = createCloseTabIntentManager({
+    tabsApi: {
+      remove(tabId) {
+        closedTabs.push(tabId);
+      },
+    },
+  });
+
+  const result = manager.armCloseIntent({
+    assetUrls: ['https://cdn.example.test/video.mp4'],
+    mode: closeTabModes.onComplete,
+    siteDomain: 'x.com',
+    tabId: 42,
+    waitForDownloads: false,
+  });
+
+  assert.deepEqual(result, {
+    armed: true,
+    closed: true,
+    mode: closeTabModes.onComplete,
+    trackedAssetCount: 1,
+  });
+  assert.deepEqual(closedTabs, [42]);
+});

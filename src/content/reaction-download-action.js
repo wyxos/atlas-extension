@@ -6,7 +6,7 @@ export async function resolveDownloadActionForReaction({
 }) {
   const currentReaction = resolveCurrentReaction(currentState);
 
-  if (currentReaction === null) {
+  if (currentReaction === null || event.type === 'blacklist') {
     return undefined;
   }
 

@@ -48,3 +48,42 @@ test('maps re-reaction dialog choices to download actions', async () => {
     },
   }), undefined);
 });
+
+test('blacklist reactions skip the re-reaction dialog for existing states', async () => {
+  const requests = [];
+  const request = {
+    asset: {
+      source: 'https://cdn.example.test/file.jpg',
+    },
+    confirmReactionUpdate: async (dialogRequest) => {
+      requests.push(dialogRequest);
+
+      return 'cancel';
+    },
+    currentState: {
+      download: {
+        downloaded_at: '2026-07-07T08:00:00Z',
+      },
+      reaction: {
+        type: 'like',
+      },
+    },
+    event: {
+      type: 'blacklist',
+    },
+  };
+
+  assert.equal(await resolveDownloadActionForReaction(request), undefined);
+  assert.deepEqual(requests, []);
+
+  assert.equal(await resolveDownloadActionForReaction({
+    ...request,
+    currentState: {
+      blacklisted_at: '2026-07-07T08:01:00Z',
+      download: {
+        downloaded_at: '2026-07-07T08:00:00Z',
+      },
+    },
+  }), undefined);
+  assert.deepEqual(requests, []);
+});
