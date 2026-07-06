@@ -37,6 +37,7 @@ export async function handleExtensionReloadUpdate({
   scriptingApi = globalThis.chrome?.scripting,
   storageArea = globalThis.chrome?.storage?.local,
   tabsApi = globalThis.chrome?.tabs,
+  windowsApi = globalThis.chrome?.windows,
 } = {}) {
   if (details?.reason !== 'update' || typeof storageArea?.set !== 'function') {
     return {
@@ -63,6 +64,7 @@ export async function handleExtensionReloadUpdate({
         scriptingApi,
         storageArea,
         tabsApi,
+        windowsApi,
       }),
       recorded: false,
     };
@@ -75,6 +77,7 @@ export async function handleExtensionReloadUpdate({
       scriptingApi,
       storageArea,
       tabsApi,
+      windowsApi,
     }),
     recorded: true,
   };
@@ -94,10 +97,32 @@ export async function deliverPendingExtensionReloadNotice(options = {}) {
   }
 }
 
+export function bindPendingExtensionReloadNoticeDelivery({
+  deliver = deliverPendingExtensionReloadNotice,
+  tabsApi = globalThis.chrome?.tabs,
+  windowsApi = globalThis.chrome?.windows,
+} = {}) {
+  const retryDelivery = () => {
+    void Promise.resolve(deliver()).catch(() => {});
+  };
+
+  tabsApi?.onActivated?.addListener?.(retryDelivery);
+  tabsApi?.onUpdated?.addListener?.((_tabId, changeInfo, tab) => {
+    if (
+      tab?.active === true
+      && (changeInfo?.status === 'complete' || typeof changeInfo?.url === 'string')
+    ) {
+      retryDelivery();
+    }
+  });
+  windowsApi?.onFocusChanged?.addListener?.(retryDelivery);
+}
+
 async function deliverPendingExtensionReloadNoticeOnce({
   scriptingApi = globalThis.chrome?.scripting,
   storageArea = globalThis.chrome?.storage?.local,
   tabsApi = globalThis.chrome?.tabs,
+  windowsApi = globalThis.chrome?.windows,
 } = {}) {
   const notice = await readPendingNotice(storageArea);
 
@@ -108,9 +133,7 @@ async function deliverPendingExtensionReloadNoticeOnce({
     };
   }
 
-  await removeStorageValue(storageArea, extensionReloadNoticeStorageKey);
-
-  const tabs = await queryTabs(tabsApi, { active: true });
+  const tabs = await queryActiveTabs({ tabsApi, windowsApi });
   let notified = 0;
 
   for (const tab of tabs.filter(isPromptableTab)) {
@@ -118,6 +141,15 @@ async function deliverPendingExtensionReloadNoticeOnce({
       notified += 1;
     }
   }
+
+  if (notified === 0) {
+    return {
+      notified: 0,
+      prompted: false,
+    };
+  }
+
+  await removeStorageValue(storageArea, extensionReloadNoticeStorageKey);
 
   return {
     notified,
@@ -348,6 +380,42 @@ function queryTabs(tabsApi, query) {
       tabsApi.query(query, (tabs) => resolve(Array.isArray(tabs) ? tabs : []));
     } catch {
       resolve([]);
+    }
+  });
+}
+
+async function queryActiveTabs({ tabsApi, windowsApi }) {
+  const windowTabs = await queryActiveWindowTabs(windowsApi);
+
+  if (windowTabs !== null) {
+    return windowTabs;
+  }
+
+  return await queryTabs(tabsApi, { active: true });
+}
+
+function queryActiveWindowTabs(windowsApi) {
+  if (typeof windowsApi?.getAll !== 'function') {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    try {
+      windowsApi.getAll({ populate: true, windowTypes: ['normal'] }, (windows) => {
+        if (!Array.isArray(windows)) {
+          resolve(null);
+
+          return;
+        }
+
+        resolve(windows.flatMap((window) => {
+          const tabs = Array.isArray(window?.tabs) ? window.tabs : [];
+
+          return tabs.filter((tab) => tab?.active === true);
+        }));
+      });
+    } catch {
+      resolve(null);
     }
   });
 }

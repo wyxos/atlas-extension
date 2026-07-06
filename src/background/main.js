@@ -10,6 +10,7 @@ import {
 } from './reverb-config.js';
 import { createCloseTabIntentManager } from './close-tab-intents.js';
 import {
+  bindPendingExtensionReloadNoticeDelivery,
   deliverPendingExtensionReloadNotice,
   handleExtensionReloadUpdate,
   extensionReloadRequestType,
@@ -108,6 +109,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
 });
 
 bindOpenTabTracking();
+bindPendingExtensionReloadNoticeDelivery();
 void syncExtensionSettings();
 void deliverPendingExtensionReloadNotice();
 

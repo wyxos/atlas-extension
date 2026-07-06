@@ -1,4 +1,7 @@
-import { loadNextTabsDefaultLimit } from '../shared/load-next-tabs-messages.js';
+import {
+  loadNextTabsDefaultLimit,
+  normalizeLoadNextTabsLimit,
+} from '../shared/load-next-tabs-messages.js';
 
 export async function loadNextTabsFromActive({
   activeTabId = null,
@@ -7,11 +10,14 @@ export async function loadNextTabsFromActive({
   tabsApi = globalThis.chrome?.tabs,
   windowId = null,
 } = {}) {
-  if (typeof tabsApi?.query !== 'function' || typeof tabsApi?.update !== 'function') {
+  if (
+    typeof tabsApi?.query !== 'function'
+    || (typeof tabsApi?.reload !== 'function' && typeof tabsApi?.update !== 'function')
+  ) {
     throw new Error('Chrome tabs API is unavailable.');
   }
 
-  const normalizedLimit = normalizeLimit(limit);
+  const normalizedLimit = normalizeLoadNextTabsLimit(limit);
   const tabs = await queryTabs({ runtime, tabsApi, windowId });
   const activeTab = findActiveTab(tabs, activeTabId);
 
@@ -19,15 +25,63 @@ export async function loadNextTabsFromActive({
     throw new Error('No active tab is available.');
   }
 
-  const tabsToActivate = tabs
+  const tabsToLoad = tabs
     .filter((tab) => Number.isInteger(tab?.id) && Number.isInteger(tab?.index))
     .filter((tab) => tab.id !== activeTab.id && tab.index > activeTab.index)
     .sort((left, right) => left.index - right.index)
     .slice(0, normalizedLimit);
+
+  if (typeof tabsApi.reload === 'function') {
+    return await reloadTabs({
+      limit: normalizedLimit,
+      runtime,
+      tabsApi,
+      tabsToLoad,
+    });
+  }
+
+  return await activateTabs({
+    activeTab,
+    limit: normalizedLimit,
+    runtime,
+    tabsApi,
+    tabsToLoad,
+  });
+}
+
+async function reloadTabs({
+  limit,
+  runtime,
+  tabsApi,
+  tabsToLoad,
+}) {
+  const loadedTabIds = [];
+
+  for (const tab of tabsToLoad) {
+    await reloadTab({ runtime, tabId: tab.id, tabsApi });
+    loadedTabIds.push(tab.id);
+  }
+
+  return {
+    activated: 0,
+    limit,
+    reloaded: loadedTabIds.length,
+    restored: false,
+    tabIds: loadedTabIds,
+  };
+}
+
+async function activateTabs({
+  activeTab,
+  limit,
+  runtime,
+  tabsApi,
+  tabsToLoad,
+}) {
   const activatedTabIds = [];
 
   try {
-    for (const tab of tabsToActivate) {
+    for (const tab of tabsToLoad) {
       await activateTab({ runtime, tabId: tab.id, tabsApi });
       activatedTabIds.push(tab.id);
     }
@@ -39,7 +93,8 @@ export async function loadNextTabsFromActive({
 
   return {
     activated: activatedTabIds.length,
-    limit: normalizedLimit,
+    limit,
+    reloaded: 0,
     restored: activatedTabIds.length > 0,
     tabIds: activatedTabIds,
   };
@@ -79,6 +134,34 @@ function activateTab({ runtime, tabId, tabsApi }) {
   });
 }
 
+function reloadTab({ runtime, tabId, tabsApi }) {
+  if (!Number.isInteger(tabId) || typeof tabsApi?.reload !== 'function') {
+    return Promise.resolve(0);
+  }
+
+  return new Promise((resolve, reject) => {
+    const callback = () => {
+      const error = runtime?.lastError?.message;
+
+      if (error) {
+        reject(new Error(error));
+
+        return;
+      }
+
+      resolve(1);
+    };
+
+    if (tabsApi.reload.length >= 3) {
+      tabsApi.reload(tabId, {}, callback);
+
+      return;
+    }
+
+    tabsApi.reload(tabId, callback);
+  });
+}
+
 function findActiveTab(tabs, activeTabId) {
   const normalizedActiveTabId = Number(activeTabId);
 
@@ -91,14 +174,4 @@ function findActiveTab(tabs, activeTabId) {
   }
 
   return tabs.find((tab) => tab?.active === true) ?? null;
-}
-
-function normalizeLimit(value) {
-  const number = Number(value);
-
-  if (!Number.isInteger(number) || number < 0) {
-    return loadNextTabsDefaultLimit;
-  }
-
-  return Math.min(number, loadNextTabsDefaultLimit);
 }
