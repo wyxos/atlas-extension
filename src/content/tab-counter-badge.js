@@ -105,6 +105,7 @@ export function createTabCounterBadge({
         box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
         box-sizing: border-box;
         color: #e5edf7;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-size: 12px;
         font-weight: 700;
         line-height: 1;

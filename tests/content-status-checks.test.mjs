@@ -216,6 +216,41 @@ test('fetches derived match status after source miss was cached', async () => {
   }]);
 });
 
+test('splits large status checks into backend-sized batches', async () => {
+  const statusRequests = [];
+  const queue = createStatusCheckQueue({
+    applyAssetState: () => {},
+    applyOpenCounts: () => {},
+    applyReferrerState: () => {},
+    clearAssetState: () => {},
+    clearReferrerState: () => {},
+    delayMs: 0,
+    fetchAssetStatuses: async (request) => {
+      statusRequests.push(request);
+
+      return { assets: {}, matches: {}, referrers: {} };
+    },
+    fetchOpenCounts: async () => ({ counts: {} }),
+    windowRef: globalThis,
+  });
+
+  for (let index = 0; index < 301; index += 1) {
+    queue.queueAssetStatusCheck(`https://cdn.example.test/media/${index}.jpg`, {
+      matchItem: {
+        lookup_id: `asset:${index}`,
+        match_by: 'source',
+        match_url: `https://cdn.example.test/media/${index}.jpg`,
+      },
+    });
+  }
+  await waitForFlush();
+
+  assert.equal(statusRequests.length, 2);
+  assert.deepEqual(statusRequests.map((request) => request.assetUrls.length), [300, 1]);
+  assert.deepEqual(statusRequests.map((request) => request.matchItems.length), [300, 1]);
+  assert.equal(statusRequests.every((request) => request.referrerUrls.length <= 300), true);
+});
+
 test('reapplies cached referrer status when a checked referrer is surfaced again', async () => {
   const referrerUrl = 'https://www.example.test/post/123';
   const appliedStates = [];

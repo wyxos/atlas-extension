@@ -1,3 +1,5 @@
+const statusRequestBatchSize = 300;
+
 export function createStatusCheckQueue({
   applyAssetState,
   applyOpenCounts,
@@ -134,9 +136,10 @@ export function createStatusCheckQueue({
     }
 
     const shouldFetchStatus = assetUrls.length > 0 || referrerUrls.length > 0 || matchItems.length > 0;
+    const statusRequests = buildStatusRequests({ assetUrls, matchItems, referrerUrls });
     const [statusResult, openCountResult] = await Promise.allSettled([
       shouldFetchStatus
-        ? fetchAssetStatuses({ assetUrls, matchItems, referrerUrls })
+        ? fetchStatusBatches(statusRequests)
         : Promise.resolve({ assets: {}, referrers: {} }),
       openReferrerUrls.length > 0 ? fetchOpenCounts({ referrerUrls: openReferrerUrls }) : Promise.resolve({ counts: {} }),
     ]);
@@ -155,6 +158,16 @@ export function createStatusCheckQueue({
       payload: statusResult.value,
       referrerUrls,
     });
+  }
+
+  async function fetchStatusBatches(statusRequests) {
+    const payload = { assets: {}, matches: {}, referrers: {} };
+
+    for (const statusRequest of statusRequests) {
+      mergeStatusPayload(payload, await fetchAssetStatuses(statusRequest));
+    }
+
+    return payload;
   }
 
   function applyStatusPayload({ assetUrls, matchItems, payload, referrerUrls }) {
@@ -228,4 +241,33 @@ export function createStatusCheckQueue({
     queueAssetStatusCheck,
     queueReferrerStatusCheck,
   };
+}
+
+function buildStatusRequests({ assetUrls, matchItems, referrerUrls }) {
+  const maxLength = Math.max(assetUrls.length, matchItems.length, referrerUrls.length);
+  const requests = [];
+
+  for (let offset = 0; offset < maxLength; offset += statusRequestBatchSize) {
+    requests.push({
+      assetUrls: assetUrls.slice(offset, offset + statusRequestBatchSize),
+      matchItems: matchItems.slice(offset, offset + statusRequestBatchSize),
+      referrerUrls: referrerUrls.slice(offset, offset + statusRequestBatchSize),
+    });
+  }
+
+  return requests;
+}
+
+function mergeStatusPayload(target, source) {
+  mergeStatusPayloadSection(target.assets, source?.assets);
+  mergeStatusPayloadSection(target.matches, source?.matches);
+  mergeStatusPayloadSection(target.referrers, source?.referrers);
+}
+
+function mergeStatusPayloadSection(target, source) {
+  if (!source || typeof source !== 'object') {
+    return;
+  }
+
+  Object.assign(target, source);
 }

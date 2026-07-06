@@ -3,6 +3,7 @@ import {
   describeReferrerAssetElement,
   markAtlasManagedOpacity,
 } from './assets.js';
+import { statusMatchItemForAsset as statusMatchItemForRuntime } from './asset-match-runtime.js';
 import { createReferrerBadgePresentation } from './badge-model.js';
 import { resolveReferrerBadgeState } from './referrer-state.js';
 import { resolveStateFileId } from './state-file-id.js';
@@ -282,14 +283,7 @@ export function createReferrerBadgeManager({
 }
 
 function statusMatchItemForAsset(asset) {
-  if (!asset?.matchIdentity) {
-    return null;
-  }
-
-  return {
-    ...asset.matchIdentity,
-    lookup_id: `referrer:${asset.referrerUrl}`,
-  };
+  return statusMatchItemForRuntime(asset, 'referrer');
 }
 
 function withoutUndefinedValues(values) {

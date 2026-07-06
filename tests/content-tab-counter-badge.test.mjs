@@ -55,6 +55,24 @@ test('tab counter badge loads the same Inter font source as the options page', (
   assert.ok(shadowStyle.textContent.trimStart().startsWith(optionsInterFontImport));
 });
 
+test('tab counter badge declares a sans-serif stack on the visible pill', () => {
+  const documentContext = createFakeDocument();
+  const badge = createTabCounterBadge({ documentContext });
+
+  badge.update({
+    domain: 'example.test',
+    sameDomainTabs: 3,
+    totalTabsInWindow: 11,
+  });
+
+  const shadowStyle = documentContext.body.children[0].shadowRoot.children[0];
+
+  assert.match(
+    shadowStyle.textContent,
+    /\.atlas-tab-counter \{[\s\S]*font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;/u,
+  );
+});
+
 test('tab counter badge hides when the current tab has no domain snapshot', () => {
   const documentContext = createFakeDocument();
   const badge = createTabCounterBadge({ documentContext });

@@ -209,6 +209,44 @@ test('queues known referrers for a forced refresh', () => {
   }]);
 });
 
+test('queues referrer match status with a short lookup id', () => {
+  const queued = [];
+  const element = createLinkedImage();
+  const manager = createReferrerBadgeManager({
+    decorateAsset: (asset) => ({
+      ...asset,
+      matchIdentity: {
+        match_by: 'referrer',
+        match_url: asset.referrerUrl,
+        rule_digest: 'rule-example',
+        rule_id: 'example-referrer',
+      },
+    }),
+    getOverlayController: () => ({
+      removeBadge: () => {},
+      upsertBadge: () => {},
+    }),
+    getVisibleRect: () => ({
+      bottom: 200,
+      left: 20,
+      width: 320,
+    }),
+    queueStatusCheck: (referrerUrl, options) => {
+      queued.push({ options, referrerUrl });
+    },
+    removeDirectBadge: () => {},
+    removeOverlayBadge: () => {},
+    viewportPadding: 4,
+  });
+
+  manager.sync(element);
+
+  assert.equal(queued[0].referrerUrl, 'https://www.example.test/post/123');
+  assert.match(queued[0].options.matchItem.lookup_id, /^referrer:[a-z0-9]+$/u);
+  assert.equal(queued[0].options.matchItem.lookup_id.includes(queued[0].referrerUrl), false);
+  assert.equal(queued[0].options.matchItem.match_url, 'https://www.example.test/post/123');
+});
+
 function createLinkedImage() {
   const anchor = {
     href: 'https://www.example.test/post/123',
