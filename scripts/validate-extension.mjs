@@ -81,10 +81,17 @@ if (manifest !== null) {
   expect(/^\d+\.\d+\.\d+$/.test(manifest.version ?? ''), 'manifest.json must use a three-part version');
   expect(manifest.options_ui?.page === 'options.html', 'manifest.json must point options_ui.page to options.html');
   expect(manifest.options_ui?.open_in_tab === true, 'manifest.json options_ui.open_in_tab must be true');
-  expect(Array.isArray(manifest.permissions), 'manifest.json must request storage, tabs, cookies, and scripting permissions');
+  expect(Array.isArray(manifest.permissions), 'manifest.json must request storage, tabs, cookies, scripting, and clipboard permissions');
   expect(
-    JSON.stringify(manifest.permissions) === JSON.stringify(['storage', 'tabs', 'cookies', 'scripting']),
-    'manifest.json must request storage, tabs, cookies, and scripting permissions for config, event relay, authenticated downloads, and reload prompts',
+    JSON.stringify(manifest.permissions) === JSON.stringify([
+      'storage',
+      'tabs',
+      'cookies',
+      'scripting',
+      'clipboardRead',
+      'clipboardWrite',
+    ]),
+    'manifest.json must request storage, tabs, cookies, scripting, and clipboard permissions for config, event relay, authenticated downloads, reload prompts, and popup link clipboard actions',
   );
   expect(
     JSON.stringify(manifest.icons) === JSON.stringify({
@@ -178,6 +185,8 @@ if (popupHtml !== null) {
   expect(popupHtml.includes('<title>Atlas Extension</title>'), 'popup.html must set the popup page title');
   expect(popupHtml.includes('atlas-popup-scan'), 'popup.html must expose a manual scan action');
   expect(popupHtml.includes('atlas-popup-load-next-tabs'), 'popup.html must expose a next-tabs load action');
+  expect(popupHtml.includes('atlas-popup-copy-tab-links'), 'popup.html must expose a tab-link clipboard copy action');
+  expect(popupHtml.includes('atlas-popup-open-clipboard-links'), 'popup.html must expose a clipboard-link open action');
   expect(popupHtml.includes('atlas-popup-reload'), 'popup.html must expose an extension reload action');
   expect(popupHtml.includes('/src/popup/main.js'), 'popup.html must load the popup entry');
 }
@@ -293,9 +302,13 @@ if (contentRuntime !== null) {
 if (popupScript !== null) {
   expect(popupScript.includes('requestActiveTabScan'), 'src/popup/main.js must trigger an active-tab scan request');
   expect(popupScript.includes('requestNextTabsLoad'), 'src/popup/main.js must trigger a next-tabs load request');
+  expect(popupScript.includes('copyCurrentWindowTabLinksToClipboard'), 'src/popup/main.js must trigger a tab-link clipboard copy request');
+  expect(popupScript.includes('openClipboardLinksInCurrentWindow'), 'src/popup/main.js must trigger a clipboard-link open request');
   expect(popupScript.includes('requestExtensionReload'), 'src/popup/main.js must trigger an extension reload request');
   expect(popupScript.includes('atlas-popup-scan'), 'src/popup/main.js must bind the popup scan button');
   expect(popupScript.includes('atlas-popup-load-next-tabs'), 'src/popup/main.js must bind the popup next-tabs load button');
+  expect(popupScript.includes('atlas-popup-copy-tab-links'), 'src/popup/main.js must bind the tab-link clipboard copy button');
+  expect(popupScript.includes('atlas-popup-open-clipboard-links'), 'src/popup/main.js must bind the clipboard-link open button');
   expect(popupScript.includes('atlas-popup-reload'), 'src/popup/main.js must bind the popup reload button');
 }
 

@@ -3,6 +3,10 @@ import { requestNextTabsLoad } from './load-next-tabs.js';
 import { requestExtensionReload } from './reload-extension.js';
 import { requestActiveTabScan } from './scan-active-tab.js';
 import {
+  copyCurrentWindowTabLinksToClipboard,
+  openClipboardLinksInCurrentWindow,
+} from './tab-links.js';
+import {
   loadNextTabsDefaultLimit,
   normalizeLoadNextTabsLimit,
   stepLoadNextTabsLimit,
@@ -17,6 +21,8 @@ const loadNextTabsButton = document.querySelector('#atlas-popup-load-next-tabs')
 const loadNextTabsDecrementButton = document.querySelector('#atlas-popup-load-next-tabs-decrement');
 const loadNextTabsIncrementButton = document.querySelector('#atlas-popup-load-next-tabs-increment');
 const loadNextTabsLimitInput = document.querySelector('#atlas-popup-load-next-tabs-limit');
+const copyTabLinksButton = document.querySelector('#atlas-popup-copy-tab-links');
+const openClipboardLinksButton = document.querySelector('#atlas-popup-open-clipboard-links');
 const reloadButton = document.querySelector('#atlas-popup-reload');
 const reactionWidgetVisibilityButton = document.querySelector('#atlas-popup-reaction-widget-visibility');
 const statusElement = document.querySelector('#atlas-popup-status');
@@ -40,6 +46,14 @@ loadNextTabsLimitInput?.addEventListener('blur', () => {
 
 loadNextTabsButton?.addEventListener('click', () => {
   void loadNextTabs();
+});
+
+copyTabLinksButton?.addEventListener('click', () => {
+  void copyOpenTabLinks();
+});
+
+openClipboardLinksButton?.addEventListener('click', () => {
+  void openClipboardLinks();
 });
 
 reactionWidgetVisibilityButton?.addEventListener('click', () => {
@@ -75,6 +89,26 @@ async function loadNextTabs() {
   setBusy(false);
 }
 
+async function copyOpenTabLinks() {
+  setBusy(true);
+  setStatus('Copying open links...');
+
+  const result = await copyCurrentWindowTabLinksToClipboard();
+
+  setStatus(result.ok ? copiedLinksMessage(result) : result.error);
+  setBusy(false);
+}
+
+async function openClipboardLinks() {
+  setBusy(true);
+  setStatus('Opening clipboard links...');
+
+  const result = await openClipboardLinksInCurrentWindow();
+
+  setStatus(result.ok ? openedLinksMessage(result) : result.error);
+  setBusy(false);
+}
+
 async function toggleReactionWidget() {
   setBusy(true);
   setStatus(`${reactionWidgetVisible ? 'Hiding' : 'Showing'} reaction widget...`);
@@ -104,6 +138,8 @@ function setBusy(isBusy) {
     loadNextTabsDecrementButton,
     loadNextTabsIncrementButton,
     loadNextTabsLimitInput,
+    copyTabLinksButton,
+    openClipboardLinksButton,
     reactionWidgetVisibilityButton,
     reloadButton,
   ]) {
@@ -140,6 +176,22 @@ function tabsLoadedMessage(result) {
   const reloadedMessage = reloaded === 1 ? 'reloaded 1 tab' : `reloaded ${reloaded} tabs`;
 
   return `${loadedMessage} and ${reloadedMessage}`;
+}
+
+function copiedLinksMessage(result) {
+  const copied = Number(result?.copied) || 0;
+  const skipped = Number(result?.skipped) || 0;
+  const message = copied === 1 ? 'Copied 1 link' : `Copied ${copied} links`;
+
+  return skipped > 0 ? `${message}; skipped ${skipped}` : message;
+}
+
+function openedLinksMessage(result) {
+  const opened = Number(result?.opened) || 0;
+  const skipped = Number(result?.skipped) || 0;
+  const message = opened === 1 ? 'Opened 1 link' : `Opened ${opened} links`;
+
+  return skipped > 0 ? `${message}; skipped ${skipped}` : message;
 }
 
 function initializeNextTabsLimit() {
