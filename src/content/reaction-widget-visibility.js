@@ -5,7 +5,6 @@ import {
 
 export async function initializeReactionWidgetVisibility({
   badgeHosts,
-  onShown = () => {},
   setOverlayBadgesVisible = () => {},
 } = {}) {
   const applyVisibility = (visible) => {
@@ -13,10 +12,6 @@ export async function initializeReactionWidgetVisibility({
 
     badgeHosts?.setVisible?.(isVisible);
     setOverlayBadgesVisible(isVisible);
-
-    if (isVisible) {
-      onShown();
-    }
   };
 
   applyVisibility(await readReactionWidgetVisibility());

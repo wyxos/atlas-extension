@@ -56,7 +56,7 @@ test('hidden reaction widget state hides badge surfaces without hiding the dialo
     assert.deepEqual(badgeVisibility, [false, true]);
     assert.deepEqual(overlayBadgeVisibility, [false, true]);
     assert.equal(overlayHost.style.display, '');
-    assert.equal(shownCount, 1);
+    assert.equal(shownCount, 0);
   } finally {
     if (previousChrome === undefined) {
       delete globalThis.chrome;

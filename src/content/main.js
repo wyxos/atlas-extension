@@ -493,7 +493,7 @@ startContentRuntime({
 });
 bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
 void closeTabMode.initialize();
-void initializeReactionWidgetVisibility({ badgeHosts, setOverlayBadgesVisible: (visible) => { reactionWidgetVisible = visible; overlayController?.setBadgesVisible(visible); }, onShown: () => { scheduleScan(); schedulePositionUpdate(); } });
+void initializeReactionWidgetVisibility({ badgeHosts, setOverlayBadgesVisible: (visible) => { reactionWidgetVisible = visible; overlayController?.setBadgesVisible(visible); } });
 void initializeAssetSourcePreferences({ onChanged: () => {
   scheduleScan();
   schedulePositionUpdate();
