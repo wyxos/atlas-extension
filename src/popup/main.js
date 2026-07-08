@@ -11,10 +11,6 @@ import {
   normalizeLoadNextTabsLimit,
   stepLoadNextTabsLimit,
 } from '../shared/load-next-tabs-messages.js';
-import {
-  readReactionWidgetVisibility,
-  toggleReactionWidgetVisibility,
-} from '../shared/reaction-widget-visibility.js';
 
 const scanButton = document.querySelector('#atlas-popup-scan');
 const loadNextTabsButton = document.querySelector('#atlas-popup-load-next-tabs');
@@ -24,9 +20,7 @@ const loadNextTabsLimitInput = document.querySelector('#atlas-popup-load-next-ta
 const copyTabLinksButton = document.querySelector('#atlas-popup-copy-tab-links');
 const openClipboardLinksButton = document.querySelector('#atlas-popup-open-clipboard-links');
 const reloadButton = document.querySelector('#atlas-popup-reload');
-const reactionWidgetVisibilityButton = document.querySelector('#atlas-popup-reaction-widget-visibility');
 const statusElement = document.querySelector('#atlas-popup-status');
-let reactionWidgetVisible = true;
 
 scanButton?.addEventListener('click', () => {
   void scanActiveTab();
@@ -56,16 +50,11 @@ openClipboardLinksButton?.addEventListener('click', () => {
   void openClipboardLinks();
 });
 
-reactionWidgetVisibilityButton?.addEventListener('click', () => {
-  void toggleReactionWidget();
-});
-
 reloadButton?.addEventListener('click', () => {
   void reloadExtension();
 });
 
 initializeNextTabsLimit();
-void initializeReactionWidgetVisibility();
 
 async function scanActiveTab() {
   setBusy(true);
@@ -109,16 +98,6 @@ async function openClipboardLinks() {
   setBusy(false);
 }
 
-async function toggleReactionWidget() {
-  setBusy(true);
-  setStatus(`${reactionWidgetVisible ? 'Hiding' : 'Showing'} reaction widget...`);
-
-  reactionWidgetVisible = await toggleReactionWidgetVisibility();
-  renderReactionWidgetVisibility();
-  setStatus(reactionWidgetVisible ? 'Reaction widget shown' : 'Reaction widget hidden');
-  setBusy(false);
-}
-
 async function reloadExtension() {
   setBusy(true);
   setStatus('Reloading extension...');
@@ -140,7 +119,6 @@ function setBusy(isBusy) {
     loadNextTabsLimitInput,
     copyTabLinksButton,
     openClipboardLinksButton,
-    reactionWidgetVisibilityButton,
     reloadButton,
   ]) {
     if (control !== null) {
@@ -216,20 +194,4 @@ function stepNextTabsLimit(delta) {
   if (loadNextTabsLimitInput !== null) {
     loadNextTabsLimitInput.value = String(limit);
   }
-}
-
-async function initializeReactionWidgetVisibility() {
-  reactionWidgetVisible = await readReactionWidgetVisibility();
-  renderReactionWidgetVisibility();
-}
-
-function renderReactionWidgetVisibility() {
-  if (reactionWidgetVisibilityButton === null) {
-    return;
-  }
-
-  reactionWidgetVisibilityButton.textContent = reactionWidgetVisible
-    ? 'Hide reaction widget'
-    : 'Show reaction widget';
-  reactionWidgetVisibilityButton.setAttribute('aria-pressed', String(!reactionWidgetVisible));
 }

@@ -22,7 +22,6 @@ import { resolveStateFileId } from './state-file-id.js';
 import { createStatusCheckQueue } from './status-checks.js';
 import { startContentRuntime } from './content-runtime.js';
 import { resolveVisibleRect } from './visible-rect.js';
-import { initializeReactionWidgetVisibility } from './reaction-widget-visibility.js';
 const assetSelector = 'img, video, audio';
 const overlayHostId = 'atlas-extension-asset-overlay';
 const scanDelayMs = 50;
@@ -38,7 +37,7 @@ let openReferrerCounts = {};
 let scheduledScan = null;
 let scheduledPositionUpdate = null;
 let nextAssetId = 0;
-let overlayController = null, reactionWidgetVisible = true;
+let overlayController = null;
 const badgeHosts = createBadgeHostManager();
 const closeTabMode = createCloseTabModeState({
   getLocationHref: () => window.location.href,
@@ -105,7 +104,6 @@ function getOverlayController() {
     onDelete: handleBadgeDelete,
     onReact: handleBadgeReaction,
   });
-  overlayController.setBadgesVisible(reactionWidgetVisible);
   return overlayController;
 }
 
@@ -493,7 +491,6 @@ startContentRuntime({
 });
 bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
 void closeTabMode.initialize();
-void initializeReactionWidgetVisibility({ badgeHosts, setOverlayBadgesVisible: (visible) => { reactionWidgetVisible = visible; overlayController?.setBadgesVisible(visible); } });
 void initializeAssetSourcePreferences({ onChanged: () => {
   scheduleScan();
   schedulePositionUpdate();
