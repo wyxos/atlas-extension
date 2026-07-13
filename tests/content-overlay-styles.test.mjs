@@ -34,3 +34,19 @@ test('allows pointer events on visible asset badge shortcut surfaces', () => {
   assert.match(styles, /\.atlas-static-icons[\s\S]*pointer-events: auto/);
   assert.match(styles, /\.atlas-static-progress[\s\S]*pointer-events: auto/);
 });
+
+test('styles the fallback asset trigger and responsive modal sheet', () => {
+  const styles = getOverlayStyles();
+
+  assert.match(styles, /\.atlas-asset-sheet-trigger[\s\S]*position: fixed/);
+  assert.match(styles, /\.atlas-asset-sheet[\s\S]*width: min\(420px, 100vw\)/);
+  assert.match(styles, /\.atlas-asset-sheet-list[\s\S]*overflow-y: auto/);
+  assert.match(styles, /\.atlas-asset-sheet-fade-leave-active/);
+  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*width: 100vw/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(styles, /\.atlas-asset-sheet-trigger[\s\S]*border-radius: 4px/);
+  assert.match(styles, /\.atlas-asset-sheet-item[\s\S]*border-radius: 4px/);
+  assert.match(styles, /\.atlas-asset-sheet-preview[\s\S]*grid-area: preview/);
+  assert.match(styles, /\.atlas-asset-sheet-preview-media[\s\S]*opacity: 0/);
+  assert.doesNotMatch(styles, /border-radius: 999px/);
+});

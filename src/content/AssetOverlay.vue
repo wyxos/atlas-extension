@@ -1,5 +1,6 @@
 <script setup>
 import AssetBadge from "./AssetBadge.vue";
+import AssetSheet from "./AssetSheet.vue";
 import ReactionUpdateDialog from "./ReactionUpdateDialog.vue";
 import ReferrerAssetBadge from "./ReferrerAssetBadge.vue";
 import ReferrerOpenDialog from "./ReferrerOpenDialog.vue";
@@ -74,5 +75,10 @@ defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "react", 
     :portal-target="portalTarget"
     :request="reactionRequest"
     @resolve="$emit('reaction-confirm', $event)"
+  />
+  <AssetSheet
+    :badges="badges"
+    :portal-target="portalTarget"
+    @react="$emit('react', $event)"
   />
 </template>

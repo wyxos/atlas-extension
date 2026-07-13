@@ -7,9 +7,8 @@ import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
 import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
 import { resolveAssetBatchContext } from './batch-providers/index.js';
-import { placeVisibleAssetBadge } from './asset-badge-placement.js';
+import { createAssetBadgePresentation } from './asset-badge-presentation.js';
 import { listAssetElements, watchAssetReadiness } from './asset-scanner.js';
-import { createBadgePresentation } from './badge-model.js';
 import { createBadgeHostManager } from './badge-hosts.js';
 import { armCloseTabForReaction } from './close-tab-reactions.js';
 import { createCloseTabModeState } from './close-tab-mode-state.js';
@@ -186,12 +185,14 @@ function syncAsset(element) {
 
   getOverlayController().upsertBadge(
     id,
-    createAssetBadgePresentation(id, element, asset, visibleRect, nextBadgeState ?? {}),
+    createAssetBadgePresentation({
+      asset, badgeHosts, closeTab: closeTabMode.presentationState(), element, id,
+      state: nextBadgeState, viewportPadding, visibleRect,
+    }),
   );
   queueAssetStatusCheck(asset.source, {
     matchItem: statusMatchItemForAsset(asset, 'asset'),
   });
-
   return true;
 }
 
@@ -228,24 +229,11 @@ function renderBadgeState(id, nextState) {
 
   getOverlayController().upsertBadge(
     id,
-    createAssetBadgePresentation(id, element, asset, visibleRect, nextState),
+    createAssetBadgePresentation({
+      asset, badgeHosts, closeTab: closeTabMode.presentationState(), element, id,
+      state: nextState, viewportPadding, visibleRect,
+    }),
   );
-}
-
-function createAssetBadgePresentation(id, element, asset, visibleRect, state) {
-  const placement = placeVisibleAssetBadge({
-    asset,
-    badgeHosts,
-    element,
-    id,
-    viewportPadding,
-    visibleRect,
-  }) ?? {};
-
-  return createBadgePresentation(asset, visibleRect, viewportPadding, {
-    ...(state ?? {}),
-    closeTab: closeTabMode.presentationState(),
-  }, placement);
 }
 
 function updateBadgeStateBySource(source, nextState) {

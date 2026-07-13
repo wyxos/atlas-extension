@@ -347,10 +347,11 @@ function getShadowHosts(element) {
 }
 
 function getHighestSrcsetCandidate(element) {
-  const rawSrcset = typeof element?.getAttribute === 'function'
-    ? element.getAttribute('srcset')
-    : element?.srcset;
-  const candidates = parseSrcsetCandidates(rawSrcset, element);
+  const candidates = getResponsiveSourceElements(element)
+    .flatMap((sourceElement) => parseSrcsetCandidates(
+      getRawSrcset(sourceElement),
+      element,
+    ));
 
   if (candidates.length === 0) {
     return null;
@@ -359,6 +360,23 @@ function getHighestSrcsetCandidate(element) {
   candidates.sort((left, right) => right.score - left.score);
 
   return candidates[0];
+}
+
+function getResponsiveSourceElements(element) {
+  const sources = [element];
+  const picture = element?.closest?.('picture');
+
+  if (String(picture?.tagName ?? '').toUpperCase() === 'PICTURE') {
+    sources.push(...(picture.querySelectorAll?.('source[srcset]') ?? []));
+  }
+
+  return sources;
+}
+
+function getRawSrcset(element) {
+  return typeof element?.getAttribute === 'function'
+    ? element.getAttribute('srcset')
+    : element?.srcset;
 }
 
 function parseSrcsetCandidates(srcset, element) {

@@ -85,6 +85,46 @@ test('uses the highest image srcset candidate when the site profile prefers srcs
   );
 });
 
+test('uses the highest candidate declared by a parent picture element', () => {
+  const picture = {
+    querySelectorAll: (selector) => (selector === 'source[srcset]'
+      ? [
+        {
+          getAttribute: (name) => (name === 'srcset'
+            ? '/art/example-1280.webp 1280w, /art/example-2048.webp 2048w'
+            : null),
+        },
+        {
+          getAttribute: (name) => (name === 'srcset'
+            ? '/art/example-1024.jpg 1024w'
+            : null),
+        },
+      ]
+      : []),
+    tagName: 'PICTURE',
+  };
+  const image = {
+    closest: (selector) => (selector === 'picture' ? picture : null),
+    currentSrc: 'https://cdn.example.test/art/example-1280.webp',
+    getAttribute: (name) => (name === 'srcset'
+      ? '/art/example-640.jpg 640w'
+      : null),
+    ownerDocument: {
+      baseURI: 'https://cdn.example.test/gallery/',
+      location: {
+        hostname: 'www.reddit.com',
+      },
+    },
+    src: 'https://cdn.example.test/art/example-640.jpg',
+    tagName: 'IMG',
+  };
+
+  assert.equal(
+    getAssetSource(image, { imageSourcePreference: 'srcset-highest' }),
+    'https://cdn.example.test/art/example-2048.webp',
+  );
+});
+
 test('describes srcset-preferred image resolution from the selected download target', () => {
   const asset = describeAssetElement(
     {

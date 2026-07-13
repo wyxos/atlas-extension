@@ -287,7 +287,7 @@ if (contentDetector !== null) {
 if (contentScript !== null) {
   expect(contentScript.includes('attachShadow'), 'src/content/main.js must isolate asset badges in a shadow overlay');
   expect(contentScript.includes('createAssetOverlay'), 'src/content/main.js must mount a Vue asset overlay');
-  expect(contentScript.includes('createBadgePresentation'), 'src/content/main.js must pass badge model data to Vue');
+  expect(contentScript.includes('createAssetBadgePresentation'), 'src/content/main.js must pass asset badge presentation data to Vue');
   expect(contentScript.includes('startContentRuntime'), 'src/content/main.js must start the content runtime');
   expect(contentScript.includes('createReferrerOpenGuard'), 'src/content/main.js must guard reacted and already-open referrers');
 }

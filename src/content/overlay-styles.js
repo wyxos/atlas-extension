@@ -1,3 +1,5 @@
+import { getAssetSheetStyles } from './asset-sheet-styles.js';
+
 const badgeAttribute = 'data-atlas-asset-badge';
 
 export function createOverlayStyles(documentContext = document) {
@@ -305,6 +307,9 @@ export function getOverlayStyles() {
       white-space: nowrap;
       z-index: 1;
     }
+
+    ${getAssetSheetStyles()}
+
 
     [data-atlas-referrer-badge] {
       align-items: center;
