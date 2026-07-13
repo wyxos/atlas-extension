@@ -12,10 +12,12 @@ import { createCloseTabIntentManager } from './close-tab-intents.js';
 import {
   bindPendingExtensionReloadNoticeDelivery,
   deliverPendingExtensionReloadNotice,
+  extensionReloadAllTabsRequestType,
   handleExtensionReloadUpdate,
   extensionReloadRequestType,
   handleExtensionReloadRequest,
 } from './extension-reload.js';
+import { reloadAllExtensionTabs } from './extension-tabs.js';
 import { createPusherReverbClient } from './pusher-reverb-client.js';
 import { createOpenTabRegistry } from './tab-state.js';
 import {
@@ -103,6 +105,17 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
       .then((payload) => sendResponse({ ok: true, payload }))
       .catch((error) => sendResponse({
         error: error?.message ?? 'Extension reload failed.',
+        ok: false,
+      }));
+
+    return true;
+  }
+
+  if (message?.type === extensionReloadAllTabsRequestType) {
+    void reloadAllExtensionTabs()
+      .then((payload) => sendResponse({ ok: true, payload }))
+      .catch((error) => sendResponse({
+        error: error?.message ?? 'Tabs could not be reloaded.',
         ok: false,
       }));
 

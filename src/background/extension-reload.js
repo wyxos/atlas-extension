@@ -1,20 +1,28 @@
 import {
+  extensionReloadAllTabsRequestType,
   extensionReloadNoticeStorageKey,
   extensionReloadRequestType,
 } from '../shared/extension-reload-messages.js';
+import {
+  isLoadedExtensionTab,
+  queryExtensionTabs,
+} from './extension-tabs.js';
+import { settleScriptExecution } from './extension-script-execution.js';
 
 export {
+  extensionReloadAllTabsRequestType,
   extensionReloadNoticeStorageKey,
   extensionReloadRequestType,
 };
 
-let activeDelivery = null;
-
+const activeDeliveries = new Map();
+const defaultInjectionTimeoutMs = 3000;
 export async function handleExtensionReloadRequest({
   now = Date.now,
   runtime = globalThis.chrome?.runtime,
   setTimeout = globalThis.setTimeout,
   storageArea = globalThis.chrome?.storage?.local,
+  tabsApi = globalThis.chrome?.tabs,
 } = {}) {
   if (typeof runtime?.reload !== 'function') {
     throw new Error('Chrome runtime reload API is unavailable.');
@@ -24,7 +32,7 @@ export async function handleExtensionReloadRequest({
     throw new Error('Chrome storage API is unavailable.');
   }
 
-  await storePendingReloadNotice({ now, runtime, storageArea });
+  await storePendingReloadNotice({ now, runtime, storageArea, tabsApi });
   setTimeout(() => runtime.reload(), 0);
 
   return { reloading: true };
@@ -37,7 +45,6 @@ export async function handleExtensionReloadUpdate({
   scriptingApi = globalThis.chrome?.scripting,
   storageArea = globalThis.chrome?.storage?.local,
   tabsApi = globalThis.chrome?.tabs,
-  windowsApi = globalThis.chrome?.windows,
 } = {}) {
   if (details?.reason !== 'update' || typeof storageArea?.set !== 'function') {
     return {
@@ -47,53 +54,51 @@ export async function handleExtensionReloadUpdate({
     };
   }
 
-  const activeDeliveryResult = await settleActiveDelivery();
-
-  if (activeDeliveryResult?.prompted === true) {
-    return {
-      ...(activeDeliveryResult ?? { notified: 0, prompted: false }),
-      recorded: false,
-    };
-  }
-
-  const pendingNotice = await readPendingNotice(storageArea);
-
-  if (pendingNotice !== null) {
-    return {
-      ...await deliverPendingExtensionReloadNotice({
-        scriptingApi,
-        storageArea,
-        tabsApi,
-        windowsApi,
-      }),
-      recorded: false,
-    };
-  }
-
-  await storePendingReloadNotice({ now, runtime, storageArea });
+  const notice = await storePendingReloadNotice({ now, runtime, storageArea, tabsApi });
 
   return {
     ...await deliverPendingExtensionReloadNotice({
+      notice,
       scriptingApi,
       storageArea,
       tabsApi,
-      windowsApi,
     }),
     recorded: true,
   };
 }
 
 export async function deliverPendingExtensionReloadNotice(options = {}) {
-  if (activeDelivery !== null) {
-    return activeDelivery;
+  const storageArea = options.storageArea ?? globalThis.chrome?.storage?.local;
+  const notice = options.notice ?? await readPendingNotice(storageArea);
+
+  if (notice === null) {
+    return {
+      notified: 0,
+      prompted: false,
+    };
   }
 
-  activeDelivery = deliverPendingExtensionReloadNoticeOnce(options);
+  const deliveryKey = reloadNoticeDeliveryKey(notice);
+  const existingDelivery = activeDeliveries.get(deliveryKey);
+
+  if (existingDelivery) {
+    return existingDelivery;
+  }
+
+  const delivery = deliverPendingExtensionReloadNoticeOnce({
+    ...options,
+    notice,
+    storageArea,
+  });
+
+  activeDeliveries.set(deliveryKey, delivery);
 
   try {
-    return await activeDelivery;
+    return await delivery;
   } finally {
-    activeDelivery = null;
+    if (activeDeliveries.get(deliveryKey) === delivery) {
+      activeDeliveries.delete(deliveryKey);
+    }
   }
 }
 
@@ -119,28 +124,36 @@ export function bindPendingExtensionReloadNoticeDelivery({
 }
 
 async function deliverPendingExtensionReloadNoticeOnce({
+  clearTimeout = globalThis.clearTimeout,
+  injectionTimeoutMs = defaultInjectionTimeoutMs,
+  notice,
   scriptingApi = globalThis.chrome?.scripting,
+  setTimeout = globalThis.setTimeout,
   storageArea = globalThis.chrome?.storage?.local,
   tabsApi = globalThis.chrome?.tabs,
-  windowsApi = globalThis.chrome?.windows,
 } = {}) {
-  const notice = await readPendingNotice(storageArea);
+  const tabs = await queryExtensionTabs(tabsApi, {});
+  const tabsById = new Map(tabs.map((tab) => [tab.id, tab]));
+  const pendingTabIds = notice.pendingTabIds
+    ?? tabs.filter(isLoadedExtensionTab).map((tab) => tab.id);
+  const targetTabIds = pendingTabIds.filter((tabId) => isLoadedExtensionTab(tabsById.get(tabId)));
+  const deliveryResults = await Promise.all(targetTabIds.map(async (tabId) => ({
+    delivered: await injectReloadNotice({
+      clearTimeout,
+      injectionTimeoutMs,
+      notice,
+      scriptingApi,
+      setTimeout,
+      tabId,
+    }),
+    tabId,
+  })));
+  const remainingTabIds = deliveryResults
+    .filter(({ delivered }) => !delivered)
+    .map(({ tabId }) => tabId);
+  const notified = deliveryResults.length - remainingTabIds.length;
 
-  if (notice === null) {
-    return {
-      notified: 0,
-      prompted: false,
-    };
-  }
-
-  const tabs = await queryActiveTabs({ tabsApi, windowsApi });
-  let notified = 0;
-
-  for (const tab of tabs.filter(isPromptableTab)) {
-    if (await injectReloadNotice({ notice, scriptingApi, tabId: tab.id })) {
-      notified += 1;
-    }
-  }
+  await reconcilePendingNotice({ notice, remainingTabIds, storageArea });
 
   if (notified === 0) {
     return {
@@ -148,8 +161,6 @@ async function deliverPendingExtensionReloadNoticeOnce({
       prompted: false,
     };
   }
-
-  await removeStorageValue(storageArea, extensionReloadNoticeStorageKey);
 
   return {
     notified,
@@ -170,50 +181,90 @@ async function readPendingNotice(storageArea) {
   }
 
   return {
+    createdAt: Number.isFinite(value.createdAt) ? value.createdAt : null,
+    pendingTabIds: normalizeTabIds(value.pendingTabIds),
     version: normalizeVersion(value.version),
   };
 }
 
-async function settleActiveDelivery() {
-  if (activeDelivery === null) {
-    return null;
-  }
+async function storePendingReloadNotice({ now, runtime, storageArea, tabsApi }) {
+  const tabs = await queryExtensionTabs(tabsApi, {});
+  const notice = {
+    createdAt: now(),
+    pendingTabIds: tabs.filter(isLoadedExtensionTab).map((tab) => tab.id),
+    version: normalizeVersion(runtime?.getManifest?.().version),
+  };
 
-  try {
-    return await activeDelivery;
-  } catch {
-    return null;
-  }
-}
-
-async function storePendingReloadNotice({ now, runtime, storageArea }) {
   await setStorageValues(storageArea, {
-    [extensionReloadNoticeStorageKey]: {
-      createdAt: now(),
-      version: normalizeVersion(runtime?.getManifest?.().version),
-    },
+    [extensionReloadNoticeStorageKey]: notice,
   });
+  return notice;
 }
 
-async function injectReloadNotice({ notice, scriptingApi, tabId }) {
+async function injectReloadNotice({
+  clearTimeout,
+  injectionTimeoutMs,
+  notice,
+  scriptingApi,
+  setTimeout,
+  tabId,
+}) {
   if (typeof scriptingApi?.executeScript !== 'function') {
     return false;
   }
 
   try {
-    await scriptingApi.executeScript({
-      args: [notice],
+    const execution = scriptingApi.executeScript({
+      args: [{ version: notice.version }, extensionReloadAllTabsRequestType],
       func: showExtensionReloadNotice,
       target: { tabId },
     });
 
-    return true;
+    return await settleScriptExecution({
+      clearTimeout,
+      execution,
+      setTimeout,
+      timeoutMs: injectionTimeoutMs,
+    });
   } catch {
     return false;
   }
 }
 
-export function showExtensionReloadNotice(notice = {}) {
+async function reconcilePendingNotice({ notice, remainingTabIds, storageArea }) {
+  const currentNotice = await readPendingNotice(storageArea);
+
+  if (reloadNoticeDeliveryKey(currentNotice) !== reloadNoticeDeliveryKey(notice)) {
+    return;
+  }
+
+  if (remainingTabIds.length === 0) {
+    await removeStorageValue(storageArea, extensionReloadNoticeStorageKey);
+
+    return;
+  }
+
+  await setStorageValues(storageArea, {
+    [extensionReloadNoticeStorageKey]: {
+      createdAt: notice.createdAt,
+      pendingTabIds: remainingTabIds,
+      version: notice.version,
+    },
+  });
+}
+
+function reloadNoticeDeliveryKey(notice) {
+  if (notice === null || typeof notice !== 'object') {
+    return null;
+  }
+
+  return `${notice.createdAt ?? 'unknown'}:${notice.version ?? 'unknown'}`;
+}
+
+export function showExtensionReloadNotice(
+  notice = {},
+  reloadAllRequestType = 'atlas-extension.reload-all-tabs',
+) {
   const hostId = 'atlas-extension-reload-notice';
   const existingHost = document.getElementById(hostId);
 
@@ -229,6 +280,7 @@ export function showExtensionReloadNotice(notice = {}) {
   const footer = document.createElement('div');
   const cancelButton = document.createElement('button');
   const reloadButton = document.createElement('button');
+  const reloadAllButton = document.createElement('button');
   const version = typeof notice?.version === 'string' && notice.version.trim() !== ''
     ? ` ${notice.version.trim()}`
     : '';
@@ -285,6 +337,7 @@ export function showExtensionReloadNotice(notice = {}) {
 
     .atlas-reload-footer {
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       justify-content: flex-end;
     }
@@ -321,6 +374,22 @@ export function showExtensionReloadNotice(notice = {}) {
     .atlas-reload-action:hover {
       background: #0f85fa;
     }
+
+    .atlas-reload-all {
+      background: transparent;
+      box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.72);
+      color: #bfdbfe;
+    }
+
+    .atlas-reload-all:hover {
+      background: rgba(59, 130, 246, 0.16);
+    }
+
+    @media (max-width: 440px) {
+      .atlas-reload-footer button {
+        flex: 1 1 100%;
+      }
+    }
   `;
   overlay.className = 'atlas-reload-overlay';
   dialog.className = 'atlas-reload-dialog';
@@ -335,15 +404,35 @@ export function showExtensionReloadNotice(notice = {}) {
   footer.className = 'atlas-reload-footer';
   cancelButton.className = 'atlas-reload-cancel';
   cancelButton.type = 'button';
-  cancelButton.textContent = 'Cancel';
+  cancelButton.textContent = 'Dismiss';
   reloadButton.className = 'atlas-reload-action';
   reloadButton.type = 'button';
   reloadButton.textContent = 'Reload tab';
+  reloadAllButton.className = 'atlas-reload-all';
+  reloadAllButton.type = 'button';
+  reloadAllButton.textContent = 'Reload all active tabs';
 
   cancelButton.addEventListener('click', () => host.remove());
   reloadButton.addEventListener('click', () => {
     host.remove();
     window.location.reload();
+  });
+  reloadAllButton.addEventListener('click', () => {
+    host.remove();
+
+    try {
+      const request = globalThis.chrome?.runtime?.sendMessage?.({
+        type: reloadAllRequestType,
+      });
+
+      request?.catch?.(() => window.location.reload());
+
+      if (request === undefined) {
+        window.location.reload();
+      }
+    } catch {
+      window.location.reload();
+    }
   });
   host.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -351,73 +440,11 @@ export function showExtensionReloadNotice(notice = {}) {
     }
   });
 
-  footer.append(cancelButton, reloadButton);
+  footer.append(cancelButton, reloadAllButton, reloadButton);
   dialog.append(title, description, footer);
   shadowRoot.append(style, overlay, dialog);
   (document.body ?? document.documentElement).append(host);
   reloadButton.focus();
-}
-
-function isPromptableTab(tab) {
-  if (!Number.isInteger(tab?.id) || typeof tab.url !== 'string') {
-    return false;
-  }
-
-  try {
-    return ['http:', 'https:'].includes(new URL(tab.url).protocol);
-  } catch {
-    return false;
-  }
-}
-
-function queryTabs(tabsApi, query) {
-  if (typeof tabsApi?.query !== 'function') {
-    return Promise.resolve([]);
-  }
-
-  return new Promise((resolve) => {
-    try {
-      tabsApi.query(query, (tabs) => resolve(Array.isArray(tabs) ? tabs : []));
-    } catch {
-      resolve([]);
-    }
-  });
-}
-
-async function queryActiveTabs({ tabsApi, windowsApi }) {
-  const windowTabs = await queryActiveWindowTabs(windowsApi);
-
-  if (windowTabs !== null) {
-    return windowTabs;
-  }
-
-  return await queryTabs(tabsApi, { active: true });
-}
-
-function queryActiveWindowTabs(windowsApi) {
-  if (typeof windowsApi?.getAll !== 'function') {
-    return Promise.resolve(null);
-  }
-
-  return new Promise((resolve) => {
-    try {
-      windowsApi.getAll({ populate: true, windowTypes: ['normal'] }, (windows) => {
-        if (!Array.isArray(windows)) {
-          resolve(null);
-
-          return;
-        }
-
-        resolve(windows.flatMap((window) => {
-          const tabs = Array.isArray(window?.tabs) ? window.tabs : [];
-
-          return tabs.filter((tab) => tab?.active === true);
-        }));
-      });
-    } catch {
-      resolve(null);
-    }
-  });
 }
 
 async function readStorageValue(storageArea, key) {
@@ -462,4 +489,12 @@ function normalizeVersion(value) {
   return typeof value === 'string' && value.trim() !== ''
     ? value.trim()
     : null;
+}
+
+function normalizeTabIds(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  return [...new Set(value.filter((tabId) => Number.isInteger(tabId)))];
 }

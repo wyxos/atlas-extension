@@ -269,6 +269,7 @@ const contentReferrerState = readText('src/content/referrer-state.js');
 const backgroundTabState = readText('src/background/tab-state.js');
 const backgroundLoadNextTabs = readText('src/background/load-next-tabs.js');
 const backgroundMain = readText('src/background/main.js');
+const backgroundExtensionReload = readText('src/background/extension-reload.js');
 const popupScript = readText('src/popup/main.js');
 const popupLoadNextTabsHelper = readText('src/popup/load-next-tabs.js');
 const popupReloadHelper = readText('src/popup/reload-extension.js');
@@ -422,6 +423,12 @@ if (backgroundMain !== null) {
   expect(backgroundMain.includes('handleExtensionReloadRequest'), 'src/background/main.js must handle popup extension reload requests');
   expect(backgroundMain.includes('handleExtensionReloadUpdate'), 'src/background/main.js must handle Chrome extension reload updates');
   expect(backgroundMain.includes('deliverPendingExtensionReloadNotice'), 'src/background/main.js must deliver pending reload notices');
+  expect(backgroundMain.includes('reloadAllExtensionTabs'), 'src/background/main.js must handle bulk tab reload requests');
+}
+
+if (backgroundExtensionReload !== null) {
+  expect(backgroundExtensionReload.includes('pendingTabIds'), 'src/background/extension-reload.js must retain failed loaded-tab notices for retry');
+  expect(backgroundExtensionReload.includes('Reload all active tabs'), 'src/background/extension-reload.js must expose the bulk reload action');
 }
 
 if (backgroundLoadNextTabs !== null) {

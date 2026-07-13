@@ -31,7 +31,7 @@ test('declares a toolbar popup for manual page scanning', () => {
   assert.equal(manifest.action.default_popup, 'popup.html');
 });
 
-test('declares scripting permission for post-reload active tab prompts', () => {
+test('declares scripting permission for post-reload loaded-tab prompts', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 
   assert.deepEqual(manifest.permissions, [
