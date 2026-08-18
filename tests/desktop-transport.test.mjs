@@ -47,7 +47,10 @@ test('pairs only after hello and sends the locked channel identity', async () =>
   const transport = createDesktopTransport({
     channel: 'dev',
     fetchImpl: createFetchSequence(requests, responses),
-    runtime: { getManifest: () => ({ version: '1.2.3' }) },
+    runtime: {
+      getManifest: () => ({ version: '1.2.3' }),
+      getURL: () => 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+    },
   });
 
   const paired = await transport.pair();
@@ -55,8 +58,22 @@ test('pairs only after hello and sends the locked channel identity', async () =>
 
   assert.deepEqual(paired, { client_id: 'new-client', client_token: 'new-token' });
   assert.equal(body.expected_channel, 'dev');
+  assert.equal(body.extension_origin, 'chrome-extension://abcdefghijklmnopabcdefghijklmnop');
   assert.equal(body.extension_version, '1.2.3');
   assert.equal(requests[1].options.headers.Authorization, undefined);
+});
+
+test('rejects pairing when the runtime does not expose an extension identity', async () => {
+  const transport = createDesktopTransport({
+    channel: 'dev',
+    fetchImpl: createFetch([], helloData('dev')),
+    runtime: { getManifest: () => ({ version: '1.2.3' }) },
+  });
+
+  await assert.rejects(
+    transport.pair(),
+    (error) => error.code === 'INVALID_EXTENSION_IDENTITY' && error.retryable === false,
+  );
 });
 
 test('authenticates commands and adds idempotency keys only to mutations', async () => {

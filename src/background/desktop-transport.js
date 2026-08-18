@@ -37,6 +37,7 @@ export function createDesktopTransport(options = {}) {
         browser: detectBrowser(),
         client_name: 'Atlas Extension',
         expected_channel: channel,
+        extension_origin: resolveExtensionOrigin(runtime),
         extension_version: runtime?.getManifest?.()?.version ?? 'unknown',
       },
       method: 'POST',
@@ -284,6 +285,36 @@ function detectBrowser() {
   }
 
   return 'chromium';
+}
+
+function resolveExtensionOrigin(runtime) {
+  let url;
+
+  try {
+    url = new URL(runtime?.getURL?.('') ?? '');
+  } catch {
+    throw createDesktopContractError(
+      'INVALID_EXTENSION_IDENTITY',
+      'Atlas Extension could not determine its browser identity.',
+      false,
+    );
+  }
+
+  if (
+    !['chrome-extension:', 'moz-extension:'].includes(url.protocol)
+    || url.hostname === ''
+    || url.username !== ''
+    || url.password !== ''
+    || url.port !== ''
+  ) {
+    throw createDesktopContractError(
+      'INVALID_EXTENSION_IDENTITY',
+      'Atlas Extension could not determine its browser identity.',
+      false,
+    );
+  }
+
+  return `${url.protocol}//${url.hostname}`;
 }
 
 function randomId() {
