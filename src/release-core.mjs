@@ -214,15 +214,16 @@ export async function buildExtension({ destination, root }) {
   const backgroundOutputPath = getBackgroundBuildOutputPath(root);
   const contentOutputPath = getContentBuildOutputPath(root);
   const locationBridgeOutputPath = getLocationBridgeBuildOutputPath(root);
-
   fs.rmSync(buildOutputPath, { force: true, recursive: true });
   fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
   fs.rmSync(contentOutputPath, { force: true, recursive: true });
   fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
-  await runViteBuild({ outDir: buildOutputPath, root, target: 'options' });
-  await runViteBuild({ outDir: backgroundOutputPath, root, target: 'background' });
-  await runViteBuild({ outDir: contentOutputPath, root, target: 'content' });
-  await runViteBuild({ outDir: locationBridgeOutputPath, root, target: 'location-bridge' });
+  const buildEnv = loadBuildEnv(root);
+  const channel = ['dev', 'stable'].includes(buildEnv.CHANNEL) ? buildEnv.CHANNEL : 'dev';
+  await runViteBuild({ channel, outDir: buildOutputPath, root, target: 'options' });
+  await runViteBuild({ channel, outDir: backgroundOutputPath, root, target: 'background' });
+  await runViteBuild({ channel, outDir: contentOutputPath, root, target: 'content' });
+  await runViteBuild({ channel, outDir: locationBridgeOutputPath, root, target: 'location-bridge' });
   copyContentBuild({ buildOutputPath, contentOutputPath: backgroundOutputPath, entryName: 'background' });
   copyContentBuild({ buildOutputPath, contentOutputPath });
   copyContentBuild({ buildOutputPath, contentOutputPath: locationBridgeOutputPath, entryName: 'location-bridge' });
@@ -231,9 +232,13 @@ export async function buildExtension({ destination, root }) {
   fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
   fs.copyFileSync(path.join(root, 'manifest.json'), path.join(buildOutputPath, 'manifest.json'));
   copyStaticAssets({ buildOutputPath, root });
+  fs.writeFileSync(path.join(buildOutputPath, 'atlas-desktop-compatibility.json'), `${JSON.stringify({
+    channel,
+    desktopBaseUrl: channel === 'stable' ? 'http://127.0.0.1:37420' : 'http://127.0.0.1:17420',
+    protocolVersion: 1,
+  }, null, 2)}\n`);
 
   const copied = copyDirectory({ destination, source: buildOutputPath });
-
   return {
     copied,
     destination,
@@ -442,7 +447,7 @@ async function runGit(args, { root }) {
   };
 }
 
-async function runViteBuild({ outDir, root, target }) {
+async function runViteBuild({ channel, outDir, root, target }) {
   const viteBinPath = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
 
   await execFileAsync(process.execPath, [viteBinPath, 'build', '--outDir', outDir], {
@@ -450,6 +455,7 @@ async function runViteBuild({ outDir, root, target }) {
     env: {
       ...process.env,
       ATLAS_EXTENSION_BUILD_TARGET: target,
+      CHANNEL: channel,
     },
     maxBuffer: 1024 * 1024 * 4,
     windowsHide: true,
@@ -489,7 +495,6 @@ function parseJsonObject(text) {
     return null;
   }
 }
-
 function isSemanticVersion(version) {
   return /^\d+\.\d+\.\d+$/.test(version);
 }

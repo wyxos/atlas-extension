@@ -8,10 +8,15 @@ import { defineConfig } from 'vite';
 const rootDirectory = fileURLToPath(new URL('.', import.meta.url));
 const allowedBuildTargets = new Set(['background', 'content', 'location-bridge', 'options']);
 const buildTarget = process.env.ATLAS_EXTENSION_BUILD_TARGET ?? 'options';
+const desktopChannel = process.env.CHANNEL ?? 'dev';
 const strictModeDirective = "'use strict';";
 
 if (!allowedBuildTargets.has(buildTarget)) {
   throw new Error(`Unsupported Atlas extension build target: ${buildTarget}`);
+}
+
+if (!['dev', 'stable'].includes(desktopChannel)) {
+  throw new Error(`Unsupported Atlas Desktop channel: ${desktopChannel}`);
 }
 
 function resolveInput() {
@@ -74,6 +79,9 @@ function strictContentScriptPlugin() {
 
 export default defineConfig({
   base: './',
+  define: {
+    'globalThis.__ATLAS_DESKTOP_CHANNEL__': JSON.stringify(desktopChannel),
+  },
   build: {
     rollupOptions: {
       input: resolveInput(),

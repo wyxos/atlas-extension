@@ -1,289 +1,230 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { Eye, EyeOff, Plug, RefreshCw } from "@lucide/vue";
+import { CircleOff, Link2, RefreshCw, Unplug } from "@lucide/vue";
+import { toast } from "vue-sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@ui/alert-dialog";
 import { Badge } from "@ui/badge";
 import { Button } from "@ui/button";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@ui/field";
-import { Input } from "@ui/input";
 import {
-  connectAndSaveConnectionConfig,
-  connectionModes,
-  defaultApiKey,
-  connectionStatuses,
-  defaultDomain,
-  getReverbStatusLabel,
-  getReverbStatusVariant,
-  getStatusLabel,
-  getStatusVariant,
-  isConnectableConfig,
-  loadConnectionState,
-  localApiKey,
-  localDomain,
-  resolveActiveConnectionConfig,
-  saveConnectionMode,
-  reverbStatuses,
-} from "../connection";
+  cancelDesktopPairing,
+  requestDesktopDiagnostics,
+  requestDesktopPairing,
+  requestDesktopReconnect,
+  requestDesktopUnpair,
+} from "../../shared/desktop-messages";
 
-const mode = ref(connectionModes.live);
-const liveDomain = ref(defaultDomain);
-const liveApiKey = ref(defaultApiKey);
-const status = ref(connectionStatuses.idle);
-const isConnecting = ref(false);
-const isRefreshing = ref(false);
-const showApiKey = ref(false);
-const reverbStatus = ref(reverbStatuses.idle);
+const diagnostics = ref(null);
+const busyAction = ref("");
+let pairingCancelled = false;
 
-const isLocalMode = computed(() => mode.value === connectionModes.local);
-const hasFailed = computed(() => status.value === connectionStatuses.failed);
-const apiKeyInputType = computed(() => showApiKey.value ? "text" : "password");
-const apiKeyToggleLabel = computed(() => showApiKey.value ? "Hide API key" : "Show API key");
-const failureMessage = computed(() => reverbStatus.value === reverbStatuses.failed
-  ? "Atlas API connected, but Reverb did not complete a connection handshake."
-  : "Enter a valid HTTP(S) domain and API key.");
-const isBusy = computed(() => isConnecting.value || isRefreshing.value);
-const activeConfig = computed(() => ({
-  apiKey: isLocalMode.value ? localApiKey : liveApiKey.value,
-  domain: isLocalMode.value ? localDomain : liveDomain.value,
-  mode: mode.value,
-}));
-const displayDomain = computed({
-  get: () => activeConfig.value.domain,
-  set: (value) => {
-    if (!isLocalMode.value) {
-      liveDomain.value = value;
+const isBusy = computed(() => busyAction.value !== "");
+const isPairing = computed(() => busyAction.value === "pair" || diagnostics.value?.pairingPending === true);
+const statusLabel = computed(() => ({
+  connected: "Connected",
+  error: "Needs attention",
+  offline: "Desktop offline",
+  unpaired: "Not paired",
+})[diagnostics.value?.health] ?? "Checking");
+const statusVariant = computed(() => ({
+  connected: "success",
+  error: "danger",
+  offline: "outline",
+  unpaired: "outline",
+})[diagnostics.value?.health] ?? "outline");
+const diagnosticRows = computed(() => [
+  ["Channel", diagnostics.value?.channel],
+  ["Desktop endpoint", diagnostics.value?.baseUrl],
+  ["Protocol", diagnostics.value?.protocolVersion],
+  ["Desktop version", diagnostics.value?.app?.version],
+  ["Extension version", diagnostics.value?.extensionVersion],
+  ["Client ID", diagnostics.value?.clientId],
+  ["Event stream", diagnostics.value?.eventStatus],
+  ["Last event sequence", diagnostics.value?.eventSequence],
+  ["Runtime policy revision", diagnostics.value?.runtimePolicyRevision],
+  ["Last checked", formatTimestamp(diagnostics.value?.lastCheckedAt)],
+]);
+
+onMounted(loadDiagnostics);
+
+async function loadDiagnostics() {
+  try {
+    diagnostics.value = await requestDesktopDiagnostics();
+  } catch (error) {
+    toast.error("Diagnostics unavailable.", { description: error.message });
+  }
+}
+
+async function reconnect() {
+  await runAction("reconnect", requestDesktopReconnect, "Desktop connection refreshed.");
+}
+
+async function pair() {
+  pairingCancelled = false;
+  await runAction("pair", requestDesktopPairing, "Extension paired with Atlas Desktop.", {
+    suppressError: () => pairingCancelled,
+  });
+}
+
+async function cancelPairing() {
+  pairingCancelled = true;
+
+  try {
+    diagnostics.value = await cancelDesktopPairing();
+  } catch (error) {
+    toast.error("Pairing could not be cancelled.", { description: error.message });
+  }
+}
+
+async function unpair() {
+  await runAction("unpair", requestDesktopUnpair, "Desktop pairing removed.");
+}
+
+async function runAction(action, callback, successMessage, options = {}) {
+  busyAction.value = action;
+
+  try {
+    diagnostics.value = await callback();
+    toast.success(successMessage);
+  } catch (error) {
+    await loadDiagnostics();
+
+    if (!options.suppressError?.()) {
+      toast.error(actionErrorTitle(action), { description: error.message });
     }
-  },
-});
-const displayApiKey = computed({
-  get: () => activeConfig.value.apiKey,
-  set: (value) => {
-    if (!isLocalMode.value) {
-      liveApiKey.value = value;
-    }
-  },
-});
-const canRefresh = computed(() => isConnectableConfig(activeConfig.value));
-const reverbStatusLabel = computed(() => getReverbStatusLabel(reverbStatus.value));
-const reverbStatusVariant = computed(() => getReverbStatusVariant(reverbStatus.value));
-const statusLabel = computed(() => getStatusLabel(status.value));
-const statusVariant = computed(() => getStatusVariant(status.value));
-
-let hasLoadedConnection = false;
-let hasAutoCheckedConnection = false;
-
-onMounted(initializeConnection);
-
-async function initializeConnection() {
-  await loadStoredConnectionOnce();
-  await autoCheckConnectionOnce();
-}
-
-async function loadStoredConnectionOnce() {
-  if (hasLoadedConnection) {
-    return;
-  }
-
-  hasLoadedConnection = true;
-
-  try {
-    const storedState = await loadConnectionState();
-    applyConnectionState(storedState);
-  } catch {
-    status.value = connectionStatuses.failed;
-  }
-}
-
-async function connect() {
-  isConnecting.value = true;
-  try {
-    await verifyAndStoreConnection();
   } finally {
-    isConnecting.value = false;
+    busyAction.value = "";
   }
 }
 
-async function refreshConnection() {
-  isRefreshing.value = true;
-  try {
-    await verifyAndStoreConnection();
-  } finally {
-    isRefreshing.value = false;
-  }
+function actionErrorTitle(action) {
+  return ({
+    pair: "Pairing failed.",
+    reconnect: "Desktop is unavailable.",
+    unpair: "Pairing could not be removed.",
+  })[action] ?? "Desktop request failed.";
 }
 
-async function autoCheckConnectionOnce() {
-  if (hasAutoCheckedConnection || !isConnectableConfig(activeConfig.value)) {
-    return;
+function formatTimestamp(value) {
+  if (typeof value !== "string" || value === "") {
+    return null;
   }
 
-  hasAutoCheckedConnection = true;
-  isRefreshing.value = true;
-
-  try {
-    await verifyAndStoreConnection();
-  } finally {
-    isRefreshing.value = false;
-  }
+  return new Date(value).toLocaleString();
 }
 
-async function verifyAndStoreConnection() {
-  try {
-    const storedConfig = await connectAndSaveConnectionConfig(activeConfig.value);
-
-    applyConnectionConfig(storedConfig);
-  } catch {
-    status.value = connectionStatuses.failed;
-    reverbStatus.value = reverbStatuses.failed;
-  }
-}
-
-async function setConnectionMode(nextMode) {
-  if (mode.value === nextMode || isBusy.value) {
-    return;
-  }
-
-  const previousLiveDomain = liveDomain.value;
-  const previousLiveApiKey = liveApiKey.value;
-
-  try {
-    const state = await saveConnectionMode(nextMode);
-
-    applyConnectionState(state);
-    liveDomain.value = previousLiveDomain;
-    liveApiKey.value = previousLiveApiKey;
-  } catch {
-    status.value = connectionStatuses.failed;
-    reverbStatus.value = reverbStatuses.failed;
-
-    return;
-  }
-
-  if (nextMode === connectionModes.local) {
-    await refreshConnection();
-  }
-}
-
-function applyConnectionState(state) {
-  const activeStoredConfig = resolveActiveConnectionConfig(state);
-
-  mode.value = state.mode;
-  liveDomain.value = state.profiles.live.domain ?? defaultDomain;
-  liveApiKey.value = state.profiles.live.apiKey ?? defaultApiKey;
-  applyConnectionConfig(activeStoredConfig);
-}
-
-function applyConnectionConfig(config) {
-  if (config.mode === connectionModes.live) {
-    liveDomain.value = config.domain ?? defaultDomain;
-    liveApiKey.value = config.apiKey ?? defaultApiKey;
-  }
-
-  status.value = config.status ?? connectionStatuses.idle;
-  reverbStatus.value = config.reverb?.status ?? reverbStatuses.idle;
+function displayValue(value) {
+  return value === null || value === undefined || value === "" ? "—" : String(value);
 }
 </script>
 
 <template>
-  <form class="w-full max-w-md" @submit.prevent="connect">
-    <FieldGroup class="gap-3">
-      <Field class="gap-1.5">
-        <FieldLabel>
-          Connection
-        </FieldLabel>
-        <div class="inline-flex w-fit rounded-md border border-border bg-background p-0.5">
-          <Button
-            type="button"
-            size="sm"
-            :variant="mode === connectionModes.live ? 'secondary' : 'ghost'"
-            :disabled="isBusy"
-            @click="setConnectionMode(connectionModes.live)"
-          >
-            Live
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            :variant="isLocalMode ? 'secondary' : 'ghost'"
-            :disabled="isBusy"
-            @click="setConnectionMode(connectionModes.local)"
-          >
-            Local
-          </Button>
+  <section class="space-y-5" aria-labelledby="desktop-diagnostics-title">
+    <div class="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 id="desktop-diagnostics-title" class="text-lg font-semibold">
+            Atlas Desktop
+          </h2>
+          <Badge :variant="statusVariant" aria-live="polite">
+            {{ statusLabel }}
+          </Badge>
         </div>
-      </Field>
-      <Field class="gap-1.5" :data-invalid="hasFailed || undefined">
-        <FieldLabel for="atlas-domain">
-          Domain
-        </FieldLabel>
-        <Input
-          id="atlas-domain"
-          v-model="displayDomain"
-          autocomplete="url"
-          class="h-7 text-sm"
-          :disabled="isLocalMode"
-          :placeholder="isLocalMode ? localDomain : 'https://atlas.example.com'"
-          :aria-invalid="hasFailed || undefined"
-        />
-      </Field>
-      <Field class="gap-1.5" :data-invalid="hasFailed || undefined">
-        <FieldLabel for="atlas-api-key">
-          API key
-        </FieldLabel>
-        <div class="relative">
-          <Input
-            id="atlas-api-key"
-            v-model="displayApiKey"
-            autocomplete="off"
-            class="h-7 pr-8 text-sm"
-            :disabled="isLocalMode"
-            :type="apiKeyInputType"
-            :aria-invalid="hasFailed || undefined"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            class="absolute right-0 top-0"
-            :aria-label="apiKeyToggleLabel"
-            :title="apiKeyToggleLabel"
-            @click="showApiKey = !showApiKey"
-          >
-            <EyeOff v-if="showApiKey" />
-            <Eye v-else />
-          </Button>
-        </div>
-        <FieldDescription class="text-xs">
-          Local mode uses atlas.test with the seeded API key and keeps live settings untouched.
-        </FieldDescription>
-        <FieldDescription v-if="hasFailed" class="text-xs">
-          {{ failureMessage }}
-        </FieldDescription>
-      </Field>
-      <Field orientation="horizontal" class="flex-wrap gap-2 pt-1">
-        <Button type="submit" size="sm" :disabled="isBusy">
-          <Plug data-icon="inline-start" />
-          Connect
+        <p class="mt-1 text-sm text-muted-foreground">
+          The extension accepts only the matching Desktop channel on this computer.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <Button
+          v-if="!diagnostics?.paired && !isPairing"
+          size="sm"
+          :disabled="isBusy"
+          @click="pair"
+        >
+          <Link2 data-icon="inline-start" />
+          Pair
         </Button>
         <Button
-          type="button"
-          variant="outline"
+          v-if="isPairing"
           size="sm"
-          :disabled="isBusy || !canRefresh"
-          @click="refreshConnection"
+          variant="outline"
+          @click="cancelPairing"
         >
-          <RefreshCw
-            data-icon="inline-start"
-            :class="{ 'animate-spin': isRefreshing }"
-          />
-          Refresh
+          <CircleOff data-icon="inline-start" />
+          Cancel pairing
         </Button>
-        <Badge :variant="statusVariant" aria-live="polite">
-          {{ statusLabel }}
-        </Badge>
-        <Badge :variant="reverbStatusVariant" aria-live="polite">
-          {{ reverbStatusLabel }}
-        </Badge>
-      </Field>
-    </FieldGroup>
-  </form>
+        <Button
+          size="sm"
+          variant="outline"
+          :disabled="isBusy"
+          @click="reconnect"
+        >
+          <RefreshCw data-icon="inline-start" :class="{ 'animate-spin': busyAction === 'reconnect' }" />
+          Reconnect
+        </Button>
+
+        <AlertDialog v-if="diagnostics?.paired">
+          <AlertDialogTrigger as-child>
+            <Button size="sm" variant="outline" :disabled="isBusy">
+              <Unplug data-icon="inline-start" />
+              Unpair
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove this browser pairing?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Atlas actions will remain unavailable until Desktop approves a new pairing.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep pairing</AlertDialogCancel>
+              <AlertDialogAction @click="unpair">
+                Remove pairing
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </div>
+
+    <div
+      v-if="diagnostics?.lastError"
+      class="rounded-lg border border-destructive/40 bg-destructive/10 p-4"
+      role="alert"
+    >
+      <p class="font-medium text-destructive">
+        {{ diagnostics.lastError.message }}
+      </p>
+      <p class="mt-1 text-sm text-muted-foreground">
+        {{ diagnostics.lastError.retryable ? "Reconnect after Atlas Desktop is ready." : "Check the channel and pairing in Atlas Desktop." }}
+      </p>
+    </div>
+
+    <dl class="grid grid-cols-1 overflow-hidden rounded-lg border border-border sm:grid-cols-2">
+      <div
+        v-for="([label, value], index) in diagnosticRows"
+        :key="label"
+        class="min-w-0 border-border p-4 sm:[&:nth-child(odd)]:border-r"
+        :class="{ 'border-b': index < diagnosticRows.length - 2 }"
+      >
+        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {{ label }}
+        </dt>
+        <dd class="mt-1 break-words text-sm font-medium">
+          {{ displayValue(value) }}
+        </dd>
+      </div>
+    </dl>
+  </section>
 </template>

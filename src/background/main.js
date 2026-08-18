@@ -1,13 +1,9 @@
 import {
   deleteAtlasFile,
   fetchAssetStatuses,
-  loadAtlasContentConfig,
   postAssetReactionBatch,
   postAssetReaction,
-} from '../content/atlas-api.js';
-import {
-  resolveReverbConnectionConfig,
-} from './reverb-config.js';
+} from './desktop-api.js';
 import { createCloseTabIntentManager } from './close-tab-intents.js';
 import {
   bindPendingExtensionReloadNoticeDelivery,
@@ -18,7 +14,6 @@ import {
   handleExtensionReloadRequest,
 } from './extension-reload.js';
 import { reloadAllExtensionTabs } from './extension-tabs.js';
-import { createPusherReverbClient } from './pusher-reverb-client.js';
 import { createOpenTabRegistry } from './tab-state.js';
 import {
   broadcastTabCounterSnapshots,
@@ -28,18 +23,21 @@ import { collectReactionRuntimeContext } from './reaction-runtime-context.js';
 import { loadNextTabsFromActive } from './load-next-tabs.js';
 import { loadNextTabsRequestType } from '../shared/load-next-tabs-messages.js';
 import { tabCounterSnapshotRequestType } from '../shared/tab-counter-messages.js';
-import {
-  syncExtensionSettings,
-  uploadSettingsAfterStorageChange,
-} from '../shared/settings-sync.js';
+import { serializeDesktopError } from '../shared/desktop-contract.js';
+import { createDesktopRuntime } from './desktop-runtime.js';
 
-let activeReverbClient = null;
-let activeConfigKey = null;
-let isConnecting = false;
 const openTabs = createOpenTabRegistry();
 const closeTabIntents = createCloseTabIntentManager();
+const desktopRuntime = createDesktopRuntime({
+  onDownloadEvent: relayDownloadEvent,
+  onResyncRequired: relayDesktopResyncRequired,
+});
 
 globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendResponse) => {
+  if (desktopRuntime.handleMessage(message, sendResponse)) {
+    return true;
+  }
+
   if (message?.type === 'atlas-extension.open-referrer-counts') {
     sendResponse({
       ok: true,
@@ -53,12 +51,6 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
 
   if (message?.type === 'atlas-extension.open-referrer-url') {
     return handleOpenReferrerUrlMessage(message, sendResponse);
-  }
-
-  if (message?.type === 'atlas-extension.ensure-reverb') {
-    void ensureReverbConnection();
-
-    return false;
   }
 
   if (message?.type === 'atlas-extension.download-close-intent') {
@@ -129,7 +121,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
   void handleAtlasApiMessage(message)
     .then((payload) => sendResponse({ ok: true, payload }))
     .catch((error) => sendResponse({
-      error: error?.message ?? 'Atlas extension background request failed.',
+      error: serializeDesktopError(error),
       ok: false,
     }));
 
@@ -138,108 +130,58 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
 
 bindOpenTabTracking();
 bindPendingExtensionReloadNoticeDelivery();
-void syncExtensionSettings();
+void desktopRuntime.initialize();
 void deliverPendingExtensionReloadNotice();
 
-globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => {
-  if (areaName === 'local' && changes.atlasExtensionConfig) {
-    void ensureReverbConnection(null, { closeWhenMissing: true });
-  }
-
-  void uploadSettingsAfterStorageChange(changes, areaName);
-});
-
 globalThis.chrome?.runtime?.onStartup?.addListener?.(() => {
-  void ensureReverbConnection();
-  void syncExtensionSettings();
+  void desktopRuntime.initialize();
 });
 
 globalThis.chrome?.runtime?.onInstalled?.addListener?.((details) => {
-  void ensureReverbConnection();
-  void syncExtensionSettings();
+  void desktopRuntime.initialize();
   void handleExtensionReloadUpdate({ details });
 });
 
-async function ensureReverbConnection(configOverride = null, options = {}) {
-  if (isConnecting) {
-    return;
-  }
-
-  const config = await resolveReverbConnectionConfig(configOverride ?? await loadAtlasContentConfig());
-  const reverb = config?.reverb;
-  const nextConfigKey = reverbConfigKey(config);
-
-  if (!reverb?.enabled || nextConfigKey === null) {
-    if (options.closeWhenMissing === true) {
-      closeActiveReverbClient();
-    }
-
-    return;
-  }
-
-  if (activeReverbClient !== null && activeConfigKey === nextConfigKey) {
-    return;
-  }
-
-  isConnecting = true;
-  closeActiveReverbClient();
-
-  try {
-    const client = await createPusherReverbClient(config);
-
-    if (client === null) {
-      return;
-    }
-
-    activeConfigKey = nextConfigKey;
-    activeReverbClient = client;
-    activeReverbClient.onEvent(relayDownloadEvent);
-  } finally {
-    isConnecting = false;
-  }
-}
-
 async function handleAtlasApiMessage(message) {
-  const config = await loadAtlasContentConfig();
+  const { credentials, transport } = await desktopRuntime.requestContext();
 
   if (message.type === 'atlas-extension.asset-statuses') {
     return fetchAssetStatuses({
       assetUrls: message.assetUrls,
-      config,
+      credentials,
       matchItems: message.matchItems,
       referrerUrls: message.referrerUrls,
+      transport,
     });
   }
 
   if (message.type === 'atlas-extension.file-delete') {
     return deleteAtlasFile({
-      config,
+      credentials,
       fileId: message.fileId,
+      transport,
     });
   }
 
   const payload = message.type === 'atlas-extension.asset-reaction-batch'
     ? await postAssetReactionBatch({
-      config,
+      credentials,
       downloadAction: message.downloadAction,
       items: message.items,
       reactionType: message.reactionType,
       runtimeContext: await collectReactionRuntimeContext(message),
+      transport,
     })
     : await postAssetReaction({
       asset: message.asset,
-      config,
+      credentials,
       downloadAction: message.downloadAction,
       reactionType: message.reactionType,
       referrerUrl: message.referrerUrl,
       runtimeContext: await collectReactionRuntimeContext(message),
       source: message.source,
+      transport,
     });
-
-  void ensureReverbConnection({
-    ...config,
-    reverb: payload.reverb,
-  });
 
   return payload;
 }
@@ -265,6 +207,22 @@ function relayDownloadEvent(payload) {
       globalThis.chrome?.tabs?.sendMessage?.(tab.id, {
         payload,
         type: 'atlas-extension.download-event',
+      }, () => {
+        void globalThis.chrome?.runtime?.lastError;
+      });
+    }
+  });
+}
+
+function relayDesktopResyncRequired() {
+  globalThis.chrome?.tabs?.query?.({}, (tabs) => {
+    for (const tab of tabs ?? []) {
+      if (!Number.isInteger(tab.id)) {
+        continue;
+      }
+
+      globalThis.chrome?.tabs?.sendMessage?.(tab.id, {
+        type: 'atlas-extension.desktop.resync-required',
       }, () => {
         void globalThis.chrome?.runtime?.lastError;
       });
@@ -403,32 +361,4 @@ function normalizeHttpUrl(value) {
   } catch {
     return null;
   }
-}
-
-function closeActiveReverbClient() {
-  try {
-    activeReverbClient?.disconnect?.();
-  } catch {
-    // Ignore disconnect errors while Chrome is suspending the worker.
-  }
-
-  activeReverbClient = null;
-  activeConfigKey = null;
-}
-
-function reverbConfigKey(config) {
-  const reverb = config?.reverb;
-
-  if (!reverb?.channel || !reverb?.host || !reverb?.key) {
-    return null;
-  }
-
-  return [
-    config.domain,
-    config.apiKey,
-    reverb.channel,
-    reverb.host,
-    reverb.port,
-    reverb.scheme,
-  ].join('|');
 }

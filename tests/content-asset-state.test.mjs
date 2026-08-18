@@ -18,7 +18,6 @@ test('clearing missing Atlas asset status preserves local batch state', () => {
       status: 'completed',
     },
     file: {
-      atlas_url: 'https://atlas.test/browse/file/123',
       id: 123,
     },
     reaction: { type: 'love' },

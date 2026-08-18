@@ -6,6 +6,7 @@ import {
   armDownloadCloseIntentViaBackground,
   fetchAssetStatusesViaBackground,
   fetchOpenReferrerCountsViaBackground,
+  openAtlasFileViaBackground,
   openReferrerInTabViaBackground,
   postAssetReactionBatchViaBackground,
   postAssetReactionViaBackground,
@@ -170,6 +171,25 @@ test('deletes Atlas files through the background worker', async () => {
   assert.equal(payload.deleted, true);
 });
 
+test('opens downloaded files through the background-owned Desktop command', async () => {
+  const messages = [];
+  const payload = await openAtlasFileViaBackground({
+    fileId: 123,
+    runtime: {
+      sendMessage(message, callback) {
+        messages.push(message);
+        callback({ ok: true, payload: { opened: true } });
+      },
+    },
+  });
+
+  assert.deepEqual(messages, [{
+    fileId: 123,
+    type: 'atlas-extension.desktop.open-file',
+  }]);
+  assert.equal(payload.opened, true);
+});
+
 test('requests open referrer counts through the background worker', async () => {
   const messages = [];
   const payload = await fetchOpenReferrerCountsViaBackground({
@@ -294,6 +314,22 @@ test('rejects failed background responses', async () => {
       },
     }),
     /Atlas rejected the request/,
+  );
+});
+
+test('preserves structured Desktop error semantics', async () => {
+  await assert.rejects(
+    () => sendBackgroundRequest({ type: 'atlas-extension.desktop.open-file' }, {
+      runtime: {
+        sendMessage(_message, callback) {
+          callback({
+            error: { code: 'DESKTOP_OFFLINE', message: 'Desktop is offline.', retryable: true },
+            ok: false,
+          });
+        },
+      },
+    }),
+    (error) => error.code === 'DESKTOP_OFFLINE' && error.retryable === true,
   );
 });
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Atlas Extension",
-  "description": "Minimal standalone Atlas extension shell.",
+  "description": "Browser capture companion for Atlas Desktop.",
   "version": "0.1.0",
   "permissions": [
     "storage",
@@ -31,7 +31,7 @@
     "https://*/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http: https: ws: wss:"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*"
   },
   "content_scripts": [
     {

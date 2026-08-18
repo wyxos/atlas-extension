@@ -1,7 +1,7 @@
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
 import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
 import { createBatchProviderState } from './batch-provider-state.js';
-import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openReferrerInTabViaBackground } from './background-api.js';
+import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground } from './background-api.js';
 import { decorateAssetWithMatchIdentity as decorateAssetWithMatchIdentityForRuntime, statusMatchItemForAsset } from './asset-match-runtime.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
@@ -101,6 +101,7 @@ function getOverlayController() {
     onBatchToggle: handleBadgeBatchToggle,
     onCloseModeChange: handleBadgeCloseModeChange,
     onDelete: handleBadgeDelete,
+    onOpenFile: handleBadgeOpenFile,
     onReact: handleBadgeReaction,
   });
   return overlayController;
@@ -367,6 +368,13 @@ function handleBadgeBatchToggle(event) {
   void saveBatchProviderPreference(context.provider, event.checked === true);
 }
 
+function handleBadgeOpenFile(event) {
+  const fileId = resolveStateFileId(badgeStatesById.get(event.id));
+  if (fileId !== null) {
+    void openAtlasFileViaBackground({ fileId });
+  }
+}
+
 function handleBadgeCloseModeChange(event) { void closeTabMode.setMode(event.mode); }
 
 function handleAssetShortcut(event) {
@@ -460,7 +468,6 @@ function updateAllAssetBadgePresentations() {
     renderBadgeState(id, state);
   }
 }
-
 startContentRuntime({
   getOpenReferrerCounts: () => openReferrerCounts,
   handleAssetShortcut,
@@ -470,6 +477,14 @@ startContentRuntime({
     updateBadgeStateBySource,
     updateReferrerBadges: referrerBadges.updateByDownloadEvent,
   }),
+  handleResyncRequired: () => {
+    statusChecks.reset();
+    referrerBadges.refreshKnownReferrers?.({
+      refreshOpenCounts: true,
+      refreshStatus: true,
+    });
+    scanAssets();
+  },
   mergeOpenReferrerCounts,
   referrerBadges,
   referrerOpenGuard,

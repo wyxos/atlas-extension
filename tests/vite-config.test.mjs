@@ -27,14 +27,22 @@ test('builds the popup with the extension pages target', async () => {
   assert.equal(config.build.rollupOptions.input.popup, path.join(root, 'popup.html'));
 });
 
-async function loadViteConfigForTarget(target) {
+test('injects the selected Desktop channel into every build target', async () => {
+  const config = await loadViteConfigForTarget('background', 'stable');
+
+  assert.equal(config.define['globalThis.__ATLAS_DESKTOP_CHANNEL__'], '"stable"');
+});
+
+async function loadViteConfigForTarget(target, channel = 'dev') {
   const previousTarget = process.env.ATLAS_EXTENSION_BUILD_TARGET;
+  const previousChannel = process.env.CHANNEL;
 
   process.env.ATLAS_EXTENSION_BUILD_TARGET = target;
+  process.env.CHANNEL = channel;
 
   try {
     const configUrl = pathToFileURL(path.join(root, 'vite.config.js'));
-    configUrl.search = `?target=${target}&test=${Date.now()}`;
+    configUrl.search = `?target=${target}&channel=${channel}&test=${Date.now()}`;
 
     const module = await import(configUrl.href);
 
@@ -44,6 +52,12 @@ async function loadViteConfigForTarget(target) {
       delete process.env.ATLAS_EXTENSION_BUILD_TARGET;
     } else {
       process.env.ATLAS_EXTENSION_BUILD_TARGET = previousTarget;
+    }
+
+    if (previousChannel === undefined) {
+      delete process.env.CHANNEL;
+    } else {
+      process.env.CHANNEL = previousChannel;
     }
   }
 }

@@ -90,6 +90,22 @@ export function createStatusCheckQueue({
     cachedAssetStates.delete(source);
   }
 
+  function reset() {
+    checkedAssetSources.clear();
+    cachedAssetStates.clear();
+    cachedReferrerStates.clear();
+    checkedReferrerUrls.clear();
+    pendingAssetSources.clear();
+    pendingMatchItems.clear();
+    pendingOpenReferrerUrls.clear();
+    pendingReferrerUrls.clear();
+
+    if (scheduledStatusCheck !== null) {
+      windowRef.clearTimeout?.(scheduledStatusCheck);
+      scheduledStatusCheck = null;
+    }
+  }
+
   function queueMatchItem(matchItem, target) {
     if (!matchItem || typeof matchItem !== 'object') {
       return false;
@@ -240,6 +256,7 @@ export function createStatusCheckQueue({
     markReferrerUrlChecked,
     queueAssetStatusCheck,
     queueReferrerStatusCheck,
+    reset,
   };
 }
 

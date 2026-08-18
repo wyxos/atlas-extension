@@ -21,7 +21,7 @@ defineProps({
   },
 });
 
-const emit = defineEmits(["batch-toggle", "close-mode-change", "delete", "react"]);
+const emit = defineEmits(["batch-toggle", "close-mode-change", "delete", "open-file", "react"]);
 
 const iconSize = 18;
 const metaIconSize = 14;
@@ -206,21 +206,20 @@ function handleBadgeShortcut(event) {
         />
       </button>
 
-      <a
-        v-if="badge.atlasFileUrl"
+      <button
+        v-if="badge.canOpenFile"
+        type="button"
         class="atlas-static-file-action"
-        :href="badge.atlasFileUrl"
-        target="_blank"
-        rel="noreferrer"
+        :disabled="badge.isBusy || badge.isDeleting"
         aria-label="Open file in Atlas"
         title="Open file in Atlas"
-        @click.stop
+        @click.stop.prevent="emit('open-file')"
       >
         <ExternalLink
           :size="iconSize"
           :stroke-width="2"
         />
-      </a>
+      </button>
 
       <button
         v-if="badge.canDeleteFile"

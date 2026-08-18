@@ -16,9 +16,9 @@ export function createBadgePresentation(asset, visibleRect, viewportPadding, sta
 
   return {
     activeReaction,
-    atlasFileUrl: isDownloaded ? file?.atlas_url ?? null : null,
     batch: normalizeBatchState(state.batch),
     canDeleteFile: isDownloaded && file?.id !== null,
+    canOpenFile: isDownloaded && file?.id !== null,
     ...optionalCloseTabState(state.closeTab),
     download,
     file,
@@ -166,9 +166,6 @@ function normalizeFileState(file) {
   }
 
   return {
-    atlas_url: typeof file.atlas_url === 'string' && file.atlas_url.trim() !== ''
-      ? file.atlas_url
-      : null,
     id: normalizePositiveInteger(file.id),
   };
 }

@@ -66,9 +66,9 @@ test('creates static asset badge presentation data', () => {
     }, null, 4),
     {
       activeReaction: null,
-      atlasFileUrl: null,
       batch: null,
       canDeleteFile: false,
+      canOpenFile: false,
       download: null,
       file: null,
       isBusy: false,
@@ -103,16 +103,15 @@ test('formats badge state from Atlas asset status payloads', () => {
         status: 'completed',
       },
       file: {
-        atlas_url: 'https://atlas.test/browse/file/123',
         id: 123,
       },
       reaction: { type: 'love' },
     }),
     {
       activeReaction: 'love',
-      atlasFileUrl: 'https://atlas.test/browse/file/123',
       batch: null,
       canDeleteFile: true,
+      canOpenFile: true,
       download: {
         downloaded_at: '2025-01-02T03:04:05',
         file_id: null,
@@ -120,7 +119,6 @@ test('formats badge state from Atlas asset status payloads', () => {
         status: 'completed',
       },
       file: {
-        atlas_url: 'https://atlas.test/browse/file/123',
         id: 123,
       },
       isBusy: false,
@@ -164,9 +162,9 @@ test('formats active transfer stages without treating idle assets as complete', 
     }),
     {
       activeReaction: null,
-      atlasFileUrl: null,
       batch: null,
       canDeleteFile: false,
+      canOpenFile: false,
       download: {
         downloaded_at: null,
         file_id: null,
@@ -206,16 +204,15 @@ test('active transfer progress takes precedence over stale downloaded timestamps
         status: 'downloading',
       },
       file: {
-        atlas_url: 'https://atlas.test/browse/file/123',
         id: 123,
       },
       reaction: { type: 'like' },
     }),
     {
       activeReaction: 'like',
-      atlasFileUrl: null,
       batch: null,
       canDeleteFile: false,
+      canOpenFile: false,
       download: {
         downloaded_at: '2025-01-02T03:04:05',
         file_id: 123,
@@ -223,7 +220,6 @@ test('active transfer progress takes precedence over stale downloaded timestamps
         status: 'downloading',
       },
       file: {
-        atlas_url: 'https://atlas.test/browse/file/123',
         id: 123,
       },
       isBusy: false,
@@ -325,7 +321,6 @@ test('creates compact referrer badge presentation data', () => {
       status: 'completed',
     },
     file: {
-      atlas_url: 'https://atlas.test/browse/file/321',
       id: 321,
     },
     reaction: { type: 'like' },
@@ -334,7 +329,7 @@ test('creates compact referrer badge presentation data', () => {
   assert.equal(badge.variant, 'referrer');
   assert.equal(badge.activeReaction, 'like');
   assert.equal(badge.progressPercent, 100);
-  assert.equal(Object.hasOwn(badge, 'atlasFileUrl'), false);
+  assert.equal(Object.hasOwn(badge, 'canOpenFile'), false);
   assert.equal(Object.hasOwn(badge, 'canDeleteFile'), false);
   assert.equal(Object.hasOwn(badge, 'progressLabel'), false);
   assert.equal(Object.hasOwn(badge, 'summary'), false);

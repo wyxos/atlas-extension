@@ -1,9 +1,4 @@
 import {
-  loadConnectionState,
-  normalizeConnectionState,
-  storageKey,
-} from '../options/connection-state.js';
-import {
   assetSourcePreferencesKey,
   loadAssetSourcePreferences,
   normalizeAssetSourcePreferences,
@@ -25,7 +20,6 @@ export const settingsBundleStorageKeys = Object.freeze([
   assetSourcePreferencesKey,
   batchProviderPreferencesKey,
   closeTabPreferencesKey,
-  storageKey,
 ]);
 
 export async function buildSettingsBundle({
@@ -43,13 +37,11 @@ export async function buildSettingsBundle({
       assetSourcePreferences: await loadAssetSourcePreferences(storage),
       batchProviderPreferences: await loadBatchProviderPreferences(storage),
       closeTabPreferences: await loadCloseTabPreferences(storage),
-      connection: await loadConnectionState(storage),
     },
   });
 }
 
 export async function applySettingsBundle(bundle, {
-  preserveConnectionSecrets = false,
   storage = getExtensionStorage(),
 } = {}) {
   if (storage === null) {
@@ -57,41 +49,22 @@ export async function applySettingsBundle(bundle, {
   }
 
   const normalizedBundle = normalizeSettingsBundle(bundle);
-  const connection = preserveConnectionSecrets
-    ? await mergeCurrentConnectionSecrets(normalizedBundle.settings.connection, storage)
-    : normalizedBundle.settings.connection;
 
   await storage.set({
     [assetSourcePreferencesKey]: normalizedBundle.settings.assetSourcePreferences,
     [batchProviderPreferencesKey]: normalizedBundle.settings.batchProviderPreferences,
     [closeTabPreferencesKey]: normalizedBundle.settings.closeTabPreferences,
-    [storageKey]: connection,
   });
 
-  return {
-    ...normalizedBundle,
-    settings: {
-      ...normalizedBundle.settings,
-      connection,
-    },
-  };
+  return normalizedBundle;
 }
 
 export function createRemoteSettingsBundle(bundle) {
   const normalizedBundle = normalizeSettingsBundle(bundle);
-  const connection = cloneJson(normalizedBundle.settings.connection);
-
-  if (connection.profiles?.live) {
-    connection.profiles.live.apiKey = '';
-  }
 
   return {
     ...normalizedBundle,
     exportedAt: new Date().toISOString(),
-    settings: {
-      ...normalizedBundle.settings,
-      connection,
-    },
   };
 }
 
@@ -127,10 +100,6 @@ export function mergeSettingsBundles(localBundle, remoteBundle) {
       closeTabPreferences: mergeCloseTabPreferences(
         localSettings.closeTabPreferences,
         remoteSettings.closeTabPreferences,
-      ),
-      connection: mergeConnectionSettings(
-        localSettings.connection,
-        remoteSettings.connection,
       ),
     },
   });
@@ -168,7 +137,6 @@ export function normalizeSettingsBundle(value) {
       assetSourcePreferences: normalizeAssetSourcePreferences(settings.assetSourcePreferences),
       batchProviderPreferences: normalizeBatchProviderPreferences(settings.batchProviderPreferences),
       closeTabPreferences: normalizeCloseTabPreferences(settings.closeTabPreferences),
-      connection: normalizeConnectionState(settings.connection),
     },
   };
 }
@@ -194,24 +162,7 @@ const settingsBundleSections = Object.freeze([
     key: 'closeTabPreferences',
     label: 'Close tab modes',
   },
-  {
-    key: 'connection',
-    label: 'Connection profiles',
-  },
 ]);
-
-async function mergeCurrentConnectionSecrets(connection, storage) {
-  const currentConnection = await loadConnectionState(storage);
-  const nextConnection = cloneJson(connection);
-  const currentLiveApiKey = String(currentConnection.profiles.live.apiKey ?? '').trim();
-  const nextLiveApiKey = String(nextConnection.profiles.live.apiKey ?? '').trim();
-
-  if (nextLiveApiKey === '' && currentLiveApiKey !== '') {
-    nextConnection.profiles.live.apiKey = currentLiveApiKey;
-  }
-
-  return normalizeConnectionState(nextConnection);
-}
 
 function mergeAssetSourcePreferences(localValue, remoteValue) {
   const localPreferences = normalizeAssetSourcePreferences(localValue);
@@ -245,31 +196,6 @@ function mergeCloseTabPreferences(localValue, remoteValue) {
   });
 }
 
-function mergeConnectionSettings(localValue, remoteValue) {
-  const localConnection = normalizeConnectionState(localValue);
-  const remoteConnection = normalizeConnectionState(remoteValue);
-  const liveProfile = {
-    ...remoteConnection.profiles.live,
-    ...localConnection.profiles.live,
-  };
-
-  if (liveProfile.domain === '' && remoteConnection.profiles.live.domain !== '') {
-    liveProfile.domain = remoteConnection.profiles.live.domain;
-  }
-
-  return normalizeConnectionState({
-    mode: localConnection.mode,
-    profiles: {
-      live: liveProfile,
-      local: {
-        ...remoteConnection.profiles.local,
-        ...localConnection.profiles.local,
-      },
-    },
-    version: localConnection.version,
-  });
-}
-
 function stableStringify(value) {
   if (Array.isArray(value)) {
     return `[${value.map((item) => stableStringify(item)).join(',')}]`;
@@ -282,10 +208,6 @@ function stableStringify(value) {
   }
 
   return JSON.stringify(value);
-}
-
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value));
 }
 
 function getExtensionStorage() {

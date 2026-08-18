@@ -99,6 +99,17 @@ export function deleteAtlasFileViaBackground({
   }, { runtime, timeoutMs });
 }
 
+export function openAtlasFileViaBackground({
+  fileId,
+  runtime = globalThis.chrome?.runtime,
+  timeoutMs = defaultTimeoutMs,
+}) {
+  return sendBackgroundRequest({
+    fileId,
+    type: 'atlas-extension.desktop.open-file',
+  }, { runtime, timeoutMs });
+}
+
 export function sendBackgroundRequest(message, options = {}) {
   const runtime = options.runtime ?? globalThis.chrome?.runtime;
   const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : defaultTimeoutMs;
@@ -133,7 +144,7 @@ export function sendBackgroundRequest(message, options = {}) {
       }
 
       if (response?.ok === false) {
-        finish(reject, new Error(response.error ?? 'Atlas extension background request failed.'));
+        finish(reject, responseError(response.error));
 
         return;
       }
@@ -151,6 +162,20 @@ export function sendBackgroundRequest(message, options = {}) {
       finish(reject, error);
     }
   });
+}
+
+function responseError(value) {
+  const error = new Error(
+    typeof value === 'object'
+      ? value?.message ?? 'Atlas extension background request failed.'
+      : value ?? 'Atlas extension background request failed.',
+  );
+
+  if (value && typeof value === 'object') {
+    Object.assign(error, value);
+  }
+
+  return error;
 }
 
 function withoutUndefinedValues(value) {

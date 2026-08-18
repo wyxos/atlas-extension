@@ -114,15 +114,16 @@ if (manifest !== null) {
   );
   expect(
     JSON.stringify(manifest.host_permissions) === JSON.stringify(['http://*/*', 'https://*/*']),
-    'manifest.json must allow HTTP(S) Atlas API hosts configured in options',
+    'manifest.json must retain provider-page and cookie access on HTTP(S) pages',
   );
   expect(
     manifest.content_security_policy?.extension_pages?.includes('connect-src'),
     'manifest.json must allow extension-page network connections',
   );
   expect(
-    manifest.content_security_policy?.extension_pages?.includes('wss:'),
-    'manifest.json must allow Reverb WebSocket connections',
+    manifest.content_security_policy?.extension_pages
+      === "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*",
+    'manifest.json must limit extension-page connections to the Desktop loopback service',
   );
   expect(Array.isArray(manifest.content_scripts), 'manifest.json must define content scripts for asset detection');
   expect(manifest.content_scripts?.length === 2, 'manifest.json must define location bridge and badge content scripts');
@@ -157,7 +158,7 @@ if (manifest !== null) {
 
   expect(
     manifest.background?.service_worker === 'assets/background.js',
-    'manifest.json must register the background Reverb relay worker',
+    'manifest.json must register the background Desktop transport worker',
   );
   expect(
     manifest.background?.type === 'module',
@@ -203,13 +204,10 @@ const optionsApp = readText('src/options/App.vue');
 
 if (optionsApp !== null) {
   expect(optionsApp.includes('@ui/'), 'src/options/App.vue must use shadcn-vue UI components');
-  expect(optionsApp.includes('RouterLink'), 'src/options/App.vue must render router navigation links');
   expect(optionsApp.includes('RouterView'), 'src/options/App.vue must render the active route');
-  expect(optionsApp.includes('Overview'), 'src/options/App.vue must link to the Overview page');
-  expect(optionsApp.includes('Profiles'), 'src/options/App.vue must link to the Profiles page');
-  expect(optionsApp.includes('Logs'), 'src/options/App.vue must link to the Logs page');
-  expect(optionsApp.includes('h-screen w-screen'), 'src/options/App.vue must keep the options page full width and height');
-  expect(optionsApp.includes('h-full w-full'), 'src/options/App.vue must keep the content area full width and height');
+  expect(optionsApp.includes('Desktop connection diagnostics'), 'src/options/App.vue must identify its diagnostics-only purpose');
+  expect(!/RouterLink|Profiles|Logs|Settings/.test(optionsApp), 'src/options/App.vue must not expose retired Web settings navigation');
+  expect(optionsApp.includes('min-h-screen w-full'), 'src/options/App.vue must keep the options page responsive');
 }
 
 const optionsRouter = readText('src/options/router.js');
@@ -217,42 +215,22 @@ const optionsRouter = readText('src/options/router.js');
 if (optionsRouter !== null) {
   expect(optionsRouter.includes('createRouter'), 'src/options/router.js must create a Vue router');
   expect(optionsRouter.includes('createWebHashHistory'), 'src/options/router.js must use hash history for extension routes');
-  expect(optionsRouter.includes("path: '/'"), 'src/options/router.js must make Overview the home route');
-  expect(optionsRouter.includes("path: '/profiles'"), 'src/options/router.js must define a Profiles route');
-  expect(optionsRouter.includes("path: '/logs'"), 'src/options/router.js must define a Logs route');
+  expect(optionsRouter.includes("name: 'diagnostics'"), 'src/options/router.js must make diagnostics the only named route');
+  expect(!/profiles|settings|logs/i.test(optionsRouter), 'src/options/router.js must not retain Atlas Web routes');
 }
 
 const overviewPage = readText('src/options/pages/Overview.vue');
 
 if (overviewPage !== null) {
-  expect(overviewPage.includes('max-w-md'), 'src/options/pages/Overview.vue must keep the form cluster compact');
-  expect(overviewPage.includes('Connect'), 'src/options/pages/Overview.vue must render a Connect CTA');
-  expect(overviewPage.includes('Refresh'), 'src/options/pages/Overview.vue must render a manual Refresh CTA');
-  expect(overviewPage.includes('autoCheckConnectionOnce'), 'src/options/pages/Overview.vue must auto-check once on page load');
-  expect(overviewPage.includes('isConnectableConfig'), 'src/options/pages/Overview.vue must gate auto-checks on complete settings');
-  expect(overviewPage.includes('reverbStatusLabel'), 'src/options/pages/Overview.vue must render Reverb connection status');
-  expect(overviewPage.includes('Show API key'), 'src/options/pages/Overview.vue must render a show API key control');
-  expect(overviewPage.includes('Hide API key'), 'src/options/pages/Overview.vue must render a hide API key control');
-  expect(
-    overviewPage.includes('Local mode uses atlas.test'),
-    'src/options/pages/Overview.vue must explain the local mode connection source',
-  );
-  expect(overviewPage.includes('connectionModes.local'), 'src/options/pages/Overview.vue must expose a local mode toggle');
+  for (const label of ['Channel', 'Desktop endpoint', 'Protocol', 'Desktop version', 'Extension version', 'Client ID']) {
+    expect(overviewPage.includes(label), `src/options/pages/Overview.vue must show ${label} diagnostics`);
+  }
+  for (const action of ['Pair', 'Cancel pairing', 'Reconnect', 'Unpair']) {
+    expect(overviewPage.includes(action), `src/options/pages/Overview.vue must expose the ${action} action`);
+  }
+  expect(!/API key|domain|profile/i.test(overviewPage), 'src/options/pages/Overview.vue must not expose Web connection settings or secrets');
 }
 
-const profilesPage = readText('src/options/pages/Profiles.vue');
-const logsPage = readText('src/options/pages/Logs.vue');
-
-if (profilesPage !== null) {
-  expect(!profilesPage.includes('Connect'), 'src/options/pages/Profiles.vue must remain blank for now');
-}
-
-if (logsPage !== null) {
-  expect(!logsPage.includes('Connect'), 'src/options/pages/Logs.vue must remain blank for now');
-}
-
-const connectionModule = readText('src/options/connection.js');
-const connectionStateModule = readText('src/options/connection-state.js');
 const contentDetector = readText('src/content/assets.js');
 const contentScript = readText('src/content/main.js');
 const contentRuntime = readText('src/content/content-runtime.js');
@@ -360,7 +338,8 @@ if (contentBadge !== null) {
       `src/content/AssetBadge.vue must emit ${eventName} clicks`,
     );
   }
-  expect(contentBadge.includes('atlasFileUrl'), 'src/content/AssetBadge.vue must render downloaded file links');
+  expect(contentBadge.includes('canOpenFile'), 'src/content/AssetBadge.vue must render downloaded file open commands');
+  expect(contentBadge.includes("emit('open-file')"), 'src/content/AssetBadge.vue must route file opens through Desktop');
   expect(contentBadge.includes('canDeleteFile'), 'src/content/AssetBadge.vue must render downloaded file delete actions');
   expect(contentBadge.includes('progressLabel'), 'src/content/AssetBadge.vue must render dynamic progress text');
   expect(!contentBadge.includes('>Atlas</'), 'src/content/AssetBadge.vue must not render the Atlas fallback brand text');
@@ -414,8 +393,8 @@ if (contentBadgeModel !== null) {
 
 if (backgroundMain !== null) {
   expect(
-    backgroundMain.includes('resolveReverbConnectionConfig'),
-    'src/background/main.js must hydrate Reverb config before connecting',
+    backgroundMain.includes('createDesktopRuntime'),
+    'src/background/main.js must own the Desktop connection in the background worker',
   );
   expect(backgroundMain.includes('open-referrer-counts'), 'src/background/main.js must serve open referrer tab counts');
   expect(backgroundMain.includes('open-tab-counts-changed'), 'src/background/main.js must broadcast open tab count changes');
@@ -436,30 +415,30 @@ if (backgroundLoadNextTabs !== null) {
   expect(backgroundLoadNextTabs.includes('tabsApi.update'), 'src/background/load-next-tabs.js must activate tabs through Chrome tabs API');
 }
 
-if (connectionModule !== null) {
-  expect(connectionModule.includes("from './connection-state.js'"), 'src/options/connection.js must use the profile state module');
-  expect(connectionModule.includes('storageKey'), 'src/options/connection.js must re-export the storage key');
-  expect(connectionModule.includes('Connected'), 'src/options/connection.js must expose Connected status');
-  expect(connectionModule.includes('Failed'), 'src/options/connection.js must expose Failed status');
-  expect(connectionModule.includes('/api/extension/ping'), 'src/options/connection.js must verify via the extension ping endpoint');
-  expect(connectionModule.includes('verifyReverbConnection'), 'src/options/connection.js must verify Reverb once');
-  expect(connectionModule.includes('pusher:connection_established'), 'src/options/connection.js must confirm Reverb handshake');
-  expect(
-    !/setInterval|XMLHttpRequest|chrome\.tabs|chrome\.runtime/.test(`${optionsApp ?? ''}\n${connectionModule}`),
-    'extension options must avoid polling, tab, and runtime integration',
-  );
+const desktopContract = readText('src/shared/desktop-contract.js');
+const desktopTransport = readText('src/background/desktop-transport.js');
+const desktopState = readText('src/background/desktop-connection-state.js');
+
+if (desktopContract !== null) {
+  for (const value of ['http://127.0.0.1:17420', 'http://127.0.0.1:37420', "dev: 'dev'", "stable: 'stable'"]) {
+    expect(desktopContract.includes(value), `src/shared/desktop-contract.js must lock ${value}`);
+  }
+  expect(desktopContract.includes('CHANNEL_MISMATCH'), 'src/shared/desktop-contract.js must reject cross-channel Desktop instances');
 }
 
-if (connectionStateModule !== null) {
-  expect(connectionStateModule.includes("export const defaultDomain = '';"), 'src/options/connection-state.js must default live domain to blank');
-  expect(connectionStateModule.includes("export const defaultApiKey = '';"), 'src/options/connection-state.js must default live API key to blank');
-  expect(connectionStateModule.includes("export const localDomain = 'https://atlas.test'"), 'src/options/connection-state.js must define the local Atlas domain');
-  expect(connectionStateModule.includes("export const localApiKey = 'atlas_local_development_key'"), 'src/options/connection-state.js must define the local seeded API key');
-  expect(connectionStateModule.includes('atlasExtensionConfig'), 'src/options/connection-state.js must define a storage key');
-  expect(connectionStateModule.includes('connectionModes'), 'src/options/connection-state.js must define connection modes');
-  expect(connectionStateModule.includes('loadConnectionState'), 'src/options/connection-state.js must load profile state');
-  expect(connectionStateModule.includes('saveConnectionMode'), 'src/options/connection-state.js must save active profile mode');
-  expect(connectionStateModule.includes('storage?.local'), 'src/options/connection-state.js must use extension storage');
+if (desktopTransport !== null) {
+  for (const route of ['/v1/hello', '/v1/pairings', '/v1/runtime-policy', '/v1/assets/status', '/v1/reactions', '/v1/reactions/batch', '/v1/files/', '/v1/asset-match-rules/apply', '/v1/events/tickets']) {
+    expect(desktopTransport.includes(route), `src/background/desktop-transport.js must implement ${route}`);
+  }
+  for (const header of ['Authorization', 'X-Atlas-Client-Id', 'Idempotency-Key']) {
+    expect(desktopTransport.includes(header), `src/background/desktop-transport.js must send ${header}`);
+  }
+}
+
+if (desktopState !== null) {
+  expect(desktopState.includes('chrome?.storage?.local'), 'Desktop credentials must use chrome.storage.local');
+  expect(desktopState.includes('clientToken'), 'Desktop state must retain the client token privately');
+  expect(!/clientToken:\s*normalized\.clientToken/.test(desktopState), 'Desktop diagnostics must not expose the client token');
 }
 
 const optionsStyles = readText('src/options/style.css');

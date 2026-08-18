@@ -8,8 +8,17 @@ const source = fs.readFileSync(
   'utf8',
 );
 
-test('options overview does not own close tab mode configuration', () => {
-  assert.doesNotMatch(source, /closeTabModes/);
-  assert.doesNotMatch(source, /atlas-close-site-domain/);
-  assert.doesNotMatch(source, />\s*Close tab\s*</);
+test('options overview is a Desktop diagnostics and pairing surface only', () => {
+  for (const expected of [
+    'requestDesktopDiagnostics',
+    'requestDesktopPairing',
+    'requestDesktopReconnect',
+    'requestDesktopUnpair',
+    'Cancel pairing',
+    'Runtime policy revision',
+  ]) {
+    assert.match(source, new RegExp(expected));
+  }
+
+  assert.doesNotMatch(source, /api.?key|asset.?profile|settings.?sync/i);
 });

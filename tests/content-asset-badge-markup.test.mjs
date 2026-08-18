@@ -36,3 +36,9 @@ test('asset badge listens for local shortcut reactions on non-control surfaces',
   assert.match(source, /@mousedown="handleBadgeShortcut"/);
   assert.match(source, /@contextmenu="handleBadgeShortcut"/);
 });
+
+test('asset badge opens downloaded files through the Desktop command', () => {
+  assert.match(source, /badge\.canOpenFile/);
+  assert.match(source, /emit\('open-file'\)/);
+  assert.doesNotMatch(source, /atlasFileUrl|atlas_url/);
+});

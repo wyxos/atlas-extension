@@ -6,6 +6,7 @@ export function startContentRuntime({
   handleAssetShortcut,
   getOpenReferrerCounts,
   handleDownloadEvent,
+  handleResyncRequired,
   mergeOpenReferrerCounts,
   referrerBadges,
   referrerOpenGuard,
@@ -28,6 +29,7 @@ export function startContentRuntime({
   });
 
   listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource });
+  listenForDesktopResync({ handleResyncRequired });
   listenForOpenTabCounts({ mergeOpenReferrerCounts });
   listenForManualScanRequests({ scanAssets: scanAssetsWhenReady, schedulePositionUpdate });
   listenForAssetShortcuts({ handleAssetShortcut });
@@ -43,8 +45,6 @@ export function startContentRuntime({
     refreshAssets: scanAssetsWhenReady,
     schedulePositionUpdate,
   });
-  ensureBackgroundReverb();
-
   void waitForDomMutationWindow().then(() => {
     domMutationReady = true;
 
@@ -56,6 +56,14 @@ export function startContentRuntime({
   });
 
   return observer;
+}
+
+function listenForDesktopResync({ handleResyncRequired }) {
+  globalThis.chrome?.runtime?.onMessage?.addListener?.((message) => {
+    if (message?.type === 'atlas-extension.desktop.resync-required') {
+      handleResyncRequired?.();
+    }
+  });
 }
 
 const initialObserverOptions = {
@@ -135,16 +143,6 @@ function delay(windowContext, ms) {
   const setTimeoutFunction = windowContext?.setTimeout ?? globalThis.setTimeout;
 
   return new Promise((resolve) => setTimeoutFunction(resolve, ms));
-}
-
-function ensureBackgroundReverb() {
-  try {
-    globalThis.chrome?.runtime?.sendMessage?.({
-      type: 'atlas-extension.ensure-reverb',
-    });
-  } catch {
-    // Chrome can reject messages while an unpacked extension is reloading.
-  }
 }
 
 function listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource }) {
