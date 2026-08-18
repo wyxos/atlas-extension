@@ -43,3 +43,22 @@ test('drops credentials from a different or unknown build channel', () => {
     assert.equal(state.clientToken, '');
   }
 });
+
+test('normalizes live event diagnostics without exposing credentials', () => {
+  const state = normalizeDesktopConnectionState({
+    channel: 'dev',
+    clientId: 'client-id',
+    clientToken: 'secret-token',
+    eventConnectedAt: '2026-08-19T10:00:00Z',
+    lastEventAt: '2026-08-19T10:01:00Z',
+    lastHeartbeatAt: '2026-08-19T10:01:20Z',
+    reconnectAttempt: 2,
+  });
+  const diagnostics = publicDesktopDiagnostics(state);
+
+  assert.equal(diagnostics.eventConnectedAt, '2026-08-19T10:00:00Z');
+  assert.equal(diagnostics.lastEventAt, '2026-08-19T10:01:00Z');
+  assert.equal(diagnostics.lastHeartbeatAt, '2026-08-19T10:01:20Z');
+  assert.equal(diagnostics.reconnectAttempt, 2);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /secret-token/);
+});

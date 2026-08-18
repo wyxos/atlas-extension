@@ -10,18 +10,25 @@ const downloadEventTypes = new Set([
 export function createDesktopEventClient({
   credentials,
   getSequence,
+  onCheckpoint,
   onEvent,
+  onHeartbeat,
   onPolicyChanged,
+  onReconnectAttempt,
   onResyncRequired,
-  onSequence,
   onStatus,
   transport,
+  clearIntervalImpl = globalThis.clearInterval,
+  heartbeatIntervalMs = 20_000,
+  now = () => new Date().toISOString(),
+  setIntervalImpl = globalThis.setInterval,
   WebSocketImpl = globalThis.WebSocket,
 }) {
   let stopped = true;
   let socket = null;
   let reconnectAttempt = 0;
   let reconnectTimer = null;
+  let heartbeatTimer = null;
   let connectionGeneration = 0;
 
   async function start() {
@@ -81,10 +88,11 @@ export function createDesktopEventClient({
 
       reconnectAttempt = 0;
       onStatus?.('connected');
+      startHeartbeat(activeSocket, generation);
     });
     activeSocket.addEventListener('message', (event) => {
       if (activeSocket === socket && generation === connectionGeneration) {
-        handleFrame(parseFrame(event?.data), generation);
+        handleFrame(parseFrame(event?.data), generation, now());
       }
     });
     activeSocket.addEventListener('error', () => {
@@ -101,26 +109,28 @@ export function createDesktopEventClient({
         return;
       }
 
+      clearHeartbeatTimer();
       socket = null;
       onStatus?.('disconnected');
       scheduleReconnect(generation);
     });
   }
 
-  function handleFrame(frame, generation) {
+  function handleFrame(frame, generation, receivedAt) {
     if (frame === null) {
+      onCheckpoint?.({ lastEventAt: receivedAt });
       return;
     }
 
     const sequence = normalizeSequence(frame.sequence);
 
     if (frame.type === 'ready') {
-      onSequence?.(sequence);
+      onCheckpoint?.({ eventSequence: sequence, lastEventAt: receivedAt });
       return;
     }
 
     if (frame.type === 'resync_required') {
-      onSequence?.(0);
+      onCheckpoint?.({ eventSequence: 0, lastEventAt: receivedAt });
       onResyncRequired?.();
       closeSocket();
       scheduleReconnect(generation);
@@ -128,16 +138,17 @@ export function createDesktopEventClient({
     }
 
     if (frame.type === 'runtime.policy.changed') {
-      onSequence?.(sequence);
+      onCheckpoint?.({ eventSequence: sequence, lastEventAt: receivedAt });
       onPolicyChanged?.(frame.data);
       return;
     }
 
     if (!downloadEventTypes.has(frame.type) || !frame.data || typeof frame.data !== 'object') {
+      onCheckpoint?.({ lastEventAt: receivedAt });
       return;
     }
 
-    onSequence?.(sequence);
+    onCheckpoint?.({ eventSequence: sequence, lastEventAt: receivedAt });
     onEvent?.({
       ...frame.data,
       eventSequence: sequence,
@@ -153,6 +164,7 @@ export function createDesktopEventClient({
 
     const delay = reconnectDelaysMs[Math.min(reconnectAttempt, reconnectDelaysMs.length - 1)];
     reconnectAttempt += 1;
+    onReconnectAttempt?.(reconnectAttempt);
     reconnectTimer = globalThis.setTimeout(() => {
       reconnectTimer = null;
       void connect(generation);
@@ -166,7 +178,38 @@ export function createDesktopEventClient({
     }
   }
 
+  function startHeartbeat(activeSocket, generation) {
+    clearHeartbeatTimer();
+    heartbeatTimer = setIntervalImpl(() => {
+      if (
+        stopped
+        || activeSocket !== socket
+        || generation !== connectionGeneration
+        || (typeof activeSocket.readyState === 'number' && activeSocket.readyState !== 1)
+      ) {
+        return;
+      }
+
+      try {
+        activeSocket.send(JSON.stringify({ type: 'keepalive' }));
+        onHeartbeat?.(now());
+      } catch {
+        closeSocket();
+        onStatus?.('disconnected');
+        scheduleReconnect(generation);
+      }
+    }, heartbeatIntervalMs);
+  }
+
+  function clearHeartbeatTimer() {
+    if (heartbeatTimer !== null) {
+      clearIntervalImpl(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
   function closeSocket() {
+    clearHeartbeatTimer();
     const activeSocket = socket;
     socket = null;
 

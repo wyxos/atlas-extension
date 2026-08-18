@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { CircleOff, Link2, RefreshCw, Unplug } from "@lucide/vue";
 import { toast } from "vue-sonner";
 import {
@@ -22,6 +22,7 @@ import {
   requestDesktopReconnect,
   requestDesktopUnpair,
 } from "../../shared/desktop-messages";
+import { desktopConnectionStorageKey } from "../../background/desktop-connection-state";
 
 const diagnostics = ref(null);
 const busyAction = ref("");
@@ -49,12 +50,28 @@ const diagnosticRows = computed(() => [
   ["Extension version", diagnostics.value?.extensionVersion],
   ["Client ID", diagnostics.value?.clientId],
   ["Event stream", diagnostics.value?.eventStatus],
+  ["Event connected", formatTimestamp(diagnostics.value?.eventConnectedAt)],
+  ["Last event received", formatTimestamp(diagnostics.value?.lastEventAt)],
+  ["Last keepalive", formatTimestamp(diagnostics.value?.lastHeartbeatAt)],
+  ["Reconnect attempt", diagnostics.value?.reconnectAttempt],
   ["Last event sequence", diagnostics.value?.eventSequence],
   ["Runtime policy revision", diagnostics.value?.runtimePolicyRevision],
   ["Last checked", formatTimestamp(diagnostics.value?.lastCheckedAt)],
 ]);
 
-onMounted(loadDiagnostics);
+function handleStorageChange(changes, areaName) {
+  if (areaName === "local" && changes?.[desktopConnectionStorageKey]) {
+    void loadDiagnostics();
+  }
+}
+
+onMounted(() => {
+  globalThis.chrome?.storage?.onChanged?.addListener?.(handleStorageChange);
+  void loadDiagnostics();
+});
+onBeforeUnmount(() => {
+  globalThis.chrome?.storage?.onChanged?.removeListener?.(handleStorageChange);
+});
 
 async function loadDiagnostics() {
   try {

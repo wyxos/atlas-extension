@@ -20,8 +20,10 @@ export function createDesktopRuntime(options = {}) {
   const storage = options.storage ?? globalThis.chrome?.storage?.local;
   const runtime = options.runtime ?? globalThis.chrome?.runtime;
   const transport = options.transport ?? createDesktopTransport({ runtime });
+  const createEventClient = options.createEventClient ?? createDesktopEventClient;
   let eventClient = null;
   let pairingController = null;
+  let reconnectPromise = null;
 
   async function initialize() {
     try {
@@ -32,6 +34,20 @@ export function createDesktopRuntime(options = {}) {
   }
 
   async function reconnect() {
+    if (reconnectPromise !== null) {
+      return reconnectPromise;
+    }
+
+    reconnectPromise = performReconnect();
+
+    try {
+      return await reconnectPromise;
+    } finally {
+      reconnectPromise = null;
+    }
+  }
+
+  async function performReconnect() {
     stopEventClient();
 
     try {
@@ -178,10 +194,16 @@ export function createDesktopRuntime(options = {}) {
   }
 
   async function startEventClient(credentials) {
-    eventClient = createDesktopEventClient({
+    eventClient = createEventClient({
       credentials,
       getSequence: async () => (await loadDesktopConnectionState(storage)).eventSequence,
+      onCheckpoint: (checkpoint) => {
+        void patchDesktopConnectionState(checkpoint, storage);
+      },
       onEvent: options.onDownloadEvent,
+      onHeartbeat: (lastHeartbeatAt) => {
+        void patchDesktopConnectionState({ lastHeartbeatAt }, storage);
+      },
       onPolicyChanged: () => {
         void syncDesktopRuntimePolicy({ credentials, storage, transport }).catch((error) => {
           void patchDesktopConnectionState({ lastError: serializeDesktopError(error) }, storage);
@@ -190,12 +212,17 @@ export function createDesktopRuntime(options = {}) {
       onResyncRequired: () => {
         options.onResyncRequired?.();
       },
-      onSequence: (eventSequence) => {
-        void patchDesktopConnectionState({ eventSequence }, storage);
+      onReconnectAttempt: (reconnectAttempt) => {
+        void patchDesktopConnectionState({ reconnectAttempt }, storage);
       },
       onStatus: (eventStatus, error) => {
         void patchDesktopConnectionState({
           eventStatus,
+          ...(eventStatus === 'connected' ? {
+            eventConnectedAt: new Date().toISOString(),
+            lastError: null,
+            reconnectAttempt: 0,
+          } : {}),
           ...(error ? { lastError: serializeDesktopError(error) } : {}),
         }, storage);
       },

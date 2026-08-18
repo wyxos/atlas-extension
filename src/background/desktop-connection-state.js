@@ -7,7 +7,7 @@ import {
 
 export const desktopConnectionStorageKey = 'atlasDesktopConnection';
 
-const desktopConnectionStorageVersion = 1;
+const desktopConnectionStorageVersion = 2;
 
 export function createDefaultDesktopConnectionState(channel = resolveExtensionChannel()) {
   return {
@@ -17,10 +17,14 @@ export function createDefaultDesktopConnectionState(channel = resolveExtensionCh
     clientToken: '',
     eventSequence: 0,
     eventStatus: 'disconnected',
+    eventConnectedAt: null,
     health: 'offline',
     lastCheckedAt: null,
+    lastEventAt: null,
+    lastHeartbeatAt: null,
     lastError: null,
     pairingPending: false,
+    reconnectAttempt: 0,
     protocolVersion: desktopProtocolVersion,
     runtimePolicyRevision: null,
     version: desktopConnectionStorageVersion,
@@ -84,13 +88,17 @@ export function publicDesktopDiagnostics(state, runtime = globalThis.chrome?.run
     clientId: normalized.clientId || null,
     eventSequence: normalized.eventSequence,
     eventStatus: normalized.eventStatus,
+    eventConnectedAt: normalized.eventConnectedAt,
     extensionVersion: runtime?.getManifest?.()?.version ?? 'unknown',
     health: normalized.health,
     lastCheckedAt: normalized.lastCheckedAt,
+    lastEventAt: normalized.lastEventAt,
+    lastHeartbeatAt: normalized.lastHeartbeatAt,
     lastError: normalized.lastError,
     paired: hasDesktopClientCredentials(normalized),
     pairingPending: normalized.pairingPending,
     protocolVersion: normalized.protocolVersion,
+    reconnectAttempt: normalized.reconnectAttempt,
     runtimePolicyRevision: normalized.runtimePolicyRevision,
   };
 }
@@ -117,12 +125,16 @@ export function normalizeDesktopConnectionState(value) {
     eventStatus: ['connected', 'connecting', 'disconnected', 'error'].includes(value?.eventStatus)
       ? value.eventStatus
       : fallback.eventStatus,
+    eventConnectedAt: nullableString(value?.eventConnectedAt),
     health: ['connected', 'error', 'offline', 'unpaired'].includes(value?.health)
       ? value.health
       : fallback.health,
     lastCheckedAt: nullableString(value?.lastCheckedAt),
+    lastEventAt: nullableString(value?.lastEventAt),
+    lastHeartbeatAt: nullableString(value?.lastHeartbeatAt),
     lastError: normalizeError(value?.lastError),
     pairingPending: value?.pairingPending === true,
+    reconnectAttempt: nonNegativeInteger(value?.reconnectAttempt),
     protocolVersion: desktopProtocolVersion,
     runtimePolicyRevision: Number.isInteger(value?.runtimePolicyRevision)
       ? value.runtimePolicyRevision

@@ -16,9 +16,21 @@ test('options overview is a Desktop diagnostics and pairing surface only', () =>
     'requestDesktopUnpair',
     'Cancel pairing',
     'Runtime policy revision',
+    'Last keepalive',
+    'Last event received',
+    'onChanged\\?\\.addListener',
   ]) {
     assert.match(source, new RegExp(expected));
   }
 
   assert.doesNotMatch(source, /api.?key|asset.?profile|settings.?sync/i);
+});
+
+test('manifest requires the Chrome WebSocket service-worker lifetime baseline', () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.resolve(import.meta.dirname, '../manifest.json'),
+    'utf8',
+  ));
+
+  assert.equal(manifest.minimum_chrome_version, '116');
 });

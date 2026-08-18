@@ -50,7 +50,10 @@ export function queuedAssetUrlsFromReactionPayload(payload) {
 
 function uniqueQueuedAssetUrls(items) {
   return [...new Set(items
-    .filter((item) => item?.download?.requested === true)
+    .filter((item) => (
+      item?.download?.requested === true
+      || item?.download?.status === 'queued'
+    ))
     .map(reactionAssetUrl)
     .filter((assetUrl) => assetUrl !== null))];
 }

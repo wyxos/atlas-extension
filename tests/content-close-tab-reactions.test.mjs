@@ -32,6 +32,34 @@ test('extracts only queued download asset urls from single and batch reactions',
   }), ['https://cdn.example.test/file-1.jpg']);
 });
 
+test('recognizes Desktop queued download responses while retaining Web compatibility', () => {
+  assert.deepEqual(queuedAssetUrlsFromReactionPayload({
+    asset_url: 'https://cdn.example.test/desktop-video.mp4',
+    download: { file_id: 42, status: 'queued' },
+    file: { url: 'https://cdn.example.test/desktop-video.mp4' },
+  }), ['https://cdn.example.test/desktop-video.mp4']);
+
+  assert.deepEqual(queuedAssetUrlsFromReactionPayload({
+    items: [
+      {
+        asset_url: 'https://cdn.example.test/desktop-queued.jpg',
+        download: { status: 'queued' },
+      },
+      {
+        asset_url: 'https://cdn.example.test/desktop-skipped.jpg',
+        download: { status: null },
+      },
+      {
+        asset_url: 'https://cdn.example.test/web-queued.jpg',
+        download: { requested: true },
+      },
+    ],
+  }), [
+    'https://cdn.example.test/desktop-queued.jpg',
+    'https://cdn.example.test/web-queued.jpg',
+  ]);
+});
+
 test('arms close intents using the page site domain and configured mode', async () => {
   const intents = [];
 
