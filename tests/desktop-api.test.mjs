@@ -37,6 +37,36 @@ test('preserves the reaction payload including browser cookies and user agent', 
   assert.equal(request.download_action, 'download');
 });
 
+test('sends the complete YouTube watch URL to Desktop', async () => {
+  let request;
+  const watchUrl = 'https://www.youtube.com/watch?v=ariZ13hVPb4';
+
+  await postAssetReaction({
+    asset: {
+      matchIdentity: {
+        lookup_id: 'youtube-lookup',
+        match_by: 'source',
+        match_url: 'https://www.youtube.com/watch',
+        rule_digest: 'cleanup-rule',
+      },
+      source: watchUrl,
+      type: 'video',
+    },
+    credentials: {},
+    downloadAction: 'download',
+    reactionType: 'love',
+    referrerUrl: watchUrl,
+    source: 'youtube.com',
+    transport: {
+      reaction: async (_credentials, body) => { request = body; return { queued: true }; },
+    },
+  });
+
+  assert.equal(request.asset_url, watchUrl);
+  assert.equal(request.referrer_url, watchUrl);
+  assert.equal(request.match_identity.match_url, 'https://www.youtube.com/watch');
+});
+
 test('preserves batch reaction item shapes', async () => {
   let request;
   await postAssetReactionBatch({

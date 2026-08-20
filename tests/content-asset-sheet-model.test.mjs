@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { listReactionSheetAssets } from '../src/content/asset-sheet-model.js';
+import { assetSourceLabel, listReactionSheetAssets } from '../src/content/asset-sheet-model.js';
 
 test('lists only unique direct badges that are rendered by the reaction overlay', () => {
   const firstAsset = {
@@ -26,4 +26,11 @@ test('lists only unique direct badges that are rendered by the reaction overlay'
     },
     secondAsset,
   ]), [firstAsset, secondAsset]);
+});
+
+test('keeps query parameters visible in recognized asset labels', () => {
+  assert.equal(
+    assetSourceLabel('https://www.youtube.com/watch?v=ariZ13hVPb4'),
+    'www.youtube.com/watch?v=ariZ13hVPb4',
+  );
 });

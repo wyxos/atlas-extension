@@ -11,3 +11,15 @@ export function listReactionSheetAssets(badges) {
     return true;
   });
 }
+
+export function assetSourceLabel(source) {
+  try {
+    const url = new URL(source);
+    const fileName = url.pathname.split('/').filter(Boolean).pop();
+    const path = fileName ? `/${fileName}` : '';
+
+    return `${url.hostname}${path}${url.search}${url.hash}`;
+  } catch {
+    return source;
+  }
+}

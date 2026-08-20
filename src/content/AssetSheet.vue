@@ -12,7 +12,7 @@ import {
   X,
 } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { listReactionSheetAssets } from "./asset-sheet-model.js";
+import { assetSourceLabel, listReactionSheetAssets } from "./asset-sheet-model.js";
 import { reactionFromBadgeShortcutEvent } from "./asset-shortcuts.js";
 import AssetSheetPreview from "./AssetSheetPreview.vue";
 
@@ -149,14 +149,7 @@ function assetTypeFor(asset) {
 }
 
 function sourceLabel(asset) {
-  try {
-    const url = new URL(asset.source);
-    const fileName = url.pathname.split("/").filter(Boolean).pop();
-
-    return fileName ? `${url.hostname}/${fileName}` : url.hostname;
-  } catch {
-    return asset.source;
-  }
+  return assetSourceLabel(asset.source);
 }
 </script>
 
