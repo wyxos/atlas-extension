@@ -124,8 +124,10 @@ test('non-download close intents close immediately after reaction completion', a
 
 test('reports the exact browser close failure without claiming the tab closed', async () => {
   const previousChrome = globalThis.chrome;
+  const metrics = [];
   globalThis.chrome = { runtime: {} };
   const manager = createCloseTabIntentManager({
+    onMetric: (metric) => metrics.push(metric),
     tabsApi: {
       remove(_tabId, callback) {
         globalThis.chrome.runtime.lastError = { message: 'Tabs cannot be edited right now.' };
@@ -148,7 +150,34 @@ test('reports the exact browser close failure without claiming the tab closed', 
       mode: closeTabModes.afterQueue,
       trackedAssetCount: 1,
     });
+    assert.equal(metrics[0].details.error, 'Tabs cannot be edited right now.');
   } finally {
     globalThis.chrome = previousChrome;
   }
+});
+
+test('records close-intent latency only through the diagnostic hook', async () => {
+  const metrics = [];
+  let clock = 10;
+  const manager = createCloseTabIntentManager({
+    clock: () => {
+      clock += 5;
+      return clock;
+    },
+    onMetric: (metric) => metrics.push(metric),
+    tabsApi: {
+      remove(_tabId, callback) { callback(); },
+    },
+  });
+
+  await manager.armCloseIntent({
+    assetUrls: ['https://cdn.example.test/video.mp4'],
+    mode: closeTabModes.afterQueue,
+    siteDomain: 'x.com',
+    tabId: 42,
+  });
+
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0].name, 'close-intent-latency');
+  assert.equal(metrics[0].durationMs, 5);
 });

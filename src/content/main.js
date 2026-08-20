@@ -9,6 +9,7 @@ import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchCont
 import { resolveAssetBatchContext } from './batch-providers/index.js';
 import { createAssetBadgePresentation } from './asset-badge-presentation.js';
 import { listAssetElements, watchAssetReadiness } from './asset-scanner.js';
+import { createBadgeFileActions } from './badge-file-actions.js';
 import { createBadgeHostManager } from './badge-hosts.js';
 import { armCloseTabForReaction } from './close-tab-reactions.js';
 import { createCloseTabModeState } from './close-tab-mode-state.js';
@@ -23,6 +24,7 @@ import { createStatusCheckQueue } from './status-checks.js';
 import { startContentRuntime } from './content-runtime.js';
 import { resolveVisibleRect } from './visible-rect.js';
 import { createWidgetPlacementRuntime } from './widget-placement-runtime.js';
+import { createPerformanceDiagnostics } from '../shared/performance-diagnostics.js';
 const assetSelector = 'img, video, audio';
 const overlayHostId = 'atlas-extension-asset-overlay';
 const scanDelayMs = 50;
@@ -34,6 +36,7 @@ const assetsById = new Map();
 const batchContextsById = new Map();
 const badgeStatesById = new Map();
 const elementsById = new Map();
+const performanceDiagnostics = createPerformanceDiagnostics();
 let openReferrerCounts = {};
 let scheduledScan = null;
 let scheduledPositionUpdate = null;
@@ -90,7 +93,13 @@ const referrerOpenGuard = createReferrerOpenGuard({
   navigate: (url) => window.location.assign(url),
   openInNewTab: (url) => void openReferrerInTabViaBackground({ url }),
 });
-
+const badgeFileActions = createBadgeFileActions({
+  assetsById, badgeStatesById, deleteFile: deleteAtlasFileViaBackground,
+  forgetAssetSource: statusChecks.forgetAssetSource,
+  openFile: openAtlasFileViaBackground, replaceBadgeState,
+  resolveFileId: resolveStateFileId, shouldApplyResponse: shouldApplyAssetResponse,
+  updateBadgeState,
+});
 function getOverlayController() {
   if (overlayController !== null) {
     return overlayController;
@@ -99,8 +108,8 @@ function getOverlayController() {
   overlayController = createAssetOverlay(overlayRoot, {
     onBatchToggle: handleBadgeBatchToggle,
     onCloseModeChange: handleBadgeCloseModeChange,
-    onDelete: handleBadgeDelete,
-    onOpenFile: handleBadgeOpenFile,
+    onDelete: badgeFileActions.handleDelete,
+    onOpenFile: badgeFileActions.handleOpenFile,
     onPlacementChange: widgetPlacement.change,
     onReact: handleBadgeReaction,
   });
@@ -277,6 +286,7 @@ async function handleBadgeReaction(event) {
     return;
   }
 
+  const reactionStartedAt = performanceDiagnostics.start();
   const downloadAction = await resolveDownloadActionForReaction({
     asset,
     confirmReactionUpdate: (request) => getOverlayController().confirmReactionUpdate(request),
@@ -284,6 +294,10 @@ async function handleBadgeReaction(event) {
     event,
   });
   if (downloadAction === null) {
+    performanceDiagnostics.finish('reaction-latency', reactionStartedAt, {
+      canceled: true,
+      reactionType: event.type,
+    });
     return;
   }
 
@@ -351,6 +365,10 @@ async function handleBadgeReaction(event) {
       isBusy: false,
       submittingReaction: null,
     });
+  } finally {
+    performanceDiagnostics.finish('reaction-latency', reactionStartedAt, {
+      reactionType: event.type,
+    });
   }
 }
 function handleBadgeBatchToggle(event) {
@@ -364,13 +382,6 @@ function handleBadgeBatchToggle(event) {
   void saveBatchProviderPreference(context.provider, event.checked === true);
 }
 
-function handleBadgeOpenFile(event) {
-  const fileId = resolveStateFileId(badgeStatesById.get(event.id));
-  if (fileId !== null) {
-    void openAtlasFileViaBackground({ fileId });
-  }
-}
-
 function handleBadgeCloseModeChange(event) { void closeTabMode.setMode(event.mode); }
 
 function handleAssetShortcut(event) {
@@ -382,46 +393,30 @@ function handleAssetShortcut(event) {
   });
 }
 
-async function handleBadgeDelete(event) {
-  const asset = assetsById.get(event.id);
-  const currentState = badgeStatesById.get(event.id) ?? {};
-  const fileId = resolveStateFileId(currentState);
-
-  if (asset === undefined || fileId === null) {
-    return;
-  }
-
-  updateBadgeState(event.id, { isDeleting: true });
-
-  try {
-    await deleteAtlasFileViaBackground({ fileId });
-    statusChecks.forgetAssetSource(asset.source);
-    if (!shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
-      return;
-    }
-
-    replaceBadgeState(event.id, {});
-  } catch {
-    if (!shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
-      return;
-    }
-
-    updateBadgeState(event.id, { isDeleting: false });
-  }
-}
-
 function getVisibleRect(element) { return resolveVisibleRect(element, viewportPadding); }
 
 function getReferrerVisibleRect(element) { return resolveVisibleRect(element, viewportPadding, { minVisibleWidth: referrerMinVisibleWidth }); }
 
 function scanAssets(root = document) {
+  const scanStartedAt = performanceDiagnostics.start();
+  let scannedElements = 0;
+
   for (const element of listAssetElements(root, assetSelector)) {
+    scannedElements += 1;
     if (!syncAsset(element)) {
       referrerBadges.sync(element);
     }
 
     watchAssetReadiness(element, scheduleScan);
   }
+
+  performanceDiagnostics.finish('scan-duration', scanStartedAt, { scannedElements });
+}
+
+function handleResyncRequired() {
+  statusChecks.reset();
+  referrerBadges.refreshKnownReferrers?.({ refreshOpenCounts: true, refreshStatus: true });
+  scanAssets();
 }
 
 function positionKnownBadges() {
@@ -473,14 +468,7 @@ startContentRuntime({
     updateBadgeStateBySource,
     updateReferrerBadges: referrerBadges.updateByDownloadEvent,
   }),
-  handleResyncRequired: () => {
-    statusChecks.reset();
-    referrerBadges.refreshKnownReferrers?.({
-      refreshOpenCounts: true,
-      refreshStatus: true,
-    });
-    scanAssets();
-  },
+  handleResyncRequired,
   mergeOpenReferrerCounts,
   referrerBadges,
   referrerOpenGuard,

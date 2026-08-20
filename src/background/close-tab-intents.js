@@ -3,6 +3,8 @@ import { closeTabModes, normalizeCloseTabMode, normalizeSiteDomain } from '../sh
 const failedStatuses = new Set(['canceled', 'failed']);
 
 export function createCloseTabIntentManager({
+  clock = () => globalThis.performance?.now?.() ?? Date.now(),
+  onMetric = () => {},
   tabsApi = globalThis.chrome?.tabs,
 } = {}) {
   const intentsByTabId = new Map();
@@ -28,7 +30,7 @@ export function createCloseTabIntentManager({
     }
 
     if (normalizedMode === closeTabModes.afterQueue || waitForDownloads === false) {
-      const closeResult = await closeTab(normalizedTabId);
+      const closeResult = await closeTab(normalizedTabId, 'after-queue');
 
       return {
         armed: true,
@@ -76,7 +78,7 @@ export function createCloseTabIntentManager({
 
       if (intent.pendingAssetUrls.size === 0) {
         intentsByTabId.delete(tabId);
-        void closeTab(tabId);
+        void closeTab(tabId, 'downloads-completed');
       }
     }
   }
@@ -89,10 +91,32 @@ export function createCloseTabIntentManager({
     }
   }
 
-  function closeTab(tabId) {
+  function closeTab(tabId, reason) {
+    const startedAt = clock();
+
     return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        onMetric({
+          details: {
+            closed: result.closed === true,
+            error: result.error ?? null,
+            reason,
+            tabId,
+          },
+          durationMs: Math.max(0, clock() - startedAt),
+          name: 'close-intent-latency',
+          recordedAt: Date.now(),
+        });
+        resolve(result);
+      };
+
       if (typeof tabsApi?.remove !== 'function') {
-        resolve({
+        finish({
           closed: false,
           error: 'Chrome tabs API is unavailable.',
         });
@@ -104,21 +128,21 @@ export function createCloseTabIntentManager({
         const maybePromise = tabsApi.remove(tabId, () => {
           const error = globalThis.chrome?.runtime?.lastError?.message;
 
-          resolve(error
+          finish(error
             ? { closed: false, error }
             : { closed: true });
         });
 
         if (maybePromise && typeof maybePromise.then === 'function') {
           maybePromise
-            .then(() => resolve({ closed: true }))
-            .catch((error) => resolve({
+            .then(() => finish({ closed: true }))
+            .catch((error) => finish({
               closed: false,
               error: error?.message ?? 'Chrome could not close the tab.',
             }));
         }
       } catch (error) {
-        resolve({
+        finish({
           closed: false,
           error: error?.message ?? 'Chrome could not close the tab.',
         });

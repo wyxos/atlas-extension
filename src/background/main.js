@@ -26,9 +26,14 @@ import { tabCounterSnapshotRequestType } from '../shared/tab-counter-messages.js
 import { serializeDesktopError } from '../shared/desktop-contract.js';
 import { createDesktopRuntime } from './desktop-runtime.js';
 import { createEventProbeRunner } from './event-probe-runtime.js';
+import { createPerformanceDiagnosticStore } from './performance-diagnostics.js';
+import { fanoutTabMessage } from './message-fanout.js';
 
 const openTabs = createOpenTabRegistry();
-const closeTabIntents = createCloseTabIntentManager();
+const performanceDiagnostics = createPerformanceDiagnosticStore();
+const closeTabIntents = createCloseTabIntentManager({
+  onMetric: (metric) => performanceDiagnostics.record(metric),
+});
 const eventProbes = createEventProbeRunner({
   queryActiveTab: async () => (await queryTabs({ active: true, currentWindow: true }))[0],
   requestContext: () => desktopRuntime.requestContext(),
@@ -41,6 +46,11 @@ const desktopRuntime = createDesktopRuntime({
 });
 
 globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendResponse) => {
+  const diagnosticResult = performanceDiagnostics.handleMessage(message, sendResponse);
+  if (diagnosticResult !== null) {
+    return diagnosticResult;
+  }
+
   if (desktopRuntime.handleMessage(message, sendResponse)) {
     return true;
   }
@@ -216,20 +226,17 @@ function isAtlasApiMessage(message) {
 
 function relayDownloadEvent(payload) {
   closeTabIntents.handleDownloadEvent(payload);
+  void relayBroadcastDownloadEvent(payload);
+}
 
-  globalThis.chrome?.tabs?.query?.({}, (tabs) => {
-    for (const tab of tabs) {
-      if (!Number.isInteger(tab.id)) {
-        continue;
-      }
-
-      globalThis.chrome?.tabs?.sendMessage?.(tab.id, {
-        payload,
-        type: 'atlas-extension.download-event',
-      }, () => {
-        void globalThis.chrome?.runtime?.lastError;
-      });
-    }
+async function relayBroadcastDownloadEvent(payload) {
+  const tabs = await queryTabs({});
+  await fanoutTabMessage({
+    message: { payload, type: 'atlas-extension.download-event' },
+    metricDetails: { queriedTabs: tabs.length },
+    onMetric: (metric) => performanceDiagnostics.record(metric),
+    sendMessage: sendTabMessage,
+    tabIds: tabs.map((tab) => tab.id),
   });
 }
 
@@ -254,10 +261,7 @@ function sendTabMessage(tabId, message) {
 function relayDesktopResyncRequired() {
   globalThis.chrome?.tabs?.query?.({}, (tabs) => {
     for (const tab of tabs ?? []) {
-      if (!Number.isInteger(tab.id)) {
-        continue;
-      }
-
+      if (!Number.isInteger(tab.id)) continue;
       globalThis.chrome?.tabs?.sendMessage?.(tab.id, {
         type: 'atlas-extension.desktop.resync-required',
       }, () => {
