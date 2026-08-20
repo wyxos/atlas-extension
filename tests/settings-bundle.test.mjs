@@ -4,6 +4,7 @@ import test from 'node:test';
 import { assetSourcePreferencesKey } from '../src/shared/asset-source-preferences.js';
 import { batchProviderPreferencesKey } from '../src/content/batch-provider-preferences.js';
 import { closeTabPreferencesKey } from '../src/shared/close-tab-preferences.js';
+import { overlayPlacementPreferencesKey } from '../src/shared/overlay-placement-preferences.js';
 import {
   applySettingsBundle,
   buildSettingsBundle,
@@ -17,6 +18,10 @@ test('builds a Desktop runtime-policy bundle from browser behavior settings only
     [assetSourcePreferencesKey]: { domains: ['reddit.com'], version: 3 },
     [batchProviderPreferencesKey]: { deviantart: true },
     [closeTabPreferencesKey]: { modesBySiteDomain: { 'reddit.com': 'after_queue' }, version: 1 },
+    [overlayPlacementPreferencesKey]: {
+      positionsBySiteDomain: { 'reddit.com': { xRatio: 0.25, yRatio: 0.75 } },
+      version: 1,
+    },
     atlasDesktopConnection: {
       clientId: 'client-id',
       clientToken: 'secret-token',
@@ -30,6 +35,7 @@ test('builds a Desktop runtime-policy bundle from browser behavior settings only
     'assetSourcePreferences',
     'batchProviderPreferences',
     'closeTabPreferences',
+    'overlayPlacementPreferences',
   ]);
   assert.doesNotMatch(JSON.stringify(bundle), /client-id|secret-token|connection/i);
 });
@@ -69,6 +75,7 @@ test('applies Desktop policy without touching pairing credentials', async () => 
   assert.deepEqual(values[closeTabPreferencesKey].modesBySiteDomain, {
     'reddit.com': 'on_complete',
   });
+  assert.deepEqual(values[overlayPlacementPreferencesKey].positionsBySiteDomain, {});
 });
 
 test('merges policy values while keeping local overlap values', () => {

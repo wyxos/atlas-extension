@@ -35,9 +35,12 @@ export async function armCloseTabForReaction(payload, {
     ...(queuedAssetUrls.length === 0 && isBlacklistReaction ? { waitForDownloads: false } : {}),
   };
 
-  await sendIntent(intent);
+  const closeResult = await sendIntent(intent);
 
-  return intent;
+  return {
+    ...intent,
+    closeResult,
+  };
 }
 
 export function queuedAssetUrlsFromReactionPayload(payload) {

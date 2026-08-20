@@ -30,6 +30,7 @@ export function startContentRuntime({
 
   listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource });
   listenForDesktopResync({ handleResyncRequired });
+  listenForDiagnosticProbes();
   listenForOpenTabCounts({ mergeOpenReferrerCounts });
   listenForManualScanRequests({ scanAssets: scanAssetsWhenReady, schedulePositionUpdate });
   listenForAssetShortcuts({ handleAssetShortcut });
@@ -56,6 +57,20 @@ export function startContentRuntime({
   });
 
   return observer;
+}
+
+function listenForDiagnosticProbes() {
+  globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
+    if (message?.type !== 'atlas-extension.diagnostic.probe') return false;
+    sendResponse?.({
+      ok: true,
+      payload: {
+        acknowledged: true,
+        applied: typeof message.probeId === 'string' && message.probeId !== '',
+      },
+    });
+    return false;
+  });
 }
 
 function listenForDesktopResync({ handleResyncRequired }) {

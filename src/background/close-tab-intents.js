@@ -7,7 +7,7 @@ export function createCloseTabIntentManager({
 } = {}) {
   const intentsByTabId = new Map();
 
-  function armCloseIntent({ assetUrls, mode, siteDomain, tabId, waitForDownloads = true }) {
+  async function armCloseIntent({ assetUrls, mode, siteDomain, tabId, waitForDownloads = true }) {
     const normalizedMode = normalizeCloseTabMode(mode);
     const normalizedTabId = normalizeTabId(tabId);
     const normalizedSiteDomain = normalizeSiteDomain(siteDomain);
@@ -28,11 +28,11 @@ export function createCloseTabIntentManager({
     }
 
     if (normalizedMode === closeTabModes.afterQueue || waitForDownloads === false) {
-      closeTab(normalizedTabId);
+      const closeResult = await closeTab(normalizedTabId);
 
       return {
         armed: true,
-        closed: true,
+        ...closeResult,
         mode: normalizedMode,
         trackedAssetCount: trackedAssetUrls.length,
       };
@@ -76,7 +76,7 @@ export function createCloseTabIntentManager({
 
       if (intent.pendingAssetUrls.size === 0) {
         intentsByTabId.delete(tabId);
-        closeTab(tabId);
+        void closeTab(tabId);
       }
     }
   }
@@ -90,13 +90,40 @@ export function createCloseTabIntentManager({
   }
 
   function closeTab(tabId) {
-    try {
-      tabsApi?.remove?.(tabId, () => {
-        void globalThis.chrome?.runtime?.lastError;
-      });
-    } catch {
-      // Chrome may reject tab operations while the tab is already closing.
-    }
+    return new Promise((resolve) => {
+      if (typeof tabsApi?.remove !== 'function') {
+        resolve({
+          closed: false,
+          error: 'Chrome tabs API is unavailable.',
+        });
+
+        return;
+      }
+
+      try {
+        const maybePromise = tabsApi.remove(tabId, () => {
+          const error = globalThis.chrome?.runtime?.lastError?.message;
+
+          resolve(error
+            ? { closed: false, error }
+            : { closed: true });
+        });
+
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise
+            .then(() => resolve({ closed: true }))
+            .catch((error) => resolve({
+              closed: false,
+              error: error?.message ?? 'Chrome could not close the tab.',
+            }));
+        }
+      } catch (error) {
+        resolve({
+          closed: false,
+          error: error?.message ?? 'Chrome could not close the tab.',
+        });
+      }
+    });
   }
 
   return {

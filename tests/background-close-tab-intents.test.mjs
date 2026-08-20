@@ -4,17 +4,18 @@ import test from 'node:test';
 import { closeTabModes } from '../src/shared/close-tab-preferences.js';
 import { createCloseTabIntentManager } from '../src/background/close-tab-intents.js';
 
-test('after queue close intents close the sender tab immediately', () => {
+test('after queue close intents await the browser close result', async () => {
   const closedTabs = [];
   const manager = createCloseTabIntentManager({
     tabsApi: {
-      remove(tabId) {
+      remove(tabId, callback) {
         closedTabs.push(tabId);
+        callback();
       },
     },
   });
 
-  const result = manager.armCloseIntent({
+  const result = await manager.armCloseIntent({
     assetUrls: ['https://cdn.example.test/video.mp4'],
     mode: closeTabModes.afterQueue,
     siteDomain: 'x.com',
@@ -34,8 +35,9 @@ test('on complete close intents wait for every queued asset', () => {
   const closedTabs = [];
   const manager = createCloseTabIntentManager({
     tabsApi: {
-      remove(tabId) {
+      remove(tabId, callback) {
         closedTabs.push(tabId);
+        callback();
       },
     },
   });
@@ -67,8 +69,9 @@ test('failed or canceled tracked downloads keep the tab open and clear the inten
   const closedTabs = [];
   const manager = createCloseTabIntentManager({
     tabsApi: {
-      remove(tabId) {
+      remove(tabId, callback) {
         closedTabs.push(tabId);
+        callback();
       },
     },
   });
@@ -91,17 +94,18 @@ test('failed or canceled tracked downloads keep the tab open and clear the inten
   assert.deepEqual(closedTabs, []);
 });
 
-test('non-download close intents close immediately after reaction completion', () => {
+test('non-download close intents close immediately after reaction completion', async () => {
   const closedTabs = [];
   const manager = createCloseTabIntentManager({
     tabsApi: {
-      remove(tabId) {
+      remove(tabId, callback) {
         closedTabs.push(tabId);
+        callback();
       },
     },
   });
 
-  const result = manager.armCloseIntent({
+  const result = await manager.armCloseIntent({
     assetUrls: ['https://cdn.example.test/video.mp4'],
     mode: closeTabModes.onComplete,
     siteDomain: 'x.com',
@@ -116,4 +120,35 @@ test('non-download close intents close immediately after reaction completion', (
     trackedAssetCount: 1,
   });
   assert.deepEqual(closedTabs, [42]);
+});
+
+test('reports the exact browser close failure without claiming the tab closed', async () => {
+  const previousChrome = globalThis.chrome;
+  globalThis.chrome = { runtime: {} };
+  const manager = createCloseTabIntentManager({
+    tabsApi: {
+      remove(_tabId, callback) {
+        globalThis.chrome.runtime.lastError = { message: 'Tabs cannot be edited right now.' };
+        callback();
+        delete globalThis.chrome.runtime.lastError;
+      },
+    },
+  });
+
+  try {
+    assert.deepEqual(await manager.armCloseIntent({
+      assetUrls: ['https://cdn.example.test/video.mp4'],
+      mode: closeTabModes.afterQueue,
+      siteDomain: 'x.com',
+      tabId: 42,
+    }), {
+      armed: true,
+      closed: false,
+      error: 'Tabs cannot be edited right now.',
+      mode: closeTabModes.afterQueue,
+      trackedAssetCount: 1,
+    });
+  } finally {
+    globalThis.chrome = previousChrome;
+  }
 });

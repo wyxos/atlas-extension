@@ -20,6 +20,7 @@ const loadNextTabsLimitInput = document.querySelector('#atlas-popup-load-next-ta
 const copyTabLinksButton = document.querySelector('#atlas-popup-copy-tab-links');
 const openClipboardLinksButton = document.querySelector('#atlas-popup-open-clipboard-links');
 const reloadButton = document.querySelector('#atlas-popup-reload');
+const testEventsButton = document.querySelector('#atlas-popup-test-events');
 const statusElement = document.querySelector('#atlas-popup-status');
 
 scanButton?.addEventListener('click', () => {
@@ -52,6 +53,10 @@ openClipboardLinksButton?.addEventListener('click', () => {
 
 reloadButton?.addEventListener('click', () => {
   void reloadExtension();
+});
+
+testEventsButton?.addEventListener('click', () => {
+  void testEventPath();
 });
 
 initializeNextTabsLimit();
@@ -110,6 +115,34 @@ async function reloadExtension() {
   }
 }
 
+async function testEventPath() {
+  setBusy(true);
+  setStatus('Testing Desktop → background → active tab...');
+
+  try {
+    const result = await sendRuntimeMessage({ type: 'atlas-extension.desktop.test-event-path' });
+    setStatus(result?.desktop?.accepted && result?.desktop?.emitted
+      && result?.background?.received && result?.content?.acknowledged && result?.content?.applied
+      ? 'Event path passed: Desktop emitted, background received, and the active tab applied it'
+      : 'Event path was incomplete');
+  } catch (error) {
+    setStatus(error?.message ?? 'Event path test failed');
+  } finally {
+    setBusy(false);
+  }
+}
+
+function sendRuntimeMessage(message) {
+  return new Promise((resolve, reject) => {
+    globalThis.chrome?.runtime?.sendMessage?.(message, (response) => {
+      const error = globalThis.chrome?.runtime?.lastError?.message;
+      if (error) return reject(new Error(error));
+      if (response?.ok === false) return reject(new Error(response.error?.message ?? response.error));
+      resolve(response?.payload ?? {});
+    });
+  });
+}
+
 function setBusy(isBusy) {
   for (const control of [
     scanButton,
@@ -120,6 +153,7 @@ function setBusy(isBusy) {
     copyTabLinksButton,
     openClipboardLinksButton,
     reloadButton,
+    testEventsButton,
   ]) {
     if (control !== null) {
       control.disabled = isBusy;

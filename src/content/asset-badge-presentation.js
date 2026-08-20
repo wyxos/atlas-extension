@@ -7,15 +7,17 @@ export function createAssetBadgePresentation({
   closeTab,
   element,
   id,
+  placement,
   state,
   viewportPadding,
   visibleRect,
 }) {
-  const placement = placeVisibleAssetBadge({
+  const resolvedPlacement = placeVisibleAssetBadge({
     asset,
     badgeHosts,
     element,
     id,
+    placement,
     viewportPadding,
     visibleRect,
   }) ?? {};
@@ -23,5 +25,5 @@ export function createAssetBadgePresentation({
   return createBadgePresentation(asset, visibleRect, viewportPadding, {
     ...(state ?? {}),
     closeTab,
-  }, placement);
+  }, resolvedPlacement);
 }

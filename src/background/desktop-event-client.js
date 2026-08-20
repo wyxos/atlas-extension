@@ -13,6 +13,7 @@ export function createDesktopEventClient({
   onCheckpoint,
   onEvent,
   onHeartbeat,
+  onDiagnosticEvent,
   onPolicyChanged,
   onReconnectAttempt,
   onResyncRequired,
@@ -140,6 +141,16 @@ export function createDesktopEventClient({
     if (frame.type === 'runtime.policy.changed') {
       onCheckpoint?.({ eventSequence: sequence, lastEventAt: receivedAt });
       onPolicyChanged?.(frame.data);
+      return;
+    }
+
+    if (frame.type === 'diagnostic.probe') {
+      onCheckpoint?.({ eventSequence: sequence, lastEventAt: receivedAt });
+      onDiagnosticEvent?.({
+        probeId: typeof frame.data?.probe_id === 'string' ? frame.data.probe_id : null,
+        receivedAt,
+        sequence,
+      });
       return;
     }
 

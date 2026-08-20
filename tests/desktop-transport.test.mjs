@@ -91,6 +91,23 @@ test('authenticates commands and adds idempotency keys only to mutations', async
   assert.equal(requests[0].options.headers['Idempotency-Key'], 'idem-42');
 });
 
+test('patches one Desktop-owned widget placement without replacing the policy', async () => {
+  const requests = [];
+  const transport = createDesktopTransport({
+    channel: 'dev',
+    fetchImpl: createFetch(requests, { revision: 4 }),
+  });
+
+  await transport.updateWidgetPlacement(credentials, {
+    placement: { x_ratio: 0.25, y_ratio: 0.75 },
+    site_domain: 'reddit.com',
+  }, { idempotencyKey: 'placement-1' });
+
+  assert.equal(requests[0].url, 'http://127.0.0.1:17420/v1/runtime-policy/widget-placement');
+  assert.equal(requests[0].options.method, 'PUT');
+  assert.equal(requests[0].options.headers['Idempotency-Key'], 'placement-1');
+});
+
 test('maps network failure to retryable Desktop offline semantics', async () => {
   const transport = createDesktopTransport({
     channel: 'dev',

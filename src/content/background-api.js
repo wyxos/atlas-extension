@@ -110,6 +110,19 @@ export function openAtlasFileViaBackground({
   }, { runtime, timeoutMs });
 }
 
+export function updateWidgetPlacementViaBackground({
+  placement,
+  runtime = globalThis.chrome?.runtime,
+  siteDomain,
+  timeoutMs = defaultTimeoutMs,
+}) {
+  return sendBackgroundRequest({
+    placement,
+    siteDomain,
+    type: 'atlas-extension.desktop.update-widget-placement',
+  }, { runtime, timeoutMs });
+}
+
 export function sendBackgroundRequest(message, options = {}) {
   const runtime = options.runtime ?? globalThis.chrome?.runtime;
   const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : defaultTimeoutMs;

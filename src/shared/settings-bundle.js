@@ -13,6 +13,11 @@ import {
   loadBatchProviderPreferences,
   normalizeBatchProviderPreferences,
 } from '../content/batch-provider-preferences.js';
+import {
+  loadOverlayPlacementPreferences,
+  normalizeOverlayPlacementPreferences,
+  overlayPlacementPreferencesKey,
+} from './overlay-placement-preferences.js';
 
 export const settingsBundleSchemaVersion = 1;
 
@@ -20,6 +25,7 @@ export const settingsBundleStorageKeys = Object.freeze([
   assetSourcePreferencesKey,
   batchProviderPreferencesKey,
   closeTabPreferencesKey,
+  overlayPlacementPreferencesKey,
 ]);
 
 export async function buildSettingsBundle({
@@ -37,6 +43,7 @@ export async function buildSettingsBundle({
       assetSourcePreferences: await loadAssetSourcePreferences(storage),
       batchProviderPreferences: await loadBatchProviderPreferences(storage),
       closeTabPreferences: await loadCloseTabPreferences(storage),
+      overlayPlacementPreferences: await loadOverlayPlacementPreferences(storage),
     },
   });
 }
@@ -54,6 +61,7 @@ export async function applySettingsBundle(bundle, {
     [assetSourcePreferencesKey]: normalizedBundle.settings.assetSourcePreferences,
     [batchProviderPreferencesKey]: normalizedBundle.settings.batchProviderPreferences,
     [closeTabPreferencesKey]: normalizedBundle.settings.closeTabPreferences,
+    [overlayPlacementPreferencesKey]: normalizedBundle.settings.overlayPlacementPreferences,
   });
 
   return normalizedBundle;
@@ -101,6 +109,10 @@ export function mergeSettingsBundles(localBundle, remoteBundle) {
         localSettings.closeTabPreferences,
         remoteSettings.closeTabPreferences,
       ),
+      overlayPlacementPreferences: mergeOverlayPlacementPreferences(
+        localSettings.overlayPlacementPreferences,
+        remoteSettings.overlayPlacementPreferences,
+      ),
     },
   });
 }
@@ -137,6 +149,7 @@ export function normalizeSettingsBundle(value) {
       assetSourcePreferences: normalizeAssetSourcePreferences(settings.assetSourcePreferences),
       batchProviderPreferences: normalizeBatchProviderPreferences(settings.batchProviderPreferences),
       closeTabPreferences: normalizeCloseTabPreferences(settings.closeTabPreferences),
+      overlayPlacementPreferences: normalizeOverlayPlacementPreferences(settings.overlayPlacementPreferences),
     },
   };
 }
@@ -161,6 +174,10 @@ const settingsBundleSections = Object.freeze([
   {
     key: 'closeTabPreferences',
     label: 'Close tab modes',
+  },
+  {
+    key: 'overlayPlacementPreferences',
+    label: 'Widget placements',
   },
 ]);
 
@@ -192,6 +209,18 @@ function mergeCloseTabPreferences(localValue, remoteValue) {
     modesBySiteDomain: {
       ...remotePreferences.modesBySiteDomain,
       ...localPreferences.modesBySiteDomain,
+    },
+  });
+}
+
+function mergeOverlayPlacementPreferences(localValue, remoteValue) {
+  const localPreferences = normalizeOverlayPlacementPreferences(localValue);
+  const remotePreferences = normalizeOverlayPlacementPreferences(remoteValue);
+
+  return normalizeOverlayPlacementPreferences({
+    positionsBySiteDomain: {
+      ...remotePreferences.positionsBySiteDomain,
+      ...localPreferences.positionsBySiteDomain,
     },
   });
 }

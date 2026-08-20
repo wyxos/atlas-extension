@@ -64,6 +64,16 @@ export function createDesktopTransport(options = {}) {
     });
   }
 
+  function updateWidgetPlacement(credentials, body, requestOptions = {}) {
+    return request('/v1/runtime-policy/widget-placement', {
+      ...requestOptions,
+      body,
+      credentials,
+      method: 'PUT',
+      mutation: true,
+    });
+  }
+
   function assetStatuses(credentials, body, requestOptions = {}) {
     return request('/v1/assets/status', {
       ...requestOptions,
@@ -129,6 +139,16 @@ export function createDesktopTransport(options = {}) {
     return request('/v1/events/tickets', {
       ...requestOptions,
       body: { after_sequence: normalizeSequence(afterSequence) },
+      credentials,
+      method: 'POST',
+      mutation: true,
+    });
+  }
+
+  function diagnosticProbe(credentials, probeId, requestOptions = {}) {
+    return request('/v1/diagnostics/event-probes', {
+      ...requestOptions,
+      body: { probe_id: probeId },
       credentials,
       method: 'POST',
       mutation: true,
@@ -202,6 +222,7 @@ export function createDesktopTransport(options = {}) {
     baseUrl,
     channel,
     deleteFile,
+    diagnosticProbe,
     eventTicket,
     hello,
     openFile,
@@ -211,6 +232,7 @@ export function createDesktopTransport(options = {}) {
     request,
     runtimePolicy,
     unpair,
+    updateWidgetPlacement,
   };
 }
 

@@ -16,6 +16,7 @@ test('popup exposes a manual scan action', () => {
   assert.match(popupHtml, /atlas-popup-load-next-tabs-increment/);
   assert.match(popupHtml, /atlas-popup-copy-tab-links/);
   assert.match(popupHtml, /atlas-popup-open-clipboard-links/);
+  assert.match(popupHtml, /atlas-popup-test-events/);
   assert.doesNotMatch(popupHtml, /atlas-popup-reaction-widget-visibility/);
   assert.match(popupHtml, /\/src\/popup\/main\.js/);
   assert.match(popupHtml, /Scan page/);

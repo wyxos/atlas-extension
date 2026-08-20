@@ -78,6 +78,7 @@ test('arms close intents using the page site domain and configured mode', async 
     },
     sendIntent(intent) {
       intents.push(intent);
+      return { closed: true };
     },
   });
 

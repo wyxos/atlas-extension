@@ -137,6 +137,42 @@ test('requests runtime policy refreshes without relaying them as download events
   client.stop();
 });
 
+test('reports diagnostic probes separately from download events', async () => {
+  const sockets = [];
+  const probes = [];
+  const downloads = [];
+  const client = createDesktopEventClient({
+    credentials: {},
+    getSequence: async () => 0,
+    onDiagnosticEvent: (event) => probes.push(event),
+    onEvent: (event) => downloads.push(event),
+    now: () => '2026-08-19T10:05:00Z',
+    transport: {
+      baseUrl: 'http://127.0.0.1:17420',
+      eventTicket: async () => ({ websocket_url: 'ws://127.0.0.1:17420/v1/events?ticket=abc' }),
+    },
+    WebSocketImpl: class FakeSocket {
+      constructor() { this.listeners = new Map(); sockets.push(this); }
+      addEventListener(type, callback) { this.listeners.set(type, callback); }
+      close() {}
+      emit(type, payload) { this.listeners.get(type)?.(payload); }
+    },
+  });
+
+  await client.start();
+  sockets[0].emit('message', {
+    data: JSON.stringify({ data: { probe_id: 'probe-1' }, sequence: 9, type: 'diagnostic.probe' }),
+  });
+
+  assert.deepEqual(probes, [{
+    probeId: 'probe-1',
+    receivedAt: '2026-08-19T10:05:00Z',
+    sequence: 9,
+  }]);
+  assert.deepEqual(downloads, []);
+  client.stop();
+});
+
 test('keeps the MV3 service worker event socket alive and stops the heartbeat cleanly', async () => {
   const sockets = [];
   const heartbeats = [];

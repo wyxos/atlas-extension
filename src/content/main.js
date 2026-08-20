@@ -1,7 +1,7 @@
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
 import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
 import { createBatchProviderState } from './batch-provider-state.js';
-import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground } from './background-api.js';
+import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
 import { decorateAssetWithMatchIdentity as decorateAssetWithMatchIdentityForRuntime, statusMatchItemForAsset } from './asset-match-runtime.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
@@ -14,6 +14,7 @@ import { armCloseTabForReaction } from './close-tab-reactions.js';
 import { createCloseTabModeState } from './close-tab-mode-state.js';
 import { applyDownloadEvent } from './download-events.js';
 import { createAssetOverlay } from './overlay-controller.js';
+import { createOverlayRoot } from './overlay-host.js';
 import { createReferrerBadgeManager } from './referrer-badges.js';
 import { createReferrerOpenGuard } from './referrer-open-guard.js';
 import { resolveDownloadActionForReaction } from './reaction-download-action.js';
@@ -21,6 +22,7 @@ import { resolveStateFileId } from './state-file-id.js';
 import { createStatusCheckQueue } from './status-checks.js';
 import { startContentRuntime } from './content-runtime.js';
 import { resolveVisibleRect } from './visible-rect.js';
+import { createWidgetPlacementRuntime } from './widget-placement-runtime.js';
 const assetSelector = 'img, video, audio';
 const overlayHostId = 'atlas-extension-asset-overlay';
 const scanDelayMs = 50;
@@ -38,6 +40,15 @@ let scheduledPositionUpdate = null;
 let nextAssetId = 0;
 let overlayController = null;
 const badgeHosts = createBadgeHostManager();
+const widgetPlacement = createWidgetPlacementRuntime({
+  getElement: (id) => elementsById.get(id),
+  getLocationHref: () => window.location.href,
+  refresh: updateAllAssetBadgePresentations,
+  reportFailure: (id, message) => updateBadgeState(id, {
+    widgetPlacementError: `Widget position was not saved: ${message}`,
+  }),
+  savePlacement: updateWidgetPlacementViaBackground,
+});
 const closeTabMode = createCloseTabModeState({
   getLocationHref: () => window.location.href,
   onChanged: updateAllAssetBadgePresentations,
@@ -84,29 +95,17 @@ function getOverlayController() {
   if (overlayController !== null) {
     return overlayController;
   }
-  const host = document.createElement('div');
-  host.id = overlayHostId;
-  host.setAttribute('style', [
-    'all:initial',
-    'contain:layout style paint',
-    'inset:0',
-    'pointer-events:none',
-    'position:fixed',
-    'z-index:2147483647',
-  ].join(';'));
-
-  const overlayRoot = host.attachShadow({ mode: 'open' });
-  (document.body ?? document.documentElement).append(host);
+  const overlayRoot = createOverlayRoot(document, overlayHostId);
   overlayController = createAssetOverlay(overlayRoot, {
     onBatchToggle: handleBadgeBatchToggle,
     onCloseModeChange: handleBadgeCloseModeChange,
     onDelete: handleBadgeDelete,
     onOpenFile: handleBadgeOpenFile,
+    onPlacementChange: widgetPlacement.change,
     onReact: handleBadgeReaction,
   });
   return overlayController;
 }
-
 function getAssetId(element) {
   const existingId = assetIds.get(element);
   if (existingId !== undefined) {
@@ -119,7 +118,6 @@ function getAssetId(element) {
 
   return id;
 }
-
 function removeBadge(element) {
   const id = assetIds.get(element);
 
@@ -135,7 +133,6 @@ function removeBadge(element) {
   badgeStatesById.delete(id);
   elementsById.delete(id);
 }
-
 function syncAsset(element) {
   const rawAsset = describeAssetElement(element);
   const asset = rawAsset === null
@@ -188,6 +185,7 @@ function syncAsset(element) {
     id,
     createAssetBadgePresentation({
       asset, badgeHosts, closeTab: closeTabMode.presentationState(), element, id,
+      placement: widgetPlacement.placementForCurrentSite(),
       state: nextBadgeState, viewportPadding, visibleRect,
     }),
   );
@@ -196,7 +194,6 @@ function syncAsset(element) {
   });
   return true;
 }
-
 function updateBadgeState(id, nextState) {
   const currentState = badgeStatesById.get(id) ?? {};
 
@@ -205,11 +202,9 @@ function updateBadgeState(id, nextState) {
     ...nextState,
   });
 }
-
 function replaceBadgeState(id, nextState) {
   renderBadgeState(id, nextState);
 }
-
 function renderBadgeState(id, nextState) {
   const element = elementsById.get(id);
   const asset = assetsById.get(id);
@@ -232,11 +227,11 @@ function renderBadgeState(id, nextState) {
     id,
     createAssetBadgePresentation({
       asset, badgeHosts, closeTab: closeTabMode.presentationState(), element, id,
+      placement: widgetPlacement.placementForCurrentSite(),
       state: nextState, viewportPadding, visibleRect,
     }),
   );
 }
-
 function updateBadgeStateBySource(source, nextState) {
   for (const [id, asset] of assetsById.entries()) {
     if (asset.source === source) {
@@ -244,7 +239,6 @@ function updateBadgeStateBySource(source, nextState) {
     }
   }
 }
-
 function clearAtlasAssetStateBySource(source) {
   for (const [id, asset] of assetsById.entries()) {
     if (asset.source === source) {
@@ -252,7 +246,6 @@ function clearAtlasAssetStateBySource(source) {
     }
   }
 }
-
 function queueAssetStatusCheck(source, options) { statusChecks.queueAssetStatusCheck(source, options); }
 
 function queueReferrerStatusCheck(referrerUrl, options) { statusChecks.queueReferrerStatusCheck(referrerUrl, options); }
@@ -276,7 +269,6 @@ function mergeOpenReferrerCounts(referrerUrls, counts) {
 
   referrerBadges.updateOpenCounts(openReferrerCounts);
 }
-
 async function handleBadgeReaction(event) {
   const asset = assetsById.get(event.id);
   const currentState = badgeStatesById.get(event.id) ?? {};
@@ -311,10 +303,15 @@ async function handleBadgeReaction(event) {
       locationContext: window.location,
     });
 
-    void armCloseTabForReaction(payload, {
+    const closeIntent = await armCloseTabForReaction(payload, {
       loadModeForSiteDomain: closeTabMode.loadModeForReaction,
       locationContext: window.location, reactionType: event.type,
     });
+    if (closeIntent?.closeResult?.closed === false) {
+      updateBadgeState(event.id, {
+        closeTabError: closeIntent.closeResult.error ?? 'Chrome could not close this tab.',
+      });
+    }
 
     if (Array.isArray(payload.items)) {
       applyBatchReactionPayload(payload, {
@@ -356,7 +353,6 @@ async function handleBadgeReaction(event) {
     });
   }
 }
-
 function handleBadgeBatchToggle(event) {
   const context = batchContextsById.get(event.id);
 
@@ -494,6 +490,10 @@ startContentRuntime({
 });
 bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
 void closeTabMode.initialize();
+void widgetPlacement.initialize();
+globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => {
+  widgetPlacement.applyStorageChange(changes, areaName);
+});
 void initializeAssetSourcePreferences({ onChanged: () => {
   scheduleScan();
   schedulePositionUpdate();

@@ -25,11 +25,18 @@ import { loadNextTabsRequestType } from '../shared/load-next-tabs-messages.js';
 import { tabCounterSnapshotRequestType } from '../shared/tab-counter-messages.js';
 import { serializeDesktopError } from '../shared/desktop-contract.js';
 import { createDesktopRuntime } from './desktop-runtime.js';
+import { createEventProbeRunner } from './event-probe-runtime.js';
 
 const openTabs = createOpenTabRegistry();
 const closeTabIntents = createCloseTabIntentManager();
+const eventProbes = createEventProbeRunner({
+  queryActiveTab: async () => (await queryTabs({ active: true, currentWindow: true }))[0],
+  requestContext: () => desktopRuntime.requestContext(),
+  sendToTab: sendTabMessage,
+});
 const desktopRuntime = createDesktopRuntime({
   onDownloadEvent: relayDownloadEvent,
+  onDiagnosticEvent: (payload) => eventProbes.receive(payload),
   onResyncRequired: relayDesktopResyncRequired,
 });
 
@@ -54,18 +61,30 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
   }
 
   if (message?.type === 'atlas-extension.download-close-intent') {
-    sendResponse({
-      ok: true,
-      payload: closeTabIntents.armCloseIntent({
+    void closeTabIntents.armCloseIntent({
         assetUrls: message.assetUrls,
         mode: message.mode,
         siteDomain: message.siteDomain,
         tabId: sender?.tab?.id,
         waitForDownloads: message.waitForDownloads,
-      }),
-    });
+      })
+      .then((payload) => sendResponse({ ok: true, payload }))
+      .catch((error) => sendResponse({
+        error: error?.message ?? 'Chrome could not prepare the tab close.',
+        ok: false,
+      }));
 
-    return false;
+    return true;
+  }
+
+  if (message?.type === 'atlas-extension.desktop.test-event-path') {
+    void eventProbes.testActiveTab()
+      .then((payload) => sendResponse({ ok: true, payload }))
+      .catch((error) => sendResponse({
+        error: serializeDesktopError(error, 'The event path test failed.'),
+        ok: false,
+      }));
+    return true;
   }
 
   if (message?.type === tabCounterSnapshotRequestType) {
@@ -211,6 +230,24 @@ function relayDownloadEvent(payload) {
         void globalThis.chrome?.runtime?.lastError;
       });
     }
+  });
+}
+
+function queryTabs(query) {
+  return new Promise((resolve, reject) => {
+    globalThis.chrome?.tabs?.query?.(query, (tabs) => {
+      const error = globalThis.chrome?.runtime?.lastError?.message;
+      error ? reject(new Error(error)) : resolve(tabs ?? []);
+    });
+  });
+}
+
+function sendTabMessage(tabId, message) {
+  return new Promise((resolve, reject) => {
+    globalThis.chrome?.tabs?.sendMessage?.(tabId, message, (response) => {
+      const error = globalThis.chrome?.runtime?.lastError?.message;
+      error ? reject(new Error(error)) : resolve(response?.payload ?? response ?? {});
+    });
   });
 }
 

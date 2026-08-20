@@ -1,4 +1,6 @@
 import { getAssetSheetStyles } from './asset-sheet-styles.js';
+import { getOverlayDragStyles } from './overlay-drag-styles.js';
+import { getOverlayNoticeStyles } from './overlay-notice-styles.js';
 
 const badgeAttribute = 'data-atlas-asset-badge';
 
@@ -33,6 +35,10 @@ export function getOverlayStyles() {
       width: 300px;
       z-index: 2147483647;
     }
+
+    ${getOverlayDragStyles()}
+
+    ${getOverlayNoticeStyles()}
 
     .atlas-static-meta {
       align-items: center;

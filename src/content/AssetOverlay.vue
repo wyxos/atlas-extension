@@ -26,7 +26,7 @@ defineProps({
   },
 });
 
-defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "open-file", "react", "reaction-confirm"]);
+defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "open-file", "placement-change", "react", "reaction-confirm"]);
 </script>
 
 <template>
@@ -49,6 +49,7 @@ defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "open-fil
         @close-mode-change="$emit('close-mode-change', { mode: $event })"
         @delete="$emit('delete', { id: badge.id })"
         @open-file="$emit('open-file', { id: badge.id })"
+        @placement-change="$emit('placement-change', { id: badge.id, ...$event })"
         @react="$emit('react', { id: badge.id, type: $event })"
       />
     </Teleport>
@@ -64,6 +65,7 @@ defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "open-fil
         @close-mode-change="$emit('close-mode-change', { mode: $event })"
         @delete="$emit('delete', { id: badge.id })"
         @open-file="$emit('open-file', { id: badge.id })"
+        @placement-change="$emit('placement-change', { id: badge.id, ...$event })"
         @react="$emit('react', { id: badge.id, type: $event })"
       />
     </template>

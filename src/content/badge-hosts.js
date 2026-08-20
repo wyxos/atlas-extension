@@ -30,6 +30,7 @@ export function createBadgeHostManager({
       asset,
       element,
       owner,
+      placement: options.placement,
       variant: options.variant,
       viewportPadding: options.viewportPadding ?? 0,
     });
@@ -179,6 +180,7 @@ function createPlacementStyles({
   asset,
   element,
   owner,
+  placement,
   variant,
   viewportPadding,
 }) {
@@ -216,6 +218,27 @@ function createPlacementStyles({
     assetBadgeMaxWidth,
     Math.max(assetBadgeMinWidth, mediaRect.width - (viewportPadding * 2)),
   );
+
+  if (placement !== null && placement !== undefined) {
+    const xRatio = Math.min(1, Math.max(0, Number(placement.xRatio)));
+    const yRatio = Math.min(1, Math.max(0, Number(placement.yRatio)));
+
+    return {
+      badgeStyle: {
+        display: 'flex',
+        maxWidth: '100%',
+        position: 'static',
+        transform: 'none',
+        width: '100%',
+      },
+      hostStyle: baseHostStyle({
+        left: relativeLeft + (mediaRect.width * xRatio),
+        top: relativeTop + (mediaRect.height * yRatio),
+        transform: 'translate(-50%, -50%)',
+        width,
+      }),
+    };
+  }
 
   return {
     badgeStyle: {

@@ -24,6 +24,7 @@ export function createAssetOverlay(shadowRoot, options = {}) {
         onCloseModeChange: options.onCloseModeChange,
         onDelete: options.onDelete,
         onOpenFile: options.onOpenFile,
+        onPlacementChange: options.onPlacementChange,
         onConfirm: resolveConfirmRequest,
         onReact: options.onReact,
         onReactionConfirm: resolveReactionRequest,

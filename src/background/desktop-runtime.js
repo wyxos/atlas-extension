@@ -171,11 +171,26 @@ export function createDesktopRuntime(options = {}) {
     return transport.openFile(credentials, fileId);
   }
 
+  async function updateWidgetPlacement(siteDomain, placement) {
+    const { credentials } = await requestContext();
+    return transport.updateWidgetPlacement(credentials, {
+      placement: {
+        x_ratio: placement?.xRatio,
+        y_ratio: placement?.yRatio,
+      },
+      site_domain: siteDomain,
+    });
+  }
+
   function handleMessage(message, sendResponse) {
     const handlers = {
       [desktopMessageTypes.cancelPairing]: cancelPairing,
       [desktopMessageTypes.diagnostics]: diagnostics,
       [desktopMessageTypes.openFile]: () => openFile(message.fileId),
+      [desktopMessageTypes.updateWidgetPlacement]: () => updateWidgetPlacement(
+        message.siteDomain,
+        message.placement,
+      ),
       [desktopMessageTypes.pair]: pair,
       [desktopMessageTypes.reconnect]: reconnect,
       [desktopMessageTypes.unpair]: unpair,
@@ -201,6 +216,7 @@ export function createDesktopRuntime(options = {}) {
         void patchDesktopConnectionState(checkpoint, storage);
       },
       onEvent: options.onDownloadEvent,
+      onDiagnosticEvent: options.onDiagnosticEvent,
       onHeartbeat: (lastHeartbeatAt) => {
         void patchDesktopConnectionState({ lastHeartbeatAt }, storage);
       },

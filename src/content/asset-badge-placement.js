@@ -3,6 +3,7 @@ export function placeVisibleAssetBadge({
   badgeHosts,
   element,
   id,
+  placement,
   variant = 'asset',
   viewportPadding,
   visibleRect,
@@ -15,6 +16,7 @@ export function placeVisibleAssetBadge({
 
   return badgeHosts.placeBadge(id, element, asset, {
     variant,
+    ...(placement ? { placement } : {}),
     viewportPadding,
   }) ?? {};
 }

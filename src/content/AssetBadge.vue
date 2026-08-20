@@ -5,6 +5,7 @@ import {
   Heart,
   ImageIcon,
   LoaderCircle,
+  GripHorizontal,
   Smile,
   ThumbsUp,
   Trash2,
@@ -21,7 +22,7 @@ defineProps({
   },
 });
 
-const emit = defineEmits(["batch-toggle", "close-mode-change", "delete", "open-file", "react"]);
+const emit = defineEmits(["batch-toggle", "close-mode-change", "delete", "open-file", "placement-change", "react"]);
 
 const iconSize = 18;
 const metaIconSize = 14;
@@ -82,6 +83,50 @@ const reactions = [
   },
 ];
 
+let dragPointerId = null;
+
+function beginDrag(event) {
+  dragPointerId = event.pointerId;
+  event.currentTarget?.setPointerCapture?.(event.pointerId);
+  emitPlacement(event, false);
+}
+
+function continueDrag(event) {
+  if (dragPointerId === event.pointerId) emitPlacement(event, false);
+}
+
+function endDrag(event) {
+  if (dragPointerId !== event.pointerId) return;
+  emitPlacement(event, true);
+  dragPointerId = null;
+}
+
+function moveWithKeyboard(event) {
+  const steps = {
+    ArrowDown: [0, 1],
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+  };
+  const direction = steps[event.key];
+  if (!direction) return;
+  event.preventDefault();
+  const step = event.shiftKey ? 0.1 : 0.02;
+  emit('placement-change', {
+    commit: true,
+    deltaXRatio: direction[0] * step,
+    deltaYRatio: direction[1] * step,
+  });
+}
+
+function emitPlacement(event, commit) {
+  emit('placement-change', {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    commit,
+  });
+}
+
 function progressStyle(badge) {
   return {
     width: `${badge.progressPercent}%`,
@@ -118,6 +163,19 @@ function handleBadgeShortcut(event) {
     @contextmenu="handleBadgeShortcut"
     @mousedown="handleBadgeShortcut"
   >
+    <button
+      type="button"
+      class="atlas-static-drag-handle"
+      aria-label="Move Atlas widget"
+      title="Move Atlas widget"
+      @keydown.stop="moveWithKeyboard"
+      @pointerdown.stop.prevent="beginDrag"
+      @pointermove.stop.prevent="continueDrag"
+      @pointerup.stop.prevent="endDrag"
+      @pointercancel.stop.prevent="endDrag"
+    >
+      <GripHorizontal :size="16" :stroke-width="2" />
+    </button>
     <div class="atlas-static-meta">
       <span
         class="atlas-static-asset-kind"
@@ -257,5 +315,19 @@ function handleBadgeShortcut(event) {
         {{ badge.progressLabel }}
       </div>
     </div>
+    <p
+      v-if="badge.closeTabError"
+      class="atlas-static-close-error"
+      role="status"
+    >
+      Could not close tab: {{ badge.closeTabError }}
+    </p>
+    <p
+      v-if="badge.widgetPlacementError"
+      class="atlas-static-close-error"
+      role="status"
+    >
+      {{ badge.widgetPlacementError }}
+    </p>
   </div>
 </template>

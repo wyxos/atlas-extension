@@ -233,6 +233,7 @@ if (overviewPage !== null) {
 
 const contentDetector = readText('src/content/assets.js');
 const contentScript = readText('src/content/main.js');
+const overlayHost = readText('src/content/overlay-host.js');
 const contentRuntime = readText('src/content/content-runtime.js');
 const contentBadge = readText('src/content/AssetBadge.vue');
 const contentOverlay = readText('src/content/AssetOverlay.vue');
@@ -264,7 +265,7 @@ if (contentDetector !== null) {
 }
 
 if (contentScript !== null) {
-  expect(contentScript.includes('attachShadow'), 'src/content/main.js must isolate asset badges in a shadow overlay');
+  expect(contentScript.includes('createOverlayRoot') && overlayHost.includes('attachShadow'), 'the content runtime must isolate asset badges in a shadow overlay');
   expect(contentScript.includes('createAssetOverlay'), 'src/content/main.js must mount a Vue asset overlay');
   expect(contentScript.includes('createAssetBadgePresentation'), 'src/content/main.js must pass asset badge presentation data to Vue');
   expect(contentScript.includes('startContentRuntime'), 'src/content/main.js must start the content runtime');

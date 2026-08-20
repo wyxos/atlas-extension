@@ -76,6 +76,30 @@ test('anchors compact referrer badges to the media bottom right', () => {
   assert.equal(placement.badgeStyle.height, '50px');
 });
 
+test('places main badges at a clamped relative media position', () => {
+  const documentContext = createFakeDocument();
+  const wrapper = createFakeElement('div', {
+    bottom: 300, height: 200, left: 10, right: 310, top: 100, width: 300,
+  }, documentContext);
+  const image = createFakeElement('img', {
+    bottom: 290, height: 180, left: 20, right: 300, top: 110, width: 280,
+  }, documentContext);
+  wrapper.append(image);
+
+  const placement = createBadgeHostManager({
+    documentContext,
+    getComputedStyle: () => ({ position: 'static' }),
+  }).placeBadge('asset-1', image, { type: 'image' }, {
+    placement: { xRatio: 0.25, yRatio: 0.5 },
+    variant: 'asset',
+    viewportPadding: 4,
+  });
+
+  assert.equal(placement.hostStyle.left, '80px');
+  assert.equal(placement.hostStyle.top, '100px');
+  assert.equal(placement.hostStyle.transform, 'translate(-50%, -50%)');
+});
+
 test('can hide and show every badge host without removing placement state', () => {
   const documentContext = createFakeDocument();
   const wrapper = createFakeElement('div', {

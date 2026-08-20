@@ -14,6 +14,7 @@ export const desktopMessageTypes = Object.freeze({
   cancelPairing: 'atlas-extension.desktop.cancel-pairing',
   diagnostics: 'atlas-extension.desktop.diagnostics',
   openFile: 'atlas-extension.desktop.open-file',
+  updateWidgetPlacement: 'atlas-extension.desktop.update-widget-placement',
   pair: 'atlas-extension.desktop.pair',
   reconnect: 'atlas-extension.desktop.reconnect',
   resyncRequired: 'atlas-extension.desktop.resync-required',
