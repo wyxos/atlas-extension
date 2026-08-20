@@ -94,6 +94,89 @@ test('failed or canceled tracked downloads keep the tab open and clear the inten
   assert.deepEqual(closedTabs, []);
 });
 
+test('retryable failure retains the close intent until the same transfer completes', () => {
+  const closedTabs = [];
+  const manager = createCloseTabIntentManager({
+    tabsApi: {
+      remove(tabId, callback) {
+        closedTabs.push(tabId);
+        callback();
+      },
+    },
+  });
+
+  manager.armCloseIntent({
+    assetUrls: ['https://cdn.example.test/file-1.jpg'],
+    mode: closeTabModes.onComplete,
+    siteDomain: 'deviantart.com',
+    tabId: 9,
+  });
+  manager.handleDownloadEvent({
+    assetUrl: 'https://cdn.example.test/file-1.jpg',
+    download: {
+      attempt: 1,
+      generation: 4,
+      retry_disposition: 'retryable',
+      status: 'failed',
+      transfer_id: 'transfer-123',
+    },
+  });
+  manager.handleDownloadEvent({
+    assetUrl: 'https://cdn.example.test/file-1.jpg',
+    download: {
+      attempt: 2,
+      generation: 4,
+      retry_disposition: null,
+      status: 'completed',
+      transfer_id: 'transfer-123',
+    },
+  });
+  manager.handleDownloadEvent({
+    assetUrl: 'https://cdn.example.test/file-1.jpg',
+    download: {
+      attempt: 2,
+      generation: 4,
+      status: 'completed',
+      transfer_id: 'transfer-123',
+    },
+  });
+
+  assert.deepEqual(closedTabs, [9]);
+});
+
+test('stale attempts and unrelated transfer completions cannot close the tab', () => {
+  const closedTabs = [];
+  const manager = createCloseTabIntentManager({
+    tabsApi: {
+      remove(tabId, callback) {
+        closedTabs.push(tabId);
+        callback();
+      },
+    },
+  });
+
+  manager.armCloseIntent({
+    assetUrls: ['https://cdn.example.test/file-1.jpg'],
+    mode: closeTabModes.onComplete,
+    siteDomain: 'deviantart.com',
+    tabId: 10,
+  });
+  manager.handleDownloadEvent({
+    assetUrl: 'https://cdn.example.test/file-1.jpg',
+    download: { attempt: 2, generation: 1, status: 'downloading', transfer_id: 'transfer-a' },
+  });
+  manager.handleDownloadEvent({
+    assetUrl: 'https://cdn.example.test/file-1.jpg',
+    download: { attempt: 1, generation: 1, status: 'completed', transfer_id: 'transfer-a' },
+  });
+  manager.handleDownloadEvent({
+    assetUrl: 'https://cdn.example.test/file-1.jpg',
+    download: { attempt: 3, generation: 1, status: 'completed', transfer_id: 'transfer-b' },
+  });
+
+  assert.deepEqual(closedTabs, []);
+});
+
 test('non-download close intents close immediately after reaction completion', async () => {
   const closedTabs = [];
   const manager = createCloseTabIntentManager({

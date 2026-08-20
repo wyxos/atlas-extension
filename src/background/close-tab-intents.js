@@ -1,7 +1,5 @@
 import { closeTabModes, normalizeCloseTabMode, normalizeSiteDomain } from '../shared/close-tab-preferences.js';
 
-const failedStatuses = new Set(['canceled', 'failed']);
-
 export function createCloseTabIntentManager({
   clock = () => globalThis.performance?.now?.() ?? Date.now(),
   onMetric = () => {},
@@ -41,7 +39,11 @@ export function createCloseTabIntentManager({
     }
 
     intentsByTabId.set(normalizedTabId, {
-      pendingAssetUrls: new Set(trackedAssetUrls),
+      pendingAssets: new Map(trackedAssetUrls.map((assetUrl) => [assetUrl, {
+        attempt: null,
+        generation: null,
+        transferId: null,
+      }])),
     });
 
     return {
@@ -61,12 +63,19 @@ export function createCloseTabIntentManager({
     }
 
     for (const [tabId, intent] of intentsByTabId.entries()) {
-      if (!intent.pendingAssetUrls.has(assetUrl)) {
+      const tracked = intent.pendingAssets.get(assetUrl);
+      if (!tracked || isStaleTransferEvent(tracked, payload.download)) {
         continue;
       }
 
-      if (failedStatuses.has(status)) {
+      updateTrackedTransfer(tracked, payload.download);
+
+      if (status === 'canceled' || isTerminalFailure(payload.download)) {
         intentsByTabId.delete(tabId);
+        continue;
+      }
+
+      if (status === 'failed') {
         continue;
       }
 
@@ -74,9 +83,9 @@ export function createCloseTabIntentManager({
         continue;
       }
 
-      intent.pendingAssetUrls.delete(assetUrl);
+      intent.pendingAssets.delete(assetUrl);
 
-      if (intent.pendingAssetUrls.size === 0) {
+      if (intent.pendingAssets.size === 0) {
         intentsByTabId.delete(tabId);
         void closeTab(tabId, 'downloads-completed');
       }
@@ -155,6 +164,67 @@ export function createCloseTabIntentManager({
     handleDownloadEvent,
     removeTab,
   };
+}
+
+function isTerminalFailure(download) {
+  if (download?.status !== 'failed') {
+    return false;
+  }
+
+  return download.retry_disposition !== 'retryable';
+}
+
+function isStaleTransferEvent(tracked, download) {
+  const transferId = normalizeTransferId(download?.transfer_id);
+  if (tracked.transferId !== null && transferId !== null && tracked.transferId !== transferId) {
+    return true;
+  }
+
+  const generation = normalizeCounter(download?.generation);
+  if (tracked.generation !== null && generation !== null && generation < tracked.generation) {
+    return true;
+  }
+
+  const attempt = normalizeCounter(download?.attempt);
+  return tracked.generation === generation
+    && tracked.attempt !== null
+    && attempt !== null
+    && attempt < tracked.attempt;
+}
+
+function updateTrackedTransfer(tracked, download) {
+  tracked.transferId ??= normalizeTransferId(download?.transfer_id);
+  const generation = normalizeCounter(download?.generation);
+  const attempt = normalizeCounter(download?.attempt);
+
+  if (generation !== null && (tracked.generation === null || generation > tracked.generation)) {
+    tracked.generation = generation;
+    tracked.attempt = attempt;
+    return;
+  }
+
+  tracked.generation = maxNullable(tracked.generation, generation);
+  tracked.attempt = maxNullable(tracked.attempt, attempt);
+}
+
+function normalizeTransferId(value) {
+  if (typeof value === 'string' && value.trim() !== '') {
+    return value.trim();
+  }
+
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? String(number) : null;
+}
+
+function normalizeCounter(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : null;
+}
+
+function maxNullable(current, next) {
+  if (current === null) return next;
+  if (next === null) return current;
+  return Math.max(current, next);
 }
 
 function normalizeAssetUrls(assetUrls) {
