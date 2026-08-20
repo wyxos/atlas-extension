@@ -101,6 +101,9 @@ function createAssetObserver({ scanAssets, schedulePositionUpdate }) {
         scanAssets(node);
         shouldResyncKnownBadges = true;
       }
+      if (mutation.removedNodes?.length > 0) {
+        shouldResyncKnownBadges = true;
+      }
     }
 
     if (shouldResyncKnownBadges) {

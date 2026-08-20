@@ -77,6 +77,11 @@ test('added DOM nodes resync existing badges so late provider context is applied
       addedNodes: [addedNode],
       type: 'childList',
     }]);
+    mutationCallback([{
+      addedNodes: [],
+      removedNodes: [{ id: 'removed-image' }],
+      type: 'childList',
+    }]);
   } finally {
     globalThis.MutationObserver = originalMutationObserver;
     globalThis.document = originalDocument;
@@ -88,7 +93,7 @@ test('added DOM nodes resync existing badges so late provider context is applied
     ['scan', 'document'],
     ['scan', 'all-images-strip'],
   ]);
-  assert.equal(calls.includes('positionBadges'), true);
+  assert.equal(calls.filter((call) => call === 'positionBadges').length, 2);
 });
 
 test('observes visibility-related media attributes for rescan', async () => {

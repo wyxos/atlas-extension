@@ -22,6 +22,7 @@ import { resolveDownloadActionForReaction } from './reaction-download-action.js'
 import { resolveStateFileId } from './state-file-id.js';
 import { createStatusCheckQueue } from './status-checks.js';
 import { startContentRuntime } from './content-runtime.js';
+import { createContentInterestReporter } from './content-interest-reporter.js';
 import { resolveVisibleRect } from './visible-rect.js';
 import { createWidgetPlacementRuntime } from './widget-placement-runtime.js';
 import { createPerformanceDiagnostics } from '../shared/performance-diagnostics.js';
@@ -92,6 +93,15 @@ const referrerOpenGuard = createReferrerOpenGuard({
   getOpenCounts: () => openReferrerCounts,
   navigate: (url) => window.location.assign(url),
   openInNewTab: (url) => void openReferrerInTabViaBackground({ url }),
+});
+const contentInterests = createContentInterestReporter({
+  diagnostics: performanceDiagnostics,
+  getInterests: () => ({
+    referrerUrls: [...referrerBadges.getKnownReferrerUrls(),
+      ...[...assetsById.values()].map((asset) => asset.referrerUrl)],
+    sourceUrls: [...assetsById.values()].map((asset) => asset.source),
+  }),
+  onResyncRequired: handleResyncRequired,
 });
 const badgeFileActions = createBadgeFileActions({
   assetsById, badgeStatesById, deleteFile: deleteAtlasFileViaBackground,
@@ -410,6 +420,7 @@ function scanAssets(root = document) {
     watchAssetReadiness(element, scheduleScan);
   }
 
+  contentInterests.schedule();
   performanceDiagnostics.finish('scan-duration', scanStartedAt, { scannedElements });
 }
 
@@ -430,6 +441,7 @@ function positionKnownBadges() {
     syncAsset(element);
   }
   referrerBadges.positionKnown();
+  contentInterests.schedule();
 }
 
 function scheduleScan() {

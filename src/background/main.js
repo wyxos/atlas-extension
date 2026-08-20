@@ -5,6 +5,7 @@ import {
   postAssetReaction,
 } from './desktop-api.js';
 import { createCloseTabIntentManager } from './close-tab-intents.js';
+import { createContentInterestRegistry } from './content-interest-registry.js';
 import {
   bindPendingExtensionReloadNoticeDelivery,
   deliverPendingExtensionReloadNotice,
@@ -31,6 +32,7 @@ import { fanoutTabMessage } from './message-fanout.js';
 
 const openTabs = createOpenTabRegistry();
 const performanceDiagnostics = createPerformanceDiagnosticStore();
+const contentInterests = createContentInterestRegistry();
 const closeTabIntents = createCloseTabIntentManager({
   onMetric: (metric) => performanceDiagnostics.record(metric),
 });
@@ -52,6 +54,26 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
   }
 
   if (desktopRuntime.handleMessage(message, sendResponse)) {
+    return true;
+  }
+
+  if (message?.type === 'atlas-extension.content-interests') {
+    void contentInterests.ready.then(() => {
+      const payload = contentInterests.register({
+        documentId: sender?.documentId ?? message.documentId,
+        pageUrl: message.pageUrl,
+        referrerUrls: message.referrerUrls,
+        sequence: message.sequence,
+        sourceUrls: message.sourceUrls,
+        tabId: sender?.tab?.id,
+      });
+
+      sendResponse({ ok: true, payload });
+      if (payload.resyncRequired) {
+        contentInterests.markResynced(sender?.tab?.id);
+      }
+    });
+
     return true;
   }
 
@@ -226,18 +248,33 @@ function isAtlasApiMessage(message) {
 
 function relayDownloadEvent(payload) {
   closeTabIntents.handleDownloadEvent(payload);
-  void relayBroadcastDownloadEvent(payload);
+  void relayTargetedDownloadEvent(payload);
 }
 
-async function relayBroadcastDownloadEvent(payload) {
-  const tabs = await queryTabs({});
-  await fanoutTabMessage({
+async function relayTargetedDownloadEvent(payload) {
+  await contentInterests.ready;
+  const tabIds = contentInterests.matchingTabIds(payload);
+  let deferred = 0;
+  const deliverableTabIds = tabIds.filter((tabId) => {
+    const state = contentInterests.targetState(tabId);
+    if (state?.discarded || state?.frozen || state?.loading) {
+      contentInterests.markNeedsResync(tabId);
+      deferred += 1;
+      return false;
+    }
+    return true;
+  });
+  const result = await fanoutTabMessage({
     message: { payload, type: 'atlas-extension.download-event' },
-    metricDetails: { queriedTabs: tabs.length },
+    metricDetails: {
+      deferred,
+      registeredTabs: contentInterests.snapshot().length,
+    },
     onMetric: (metric) => performanceDiagnostics.record(metric),
     sendMessage: sendTabMessage,
-    tabIds: tabs.map((tab) => tab.id),
+    tabIds: deliverableTabIds,
   });
+  for (const tabId of result.failedTabIds) contentInterests.markNeedsResync(tabId);
 }
 
 function queryTabs(query) {
@@ -259,16 +296,28 @@ function sendTabMessage(tabId, message) {
 }
 
 function relayDesktopResyncRequired() {
-  globalThis.chrome?.tabs?.query?.({}, (tabs) => {
-    for (const tab of tabs ?? []) {
-      if (!Number.isInteger(tab.id)) continue;
-      globalThis.chrome?.tabs?.sendMessage?.(tab.id, {
-        type: 'atlas-extension.desktop.resync-required',
-      }, () => {
-        void globalThis.chrome?.runtime?.lastError;
-      });
-    }
-  });
+  void contentInterests.ready.then(() => Promise.all(
+    contentInterests.snapshot().map(({ tabId }) => deliverTargetedResync(tabId)),
+  ));
+}
+
+async function deliverTargetedResync(tabId) {
+  const state = contentInterests.targetState(tabId);
+  if (state?.discarded || state?.frozen || state?.loading) {
+    contentInterests.markNeedsResync(tabId);
+    return false;
+  }
+
+  try {
+    await sendTabMessage(tabId, {
+      type: 'atlas-extension.desktop.resync-required',
+    });
+    contentInterests.markResynced(tabId);
+    return true;
+  } catch {
+    contentInterests.markNeedsResync(tabId);
+    return false;
+  }
 }
 
 function bindOpenTabTracking() {
@@ -280,6 +329,7 @@ function bindOpenTabTracking() {
 
   tabsApi.query?.({}, (tabs) => {
     openTabs.replaceTabs(tabs);
+    void contentInterests.ready.then(() => contentInterests.reconcileTabs(tabs));
   });
 
   tabsApi.onCreated?.addListener?.((tab) => {
@@ -292,6 +342,11 @@ function bindOpenTabTracking() {
   });
 
   tabsApi.onUpdated?.addListener?.((tabId, changeInfo, tab) => {
+    void contentInterests.ready.then(() => {
+      const { shouldResync } = contentInterests.updateLifecycle(tabId, changeInfo, tab);
+      if (shouldResync) void deliverTargetedResync(tabId);
+    });
+
     const url = typeof changeInfo?.url === 'string' ? changeInfo.url : tab?.url;
 
     if (typeof url === 'string') {
@@ -308,6 +363,7 @@ function bindOpenTabTracking() {
     const previousWindowId = openTabs.getWindowId(tabId);
 
     closeTabIntents.removeTab(tabId);
+    void contentInterests.ready.then(() => contentInterests.remove(tabId));
     broadcastOpenTabCountChanges(openTabs.removeTab(tabId));
     broadcastTabCounterChanges([previousWindowId]);
   });

@@ -269,7 +269,14 @@ export function createReferrerBadgeManager({
     originalOpacityByElement.delete(element);
   }
 
+  function getKnownReferrerUrls() {
+    return [...new Set([...assetsById.values()]
+      .map((asset) => asset.referrerUrl)
+      .filter((referrerUrl) => typeof referrerUrl === 'string' && referrerUrl !== ''))];
+  }
+
   return {
+    getKnownReferrerUrls,
     positionKnown,
     getAtlasStateByReferrerUrl,
     refreshKnownReferrers,
