@@ -35,12 +35,12 @@ const closeModeOptions = [
   },
   {
     label: "Close after queue",
-    shortLabel: "Queue",
+    shortLabel: "After queue",
     value: closeTabModes.afterQueue,
   },
   {
     label: "Close on complete",
-    shortLabel: "Done",
+    shortLabel: "On complete",
     value: closeTabModes.onComplete,
   },
 ];
@@ -219,13 +219,14 @@ function handleBadgeShortcut(event) {
         aria-label="Close tab mode"
         title="Close tab mode"
       >
+        <span class="atlas-static-batch">Close tab:</span>
         <button
           v-for="item in closeModeOptions"
           :key="item.value"
           type="button"
           class="atlas-static-close-mode-option"
           :class="{ 'atlas-static-close-mode-option-active': badge.closeTab.mode === item.value }"
-          :disabled="badge.isBusy || badge.isDeleting"
+          :disabled="badge.isBusy || badge.isDeleting || badge.closeTab.saving"
           :aria-label="item.label"
           :title="item.label"
           @click.stop.prevent="$emit('close-mode-change', item.value)"
@@ -316,14 +317,28 @@ function handleBadgeShortcut(event) {
       </div>
     </div>
     <p
-      v-if="badge.closeTabError"
+      v-if="badge.failureMessage"
+      class="atlas-static-close-error"
+      role="status"
+    >
+      {{ badge.failureMessage }}
+    </p>
+    <p
+      v-else-if="badge.closeTabModeError"
+      class="atlas-static-close-error"
+      role="status"
+    >
+      {{ badge.closeTabModeError }}
+    </p>
+    <p
+      v-else-if="badge.closeTabError"
       class="atlas-static-close-error"
       role="status"
     >
       Could not close tab: {{ badge.closeTabError }}
     </p>
     <p
-      v-if="badge.widgetPlacementError"
+      v-else-if="badge.widgetPlacementError"
       class="atlas-static-close-error"
       role="status"
     >

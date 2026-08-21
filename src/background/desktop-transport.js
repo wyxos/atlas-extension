@@ -74,6 +74,16 @@ export function createDesktopTransport(options = {}) {
     });
   }
 
+  function updateCloseTabMode(credentials, body, requestOptions = {}) {
+    return request('/v1/runtime-policy/close-tab-mode', {
+      ...requestOptions,
+      body,
+      credentials,
+      method: 'PUT',
+      mutation: true,
+    });
+  }
+
   function assetStatuses(credentials, body, requestOptions = {}) {
     return request('/v1/assets/status', {
       ...requestOptions,
@@ -232,6 +242,7 @@ export function createDesktopTransport(options = {}) {
     request,
     runtimePolicy,
     unpair,
+    updateCloseTabMode,
     updateWidgetPlacement,
   };
 }

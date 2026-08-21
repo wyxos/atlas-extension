@@ -11,6 +11,7 @@ import {
   postAssetReactionBatchViaBackground,
   postAssetReactionViaBackground,
   sendBackgroundRequest,
+  updateCloseTabModeViaBackground,
 } from '../src/content/background-api.js';
 
 test('requests asset statuses through the background worker', async () => {
@@ -297,6 +298,26 @@ test('passes non-download close intent mode through the background worker', asyn
     waitForDownloads: false,
   }]);
   assert.equal(payload.closed, true);
+});
+
+test('sends close tab preference changes to the Desktop-owned policy path', async () => {
+  const messages = [];
+  await updateCloseTabModeViaBackground({
+    mode: 'after_queue',
+    runtime: {
+      sendMessage(message, callback) {
+        messages.push(message);
+        callback({ ok: true, payload: { mode: 'after_queue', revision: 7 } });
+      },
+    },
+    siteDomain: 'deviantart.com',
+  });
+
+  assert.deepEqual(messages, [{
+    mode: 'after_queue',
+    siteDomain: 'deviantart.com',
+    type: 'atlas-extension.desktop.update-close-tab-mode',
+  }]);
 });
 
 test('rejects failed background responses', async () => {

@@ -1,7 +1,7 @@
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
 import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
 import { createBatchProviderState } from './batch-provider-state.js';
-import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
+import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateCloseTabModeViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
 import { decorateAssetWithMatchIdentity as decorateAssetWithMatchIdentityForRuntime, statusMatchItemForAsset } from './asset-match-runtime.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
@@ -19,6 +19,7 @@ import { createOverlayRoot } from './overlay-host.js';
 import { createReferrerBadgeManager } from './referrer-badges.js';
 import { createReferrerOpenGuard } from './referrer-open-guard.js';
 import { resolveDownloadActionForReaction } from './reaction-download-action.js';
+import { applyAcceptedReactionPayload, reactionFailureFromError, safePostReactionError } from './reaction-failure-state.js';
 import { resolveStateFileId } from './state-file-id.js';
 import { createStatusCheckQueue } from './status-checks.js';
 import { startContentRuntime } from './content-runtime.js';
@@ -54,8 +55,11 @@ const widgetPlacement = createWidgetPlacementRuntime({
   savePlacement: updateWidgetPlacementViaBackground,
 });
 const closeTabMode = createCloseTabModeState({
+  clearFailure: () => updateAllBadgeStates({ closeTabModeError: null }),
   getLocationHref: () => window.location.href,
   onChanged: updateAllAssetBadgePresentations,
+  reportFailure: (message) => updateAllBadgeStates({ closeTabModeError: message }),
+  saveMode: updateCloseTabModeViaBackground,
 });
 const batchProviderState = createBatchProviderState({
   getContextsById: () => batchContextsById,
@@ -316,8 +320,9 @@ async function handleBadgeReaction(event) {
     submittingReaction: event.type,
   });
 
+  let payload;
   try {
-    const payload = await postAssetOrBatchReaction({
+    payload = await postAssetOrBatchReaction({
       asset,
       batchContext: batchContextsById.get(event.id),
       currentState,
@@ -326,6 +331,41 @@ async function handleBadgeReaction(event) {
       event,
       locationContext: window.location,
     });
+
+  } catch (error) {
+    if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
+      updateBadgeState(event.id, {
+        isBusy: false,
+        reactionFailure: reactionFailureFromError(error),
+        submittingReaction: null,
+      });
+    }
+    performanceDiagnostics.finish('reaction-latency', reactionStartedAt, {
+      reactionType: event.type,
+    });
+    return;
+  }
+
+  try {
+    applyAcceptedReactionPayload(payload, {
+      applyBatch: (batchPayload) => applyBatchReactionPayload(batchPayload, {
+        markAssetSourceChecked: (source) => statusChecks.markAssetSourceChecked(source),
+        updateBadgeStateBySource,
+      }),
+      applySingle: (singlePayload) => {
+        statusChecks.markAssetSourceChecked(asset.source, singlePayload);
+        if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
+          updateBadgeState(event.id, {
+            ...singlePayload, isBusy: false, reactionFailure: null, submittingReaction: null,
+          });
+        }
+      },
+    });
+    if (Array.isArray(payload.items)) {
+      if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
+        updateBadgeState(event.id, { isBusy: false, submittingReaction: null });
+      }
+    }
 
     const closeIntent = await armCloseTabForReaction(payload, {
       loadModeForSiteDomain: closeTabMode.loadModeForReaction,
@@ -336,44 +376,9 @@ async function handleBadgeReaction(event) {
         closeTabError: closeIntent.closeResult.error ?? 'Chrome could not close this tab.',
       });
     }
-
-    if (Array.isArray(payload.items)) {
-      applyBatchReactionPayload(payload, {
-        markAssetSourceChecked: (source) => statusChecks.markAssetSourceChecked(source),
-        updateBadgeStateBySource,
-      });
-      if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
-        updateBadgeState(event.id, {
-          isBusy: false,
-          submittingReaction: null,
-        });
-      }
-
-      return;
-    }
-
-    statusChecks.markAssetSourceChecked(asset.source, payload);
-    if (!shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
-      return;
-    }
-
+  } catch (error) {
     updateBadgeState(event.id, {
-      ...payload,
-      isBusy: false,
-      submittingReaction: null,
-    });
-  } catch {
-    if (!shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
-      return;
-    }
-
-    updateBadgeState(event.id, {
-      download: {
-        progress_percent: 0,
-        status: 'failed',
-      },
-      isBusy: false,
-      submittingReaction: null,
+      closeTabError: safePostReactionError(error),
     });
   } finally {
     performanceDiagnostics.finish('reaction-latency', reactionStartedAt, {
@@ -383,10 +388,7 @@ async function handleBadgeReaction(event) {
 }
 function handleBadgeBatchToggle(event) {
   const context = batchContextsById.get(event.id);
-
-  if (context === undefined) {
-    return;
-  }
+  if (context === undefined) return;
   batchProviderState.setProviderEnabled(context.provider, event.checked === true);
   batchProviderState.updateProvider(context.provider);
   void saveBatchProviderPreference(context.provider, event.checked === true);
@@ -471,6 +473,9 @@ function updateAllAssetBadgePresentations() {
     renderBadgeState(id, state);
   }
 }
+
+function updateAllBadgeStates(patch) { for (const id of badgeStatesById.keys()) updateBadgeState(id, patch); }
+
 startContentRuntime({
   getOpenReferrerCounts: () => openReferrerCounts,
   handleAssetShortcut,
@@ -491,10 +496,5 @@ startContentRuntime({
 bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
 void closeTabMode.initialize();
 void widgetPlacement.initialize();
-globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => {
-  widgetPlacement.applyStorageChange(changes, areaName);
-});
-void initializeAssetSourcePreferences({ onChanged: () => {
-  scheduleScan();
-  schedulePositionUpdate();
-} });
+globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => widgetPlacement.applyStorageChange(changes, areaName));
+void initializeAssetSourcePreferences({ onChanged: () => { scheduleScan(); schedulePositionUpdate(); } });

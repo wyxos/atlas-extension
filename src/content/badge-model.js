@@ -11,6 +11,7 @@ export function createBadgePresentation(asset, visibleRect, viewportPadding, sta
   const progressPercent = resolveProgressPercent(download);
   const progressLabel = formatProgressLabel(download, progressPercent);
   const reaction = normalizeReaction(state.reaction);
+  const reactionFailure = normalizeReactionFailure(state.reactionFailure);
   const activeReaction = blacklistedAt !== null ? 'blacklist' : reaction;
   const isDownloaded = isDownloadedState(download);
 
@@ -22,6 +23,8 @@ export function createBadgePresentation(asset, visibleRect, viewportPadding, sta
     ...optionalCloseTabState(state.closeTab),
     download,
     file,
+    ...optionalString('closeTabModeError', state.closeTabModeError),
+    ...optionalFailureMessage(reactionFailure, download),
     isBusy: state.isBusy === true,
     isDeleting: state.isDeleting === true,
     progressLabel,
@@ -29,6 +32,7 @@ export function createBadgePresentation(asset, visibleRect, viewportPadding, sta
     progressTone: resolveProgressTone(download),
     ...optionalPortalTarget(options.portalTarget),
     reaction,
+    ...(reactionFailure === null ? {} : { reactionFailure }),
     resolutionLabel: formatResolutionLabel(asset),
     source: asset.source,
     style: options.badgeStyle ?? createBadgeStyle(visibleRect, viewportPadding, asset, options),
@@ -124,11 +128,38 @@ function normalizeDownloadState(download) {
     return null;
   }
 
+  const errorCode = stringOrNull(download.error_code ?? download.errorCode);
+  const failureStage = stringOrNull(download.failure_stage ?? download.failureStage);
+  const retryDisposition = ['canceled', 'retryable', 'terminal'].includes(
+    download.retry_disposition ?? download.retryDisposition,
+  ) ? download.retry_disposition ?? download.retryDisposition : null;
+
   return {
     downloaded_at: typeof download.downloaded_at === 'string' ? download.downloaded_at : null,
     file_id: normalizePositiveInteger(download.file_id ?? download.fileId),
     progress_percent: normalizeProgress(download.progress_percent),
     status: typeof download.status === 'string' ? download.status : null,
+    ...(errorCode === null ? {} : { error_code: errorCode }),
+    ...(failureStage === null ? {} : { failure_stage: failureStage }),
+    ...(Number.isInteger(Number(download.attempt)) ? { attempt: Number(download.attempt) } : {}),
+    ...(Number.isInteger(Number(download.generation)) ? { generation: Number(download.generation) } : {}),
+    ...(retryDisposition === null ? {} : { retry_disposition: retryDisposition }),
+    ...(typeof download.retryable === 'boolean' ? { retryable: download.retryable } : {}),
+    ...(normalizePositiveInteger(download.transfer_id ?? download.transferId) === null ? {} : {
+      transfer_id: normalizePositiveInteger(download.transfer_id ?? download.transferId),
+    }),
+  };
+}
+
+function normalizeReactionFailure(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  return {
+    errorCode: stringOrNull(value.errorCode ?? value.error_code) ?? 'REACTION_REQUEST_FAILED',
+    failureStage: 'reaction',
+    message: stringOrNull(value.message) ?? 'Atlas Desktop rejected the request',
+    retryable: value.retryable === true,
   };
 }
 
@@ -152,6 +183,7 @@ function optionalCloseTabState(closeTab) {
     closeTab: {
       available: true,
       mode: normalizeCloseTabMode(closeTab.mode ?? closeTabModes.off),
+      ...(closeTab.saving === true ? { saving: true } : {}),
     },
   };
 }
@@ -197,11 +229,49 @@ function formatProgressLabel(download, progressPercent) {
     return '';
   }
 
+  if (download.retry_disposition === 'retryable') {
+    return Number.isInteger(download.attempt)
+      ? `Reaction saved · Download retrying · Attempt ${download.attempt}`
+      : 'Reaction saved · Download retrying';
+  }
+
+  if (download.status === 'failed') {
+    return 'Reaction saved · Download failed';
+  }
+
+  if (download.status === 'canceled') {
+    return 'Download canceled';
+  }
+
   const status = isCompletedState(download)
     ? 'completed'
     : download.status ?? 'pending';
 
   return `${status} · ${progressPercent}%`;
+}
+
+function optionalFailureMessage(reactionFailure, download) {
+  if (reactionFailure !== null) {
+    return { failureMessage: `Reaction not saved · ${reactionFailure.message}` };
+  }
+  if (download?.status !== 'failed') {
+    return {};
+  }
+  const detail = ({
+    access_denied: 'Source access denied',
+    download_failed: 'Download attempt failed',
+    media_processing: 'Media processing failed',
+    network: 'Network problem',
+    rate_limited: 'Source rate limit reached',
+    source_not_found: 'Source file unavailable',
+    storage: 'Storage failed',
+  })[download.error_code] ?? 'Download attempt failed';
+  return { failureMessage: detail };
+}
+
+function optionalString(key, value) {
+  const normalized = stringOrNull(value);
+  return normalized === null ? {} : { [key]: normalized };
 }
 
 function resolveProgressTone(download) {

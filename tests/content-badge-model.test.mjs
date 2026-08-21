@@ -304,6 +304,62 @@ test('marks blacklist as the active reaction from blacklisted state', () => {
   assert.equal(badge.timestampLabel, '01-02-2025 03:04:05');
 });
 
+test('renders structured reaction and download failures without failed zero-percent copy', () => {
+  const asset = {
+    resolution: null,
+    source: 'https://example.test/failure.jpg',
+    type: 'image',
+  };
+  const reactionFailure = createBadgePresentation(asset, null, 4, {
+    reactionFailure: {
+      errorCode: 'DESKTOP_OFFLINE',
+      failureStage: 'reaction',
+      message: 'Atlas Desktop is offline',
+      retryable: true,
+    },
+  });
+  const downloadFailure = createBadgePresentation(asset, null, 4, {
+    download: {
+      attempt: 3,
+      error_code: 'source_not_found',
+      failure_stage: 'download',
+      progress_percent: 0,
+      retry_disposition: 'terminal',
+      retryable: false,
+      status: 'failed',
+      transfer_id: 42,
+    },
+  });
+
+  assert.equal(reactionFailure.failureMessage, 'Reaction not saved · Atlas Desktop is offline');
+  assert.equal(reactionFailure.reactionFailure.errorCode, 'DESKTOP_OFFLINE');
+  assert.equal(downloadFailure.progressLabel, 'Reaction saved · Download failed');
+  assert.equal(downloadFailure.failureMessage, 'Source file unavailable');
+  assert.equal(downloadFailure.download.attempt, 3);
+  assert.equal(downloadFailure.download.retry_disposition, 'terminal');
+  assert.doesNotMatch(downloadFailure.progressLabel, /0%/);
+});
+
+test('renders a saved reaction separately from its retrying download', () => {
+  const badge = createBadgePresentation({
+    resolution: null,
+    source: 'https://example.test/retrying.jpg',
+    type: 'image',
+  }, null, 4, {
+    download: {
+      attempt: 2,
+      error_code: 'network',
+      progress_percent: 37,
+      retry_disposition: 'retryable',
+      retryable: true,
+      status: 'pending',
+    },
+  });
+
+  assert.equal(badge.progressLabel, 'Reaction saved · Download retrying · Attempt 2');
+  assert.equal(badge.failureMessage, undefined);
+});
+
 test('creates compact referrer badge presentation data', () => {
   const badge = createReferrerBadgePresentation({
     referrerUrl: 'https://www.example.test/post/123',

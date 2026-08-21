@@ -108,6 +108,29 @@ test('patches one Desktop-owned widget placement without replacing the policy', 
   assert.equal(requests[0].options.headers['Idempotency-Key'], 'placement-1');
 });
 
+test('patches one revision-checked Desktop close tab mode', async () => {
+  const requests = [];
+  const transport = createDesktopTransport({
+    channel: 'dev',
+    fetchImpl: createFetch(requests, { mode: 'after_queue', revision: 5 }),
+  });
+
+  await transport.updateCloseTabMode(credentials, {
+    expected_revision: 4,
+    mode: 'after_queue',
+    site_domain: 'deviantart.com',
+  }, { idempotencyKey: 'close-mode-1' });
+
+  assert.equal(requests[0].url, 'http://127.0.0.1:17420/v1/runtime-policy/close-tab-mode');
+  assert.equal(requests[0].options.method, 'PUT');
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    expected_revision: 4,
+    mode: 'after_queue',
+    site_domain: 'deviantart.com',
+  });
+  assert.equal(requests[0].options.headers['Idempotency-Key'], 'close-mode-1');
+});
+
 test('maps network failure to retryable Desktop offline semantics', async () => {
   const transport = createDesktopTransport({
     channel: 'dev',

@@ -2,17 +2,21 @@ import {
   closeTabPreferencesFromStorageChange,
   closeTabModes,
   loadCloseTabModeForSiteDomain,
+  normalizeCloseTabMode,
   normalizeSiteDomain,
-  saveCloseTabModeForSiteDomain,
 } from '../shared/close-tab-preferences.js';
 
 export function createCloseTabModeState({
   getLocationHref = () => globalThis.location?.href,
   onChanged = () => {},
+  clearFailure = () => {},
   onStorageChanged = globalThis.chrome?.storage?.onChanged,
+  reportFailure = () => {},
+  saveMode,
   storage,
 } = {}) {
   let mode = closeTabModes.off;
+  let saving = false;
   let isBound = false;
 
   async function initialize() {
@@ -31,13 +35,25 @@ export function createCloseTabModeState({
   async function setMode(nextMode) {
     const siteDomain = currentSiteDomain();
 
-    if (siteDomain === null) {
+    if (siteDomain === null || saving || typeof saveMode !== 'function') {
       return;
     }
 
-    mode = nextMode;
+    const previousMode = mode;
+    mode = normalizeCloseTabMode(nextMode);
+    saving = true;
+    clearFailure();
     onChanged();
-    await saveCloseTabModeForSiteDomain(siteDomain, nextMode, storage);
+    try {
+      const result = await saveMode({ mode, siteDomain });
+      mode = normalizeCloseTabMode(result?.mode);
+    } catch (error) {
+      mode = previousMode;
+      reportFailure(safeCloseTabSaveError(error));
+    } finally {
+      saving = false;
+      onChanged();
+    }
   }
 
   function presentationState() {
@@ -46,6 +62,7 @@ export function createCloseTabModeState({
       : {
         available: true,
         mode,
+        ...(saving ? { saving: true } : {}),
       };
   }
 
@@ -93,4 +110,20 @@ export function createCloseTabModeState({
     presentationState,
     setMode,
   };
+}
+
+export function safeCloseTabSaveError(error) {
+  if (error?.code === 'DESKTOP_OFFLINE') {
+    return 'Atlas Desktop is offline. The setting was not saved.';
+  }
+  if (error?.code === 'DESKTOP_TIMEOUT') {
+    return 'Atlas Desktop did not respond. The setting was not saved.';
+  }
+  if (error?.code === 'PAIRING_REQUIRED') {
+    return 'Pair this browser with Atlas Desktop before changing this setting.';
+  }
+  if (error?.code === 'POLICY_REVISION_CONFLICT') {
+    return 'The setting changed again before Atlas could save it. Try once more.';
+  }
+  return 'Atlas Desktop could not save the close tab setting.';
 }

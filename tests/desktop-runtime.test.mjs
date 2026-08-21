@@ -58,6 +58,46 @@ test('shares one in-progress initialization and creates one event client per pro
   assert.equal(eventClientStarts, 1);
 });
 
+test('routes close tab mode changes through the authenticated Desktop runtime', async () => {
+  const storage = createStorage({
+    [desktopConnectionStorageKey]: {
+      ...createDefaultDesktopConnectionState('dev'),
+      channel: 'dev',
+      clientId: 'client-1',
+      clientToken: 'token-1',
+      runtimePolicyRevision: 5,
+    },
+  });
+  let body = null;
+  const runtime = createDesktopRuntime({
+    storage,
+    transport: {
+      channel: 'dev',
+      async updateCloseTabMode(_credentials, nextBody) {
+        body = nextBody;
+        return { mode: nextBody.mode, revision: 6, site_domain: nextBody.site_domain };
+      },
+    },
+  });
+  const response = new Promise((resolve) => {
+    assert.equal(runtime.handleMessage({
+      mode: 'on_complete',
+      siteDomain: 'deviantart.com',
+      type: 'atlas-extension.desktop.update-close-tab-mode',
+    }, resolve), true);
+  });
+
+  assert.deepEqual(await response, {
+    ok: true,
+    payload: { mode: 'on_complete', revision: 6, siteDomain: 'deviantart.com' },
+  });
+  assert.deepEqual(body, {
+    expected_revision: 5,
+    mode: 'on_complete',
+    site_domain: 'deviantart.com',
+  });
+});
+
 function createStorage(initial) {
   const values = globalThis.structuredClone(initial);
   return {

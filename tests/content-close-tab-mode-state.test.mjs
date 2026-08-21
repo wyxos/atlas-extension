@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createCloseTabModeState } from '../src/content/close-tab-mode-state.js';
+import {
+  createCloseTabModeState,
+  safeCloseTabSaveError,
+} from '../src/content/close-tab-mode-state.js';
 import { closeTabModes, closeTabPreferencesKey } from '../src/shared/close-tab-preferences.js';
 
 test('updates active tab close mode from storage changes for the current site domain', async () => {
@@ -92,4 +95,37 @@ test('ignores close mode storage changes for other site domains', async () => {
 
   assert.equal(updateCount, 0);
   assert.equal(state.presentationState().mode, closeTabModes.off);
+});
+
+test('saves close mode in Desktop before adopting it and reverts on failure', async () => {
+  const failures = [];
+  let shouldFail = true;
+  const state = createCloseTabModeState({
+    getLocationHref: () => 'https://www.deviantart.com/art/example',
+    onStorageChanged: { addListener() {} },
+    reportFailure: (message) => failures.push(message),
+    async saveMode({ mode, siteDomain }) {
+      assert.equal(siteDomain, 'deviantart.com');
+      if (shouldFail) {
+        const error = new Error('private detail');
+        error.code = 'DESKTOP_OFFLINE';
+        throw error;
+      }
+      return { mode };
+    },
+    storage: {
+      async get() { return {}; },
+    },
+  });
+  await state.initialize();
+
+  await state.setMode(closeTabModes.afterQueue);
+  assert.equal(state.presentationState().mode, closeTabModes.off);
+  assert.deepEqual(failures, ['Atlas Desktop is offline. The setting was not saved.']);
+
+  shouldFail = false;
+  await state.setMode(closeTabModes.afterQueue);
+  assert.equal(state.presentationState().mode, closeTabModes.afterQueue);
+  assert.equal(state.presentationState().saving, undefined);
+  assert.equal(safeCloseTabSaveError(new Error('private detail')), 'Atlas Desktop could not save the close tab setting.');
 });

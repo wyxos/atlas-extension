@@ -123,6 +123,19 @@ export function updateWidgetPlacementViaBackground({
   }, { runtime, timeoutMs });
 }
 
+export function updateCloseTabModeViaBackground({
+  mode,
+  runtime = globalThis.chrome?.runtime,
+  siteDomain,
+  timeoutMs = defaultTimeoutMs,
+}) {
+  return sendBackgroundRequest({
+    mode,
+    siteDomain,
+    type: 'atlas-extension.desktop.update-close-tab-mode',
+  }, { runtime, timeoutMs });
+}
+
 export function sendBackgroundRequest(message, options = {}) {
   const runtime = options.runtime ?? globalThis.chrome?.runtime;
   const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : defaultTimeoutMs;

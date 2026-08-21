@@ -2,8 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { desktopConnectionStorageKey } from '../src/background/desktop-connection-state.js';
-import { syncDesktopRuntimePolicy } from '../src/background/desktop-runtime-policy.js';
+import {
+  syncDesktopRuntimePolicy,
+  updateDesktopCloseTabMode,
+} from '../src/background/desktop-runtime-policy.js';
 import { assetSourcePreferencesKey } from '../src/shared/asset-source-preferences.js';
+import { closeTabModes, closeTabPreferencesKey } from '../src/shared/close-tab-preferences.js';
+import { createDesktopContractError } from '../src/shared/desktop-contract.js';
 
 test('applies a monotonic read-only Desktop runtime policy', async () => {
   const storage = createStorage({
@@ -46,6 +51,44 @@ test('rejects policy rollback', async () => {
     storage,
     transport: { runtimePolicy: async () => ({ revision: 4, settings: {} }) },
   }), (error) => error.code === 'STALE_RUNTIME_POLICY');
+});
+
+test('resyncs and retries one close tab mutation after a revision conflict', async () => {
+  const storage = createStorage({
+    [desktopConnectionStorageKey]: {
+      channel: 'dev', clientId: 'client', clientToken: 'token', runtimePolicyRevision: 2,
+    },
+  });
+  const expectedRevisions = [];
+  const result = await updateDesktopCloseTabMode({
+    credentials: storage.values()[desktopConnectionStorageKey],
+    mode: closeTabModes.afterQueue,
+    siteDomain: 'deviantart.com',
+    storage,
+    transport: {
+      runtimePolicy: async () => ({
+        revision: 3,
+        settings: { schemaVersion: 1, settings: {} },
+      }),
+      async updateCloseTabMode(_credentials, body) {
+        expectedRevisions.push(body.expected_revision);
+        if (expectedRevisions.length === 1) {
+          throw createDesktopContractError(
+            'POLICY_REVISION_CONFLICT', 'Policy changed.', true,
+          );
+        }
+        return { mode: body.mode, revision: 4, site_domain: body.site_domain };
+      },
+    },
+  });
+
+  assert.deepEqual(expectedRevisions, [2, 3]);
+  assert.equal(result.revision, 4);
+  assert.equal(
+    storage.values()[closeTabPreferencesKey].modesBySiteDomain['deviantart.com'],
+    closeTabModes.afterQueue,
+  );
+  assert.equal(storage.values()[desktopConnectionStorageKey].runtimePolicyRevision, 4);
 });
 
 function createStorage(initial) {

@@ -27,6 +27,14 @@ test('asset badge exposes the close tab mode selector', () => {
   assert.match(source, /badge\.closeTab\?\.available/);
   assert.match(source, /Close tab mode/);
   assert.match(source, /close-mode-change/);
+  assert.match(source, /Close tab:/);
+  assert.match(source, /After queue/);
+  assert.match(source, /On complete/);
+});
+
+test('asset badge renders actionable failure copy without a failed zero-percent state', () => {
+  assert.match(source, /badge\.failureMessage/);
+  assert.doesNotMatch(source, /FAILED.*0%/i);
 });
 
 test('asset badge listens for local shortcut reactions on non-control surfaces', () => {

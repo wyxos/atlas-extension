@@ -13,7 +13,10 @@ import {
   saveDesktopConnectionState,
 } from './desktop-connection-state.js';
 import { createDesktopEventClient } from './desktop-event-client.js';
-import { syncDesktopRuntimePolicy } from './desktop-runtime-policy.js';
+import {
+  syncDesktopRuntimePolicy,
+  updateDesktopCloseTabMode,
+} from './desktop-runtime-policy.js';
 import { createDesktopTransport } from './desktop-transport.js';
 
 export function createDesktopRuntime(options = {}) {
@@ -182,11 +185,26 @@ export function createDesktopRuntime(options = {}) {
     });
   }
 
+  async function updateCloseTabMode(siteDomain, mode) {
+    const { credentials } = await requestContext();
+    return updateDesktopCloseTabMode({
+      credentials,
+      mode,
+      siteDomain,
+      storage,
+      transport,
+    });
+  }
+
   function handleMessage(message, sendResponse) {
     const handlers = {
       [desktopMessageTypes.cancelPairing]: cancelPairing,
       [desktopMessageTypes.diagnostics]: diagnostics,
       [desktopMessageTypes.openFile]: () => openFile(message.fileId),
+      [desktopMessageTypes.updateCloseTabMode]: () => updateCloseTabMode(
+        message.siteDomain,
+        message.mode,
+      ),
       [desktopMessageTypes.updateWidgetPlacement]: () => updateWidgetPlacement(
         message.siteDomain,
         message.placement,
@@ -263,6 +281,7 @@ export function createDesktopRuntime(options = {}) {
     reconnect,
     requestContext,
     unpair,
+    updateCloseTabMode,
   };
 }
 
