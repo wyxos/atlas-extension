@@ -4,6 +4,7 @@ import {
   loadDesktopConnectionState,
   patchDesktopConnectionState,
 } from './desktop-connection-state.js';
+import { saveBatchProviderPreference } from '../content/batch-provider-preferences.js';
 import { saveCloseTabModeForSiteDomain } from '../shared/close-tab-preferences.js';
 
 export async function syncDesktopRuntimePolicy({
@@ -79,6 +80,60 @@ export async function updateDesktopCloseTabMode({
     mode: result.mode,
     revision,
     siteDomain: result.site_domain,
+  };
+}
+
+export async function updateDesktopBatchProviderPreference({
+  credentials,
+  enabled,
+  provider,
+  storage = globalThis.chrome?.storage?.local,
+  transport,
+}) {
+  let state = await loadDesktopConnectionState(storage);
+
+  if (!Number.isInteger(state.runtimePolicyRevision)) {
+    await syncDesktopRuntimePolicy({ credentials, storage, transport });
+    state = await loadDesktopConnectionState(storage);
+  }
+
+  let result;
+  try {
+    result = await transport.updateBatchProviderPreference(credentials, {
+      enabled: enabled === true,
+      expected_revision: state.runtimePolicyRevision,
+      provider,
+    });
+  } catch (error) {
+    if (error?.code !== 'POLICY_REVISION_CONFLICT') {
+      throw error;
+    }
+
+    await syncDesktopRuntimePolicy({ credentials, storage, transport });
+    state = await loadDesktopConnectionState(storage);
+    result = await transport.updateBatchProviderPreference(credentials, {
+      enabled: enabled === true,
+      expected_revision: state.runtimePolicyRevision,
+      provider,
+    });
+  }
+
+  if (result?.provider !== provider || typeof result?.enabled !== 'boolean') {
+    throw createDesktopContractError(
+      'INVALID_RUNTIME_POLICY',
+      'Atlas Desktop returned an invalid batch provider preference.',
+      true,
+    );
+  }
+
+  const revision = normalizeRevision(result.revision);
+  await saveBatchProviderPreference(provider, result.enabled, storage);
+  await patchDesktopConnectionState({ runtimePolicyRevision: revision }, storage);
+
+  return {
+    enabled: result.enabled,
+    provider: result.provider,
+    revision,
   };
 }
 

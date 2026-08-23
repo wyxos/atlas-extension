@@ -84,6 +84,16 @@ export function createDesktopTransport(options = {}) {
     });
   }
 
+  function updateBatchProviderPreference(credentials, body, requestOptions = {}) {
+    return request('/v1/runtime-policy/batch-provider-preference', {
+      ...requestOptions,
+      body,
+      credentials,
+      method: 'PUT',
+      mutation: true,
+    });
+  }
+
   function assetStatuses(credentials, body, requestOptions = {}) {
     return request('/v1/assets/status', {
       ...requestOptions,
@@ -242,6 +252,7 @@ export function createDesktopTransport(options = {}) {
     request,
     runtimePolicy,
     unpair,
+    updateBatchProviderPreference,
     updateCloseTabMode,
     updateWidgetPlacement,
   };

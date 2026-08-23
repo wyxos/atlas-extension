@@ -131,6 +131,77 @@ test('routes close tab mode changes through the authenticated Desktop runtime', 
   });
 });
 
+test('rejects batch provider changes when Desktop did not advertise the capability', async () => {
+  const storage = createStorage({
+    [desktopConnectionStorageKey]: {
+      ...createDefaultDesktopConnectionState('dev'),
+      channel: 'dev',
+      clientId: 'client-1',
+      clientToken: 'token-1',
+      runtimePolicyRevision: 5,
+    },
+  });
+  const runtime = createDesktopRuntime({ storage, transport: { channel: 'dev' } });
+  const response = new Promise((resolve) => {
+    runtime.handleMessage({
+      enabled: true,
+      provider: 'deviantart',
+      type: 'atlas-extension.desktop.update-batch-provider-preference',
+    }, resolve);
+  });
+
+  assert.deepEqual(await response, {
+    error: {
+      code: 'DESKTOP_CAPABILITY_REQUIRED',
+      details: undefined,
+      message: 'Atlas Desktop does not support batch provider preferences.',
+      retryable: false,
+    },
+    ok: false,
+  });
+});
+
+test('routes batch provider changes through the authenticated Desktop runtime', async () => {
+  const storage = createStorage({
+    [desktopConnectionStorageKey]: {
+      ...createDefaultDesktopConnectionState('dev'),
+      capabilities: ['batch-provider-preference'],
+      channel: 'dev',
+      clientId: 'client-1',
+      clientToken: 'token-1',
+      runtimePolicyRevision: 5,
+    },
+  });
+  let body = null;
+  const runtime = createDesktopRuntime({
+    storage,
+    transport: {
+      channel: 'dev',
+      async updateBatchProviderPreference(_credentials, nextBody) {
+        body = nextBody;
+        return { enabled: nextBody.enabled, provider: nextBody.provider, revision: 6 };
+      },
+    },
+  });
+  const response = new Promise((resolve) => {
+    assert.equal(runtime.handleMessage({
+      enabled: true,
+      provider: 'deviantart',
+      type: 'atlas-extension.desktop.update-batch-provider-preference',
+    }, resolve), true);
+  });
+
+  assert.deepEqual(await response, {
+    ok: true,
+    payload: { enabled: true, provider: 'deviantart', revision: 6 },
+  });
+  assert.deepEqual(body, {
+    enabled: true,
+    expected_revision: 5,
+    provider: 'deviantart',
+  });
+});
+
 function createStorage(initial) {
   const values = globalThis.structuredClone(initial);
   return {

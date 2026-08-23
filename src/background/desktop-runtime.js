@@ -20,6 +20,7 @@ import {
 import { createDesktopEventClient } from './desktop-event-client.js';
 import {
   syncDesktopRuntimePolicy,
+  updateDesktopBatchProviderPreference,
   updateDesktopCloseTabMode,
 } from './desktop-runtime-policy.js';
 import { createDesktopTransport } from './desktop-transport.js';
@@ -211,11 +212,34 @@ export function createDesktopRuntime(options = {}) {
     });
   }
 
+  async function updateBatchProviderPreference(provider, enabled) {
+    const { credentials } = await requestContext();
+
+    if (!hasDesktopCapability(credentials, desktopCapabilities.batchProviderPreference)) {
+      throw createDesktopContractError(
+        'DESKTOP_CAPABILITY_REQUIRED',
+        'Atlas Desktop does not support batch provider preferences.',
+        false,
+      );
+    }
+
+    return updateDesktopBatchProviderPreference({
+      credentials,
+      enabled,
+      provider,
+      storage,
+      transport,
+    });
+  }
+
   function handleMessage(message, sendResponse) {
     const handlers = {
       [desktopMessageTypes.cancelPairing]: cancelPairing,
       [desktopMessageTypes.diagnostics]: diagnostics,
       [desktopMessageTypes.openFile]: () => openFile(message.fileId),
+      [desktopMessageTypes.updateBatchProviderPreference]: () => (
+        updateBatchProviderPreference(message.provider, message.enabled)
+      ),
       [desktopMessageTypes.updateCloseTabMode]: () => updateCloseTabMode(
         message.siteDomain,
         message.mode,
@@ -296,6 +320,7 @@ export function createDesktopRuntime(options = {}) {
     reconnect,
     requestContext,
     unpair,
+    updateBatchProviderPreference,
     updateCloseTabMode,
   };
 }

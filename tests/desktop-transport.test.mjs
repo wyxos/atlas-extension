@@ -131,6 +131,32 @@ test('patches one revision-checked Desktop close tab mode', async () => {
   assert.equal(requests[0].options.headers['Idempotency-Key'], 'close-mode-1');
 });
 
+test('patches one revision-checked Desktop batch provider preference', async () => {
+  const requests = [];
+  const transport = createDesktopTransport({
+    channel: 'dev',
+    fetchImpl: createFetch(requests, { enabled: true, provider: 'deviantart', revision: 5 }),
+  });
+
+  await transport.updateBatchProviderPreference(credentials, {
+    enabled: true,
+    expected_revision: 4,
+    provider: 'deviantart',
+  }, { idempotencyKey: 'batch-provider-1' });
+
+  assert.equal(
+    requests[0].url,
+    'http://127.0.0.1:17420/v1/runtime-policy/batch-provider-preference',
+  );
+  assert.equal(requests[0].options.method, 'PUT');
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    enabled: true,
+    expected_revision: 4,
+    provider: 'deviantart',
+  });
+  assert.equal(requests[0].options.headers['Idempotency-Key'], 'batch-provider-1');
+});
+
 test('maps network failure to retryable Desktop offline semantics', async () => {
   const transport = createDesktopTransport({
     channel: 'dev',

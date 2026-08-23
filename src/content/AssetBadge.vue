@@ -201,17 +201,24 @@ function handleBadgeShortcut(event) {
       <label
         v-if="badge.batch?.available"
         class="atlas-static-batch"
-        title="Queue every file in this post"
+        :title="badge.batch.supported === false
+          ? badge.batch.unsupportedMessage
+          : 'Queue every file in this post'"
       >
         <input
           type="checkbox"
           :checked="badge.batch.checked"
-          :disabled="badge.isBusy || badge.isDeleting"
+          :disabled="badge.isBusy || badge.isDeleting || badge.batch.saving || badge.batch.supported === false"
           @change.stop="$emit('batch-toggle', $event.target.checked)"
           @click.stop
         >
         <span>Batch</span>
       </label>
+      <span
+        v-if="badge.batch?.supported === false"
+        class="atlas-static-close-mode-unavailable"
+        role="status"
+      >{{ badge.batch.unsupportedMessage }}</span>
       <div
         v-if="badge.closeTab?.available"
         class="atlas-static-close-mode"
@@ -327,6 +334,13 @@ function handleBadgeShortcut(event) {
       role="status"
     >
       {{ badge.failureMessage }}
+    </p>
+    <p
+      v-else-if="badge.batch?.error"
+      class="atlas-static-close-error"
+      role="status"
+    >
+      {{ badge.batch.error }}
     </p>
     <p
       v-else-if="badge.closeTabModeError"

@@ -1,7 +1,6 @@
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
-import { bindBatchProviderPreferences, saveBatchProviderPreference } from './batch-provider-preferences.js';
 import { createBatchProviderState } from './batch-provider-state.js';
-import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateCloseTabModeViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
+import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateBatchProviderPreferenceViaBackground, updateCloseTabModeViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
 import { decorateAssetWithMatchIdentity as decorateAssetWithMatchIdentityForRuntime, statusMatchItemForAsset } from './asset-match-runtime.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
@@ -64,6 +63,7 @@ const closeTabMode = createCloseTabModeState({
 const batchProviderState = createBatchProviderState({
   getContextsById: () => batchContextsById,
   onBadgeState: updateBadgeState,
+  savePreference: updateBatchProviderPreferenceViaBackground,
 });
 const referrerBadges = createReferrerBadgeManager({
   decorateAsset: decorateAssetWithMatchIdentity,
@@ -182,7 +182,7 @@ function syncAsset(element) {
   const nextBadgeState = stateWithBatchContext(
     nextState,
     batchContext,
-    batchProviderState.isProviderEnabled(batchContext?.provider),
+    batchProviderState.presentationState(batchContext?.provider),
   );
 
   assetsById.set(id, asset);
@@ -389,9 +389,7 @@ async function handleBadgeReaction(event) {
 function handleBadgeBatchToggle(event) {
   const context = batchContextsById.get(event.id);
   if (context === undefined) return;
-  batchProviderState.setProviderEnabled(context.provider, event.checked === true);
-  batchProviderState.updateProvider(context.provider);
-  void saveBatchProviderPreference(context.provider, event.checked === true);
+  void batchProviderState.changeProvider(context.provider, event.checked === true);
 }
 
 function handleBadgeCloseModeChange(event) { void closeTabMode.setMode(event.mode); }
@@ -493,7 +491,7 @@ startContentRuntime({
   schedulePositionUpdate,
   updateBadgeStateBySource,
 });
-bindBatchProviderPreferences({ applyPreferences: batchProviderState.replacePreferences });
+void batchProviderState.initialize();
 void closeTabMode.initialize();
 void widgetPlacement.initialize();
 globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => widgetPlacement.applyStorageChange(changes, areaName));

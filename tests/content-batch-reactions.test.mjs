@@ -41,4 +41,15 @@ test('batch presentation follows provider-level state instead of old per-asset s
       },
     },
   );
+
+  const presentation = {
+    available: true,
+    checked: true,
+    saving: true,
+    supported: true,
+  };
+  assert.strictEqual(
+    stateWithBatchContext({}, { provider: 'deviantart' }, presentation).batch,
+    presentation,
+  );
 });

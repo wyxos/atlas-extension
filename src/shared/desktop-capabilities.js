@@ -1,10 +1,12 @@
 export const desktopConnectionStorageKey = 'atlasDesktopConnection';
 
 export const desktopCapabilities = Object.freeze({
+  batchProviderPreference: 'batch-provider-preference',
   closeTabMode: 'close-tab-mode',
 });
 
 export const requiredDesktopCapabilities = Object.freeze([
+  desktopCapabilities.batchProviderPreference,
   desktopCapabilities.closeTabMode,
 ]);
 

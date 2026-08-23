@@ -21,6 +21,10 @@ test('asset badge exposes a compact batch checkbox when available', () => {
   assert.match(source, /badge\.batch\?\.available/);
   assert.match(source, /type="checkbox"/);
   assert.match(source, /batch-toggle/);
+  assert.match(source, /badge\.batch\.saving/);
+  assert.match(source, /badge\.batch\.supported === false/);
+  assert.match(source, /badge\.batch\?\.error/);
+  assert.match(source, /badge\.batch\.unsupportedMessage/);
 });
 
 test('asset badge exposes the close tab mode selector', () => {

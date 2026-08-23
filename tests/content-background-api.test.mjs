@@ -11,6 +11,7 @@ import {
   postAssetReactionBatchViaBackground,
   postAssetReactionViaBackground,
   sendBackgroundRequest,
+  updateBatchProviderPreferenceViaBackground,
   updateCloseTabModeViaBackground,
 } from '../src/content/background-api.js';
 
@@ -317,6 +318,29 @@ test('sends close tab preference changes to the Desktop-owned policy path', asyn
     mode: 'after_queue',
     siteDomain: 'deviantart.com',
     type: 'atlas-extension.desktop.update-close-tab-mode',
+  }]);
+});
+
+test('sends batch provider changes to the Desktop-owned policy path', async () => {
+  const messages = [];
+  await updateBatchProviderPreferenceViaBackground({
+    enabled: true,
+    provider: 'deviantart',
+    runtime: {
+      sendMessage(message, callback) {
+        messages.push(message);
+        callback({
+          ok: true,
+          payload: { enabled: true, provider: 'deviantart', revision: 7 },
+        });
+      },
+    },
+  });
+
+  assert.deepEqual(messages, [{
+    enabled: true,
+    provider: 'deviantart',
+    type: 'atlas-extension.desktop.update-batch-provider-preference',
   }]);
 });
 

@@ -264,12 +264,18 @@ test('creates batch presentation data when the page has related files', () => {
     batch: {
       available: true,
       checked: true,
+      error: 'Atlas Desktop is offline. Batch mode was not saved.',
+      saving: true,
+      supported: true,
     },
   });
 
   assert.deepEqual(badge.batch, {
     available: true,
     checked: true,
+    error: 'Atlas Desktop is offline. Batch mode was not saved.',
+    saving: true,
+    supported: true,
   });
 });
 

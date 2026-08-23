@@ -4,7 +4,7 @@ import {
   postAssetReactionViaBackground,
 } from './background-api.js';
 
-export function stateWithBatchContext(state, batchContext, isProviderEnabled = false) {
+export function stateWithBatchContext(state, batchContext, providerState = false) {
   const rest = { ...(state ?? {}) };
 
   delete rest.batch;
@@ -15,10 +15,12 @@ export function stateWithBatchContext(state, batchContext, isProviderEnabled = f
 
   return {
     ...rest,
-    batch: {
-      available: true,
-      checked: isProviderEnabled === true,
-    },
+    batch: providerState && typeof providerState === 'object'
+      ? providerState
+      : {
+        available: true,
+        checked: providerState === true,
+      },
   };
 }
 

@@ -171,6 +171,10 @@ function normalizeBatchState(batch) {
   return {
     available: true,
     checked: batch.checked === true,
+    ...(typeof batch.supported === 'boolean' ? { supported: batch.supported } : {}),
+    ...(batch.saving === true ? { saving: true } : {}),
+    ...optionalString('error', batch.error),
+    ...optionalString('unsupportedMessage', batch.unsupportedMessage),
   };
 }
 

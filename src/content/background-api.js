@@ -136,6 +136,19 @@ export function updateCloseTabModeViaBackground({
   }, { runtime, timeoutMs });
 }
 
+export function updateBatchProviderPreferenceViaBackground({
+  enabled,
+  provider,
+  runtime = globalThis.chrome?.runtime,
+  timeoutMs = defaultTimeoutMs,
+}) {
+  return sendBackgroundRequest({
+    enabled: enabled === true,
+    provider,
+    type: 'atlas-extension.desktop.update-batch-provider-preference',
+  }, { runtime, timeoutMs });
+}
+
 export function sendBackgroundRequest(message, options = {}) {
   const runtime = options.runtime ?? globalThis.chrome?.runtime;
   const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : defaultTimeoutMs;

@@ -4,9 +4,11 @@ import test from 'node:test';
 import { desktopConnectionStorageKey } from '../src/background/desktop-connection-state.js';
 import {
   syncDesktopRuntimePolicy,
+  updateDesktopBatchProviderPreference,
   updateDesktopCloseTabMode,
 } from '../src/background/desktop-runtime-policy.js';
 import { assetSourcePreferencesKey } from '../src/shared/asset-source-preferences.js';
+import { batchProviderPreferencesKey } from '../src/content/batch-provider-preferences.js';
 import { closeTabModes, closeTabPreferencesKey } from '../src/shared/close-tab-preferences.js';
 import { createDesktopContractError } from '../src/shared/desktop-contract.js';
 
@@ -89,6 +91,66 @@ test('resyncs and retries one close tab mutation after a revision conflict', asy
     closeTabModes.afterQueue,
   );
   assert.equal(storage.values()[desktopConnectionStorageKey].runtimePolicyRevision, 4);
+});
+
+test('resyncs and retries one batch provider mutation before mirroring Desktop state', async () => {
+  const storage = createStorage({
+    [batchProviderPreferencesKey]: {},
+    [desktopConnectionStorageKey]: {
+      channel: 'dev', clientId: 'client', clientToken: 'token', runtimePolicyRevision: 2,
+    },
+  });
+  const expectedRevisions = [];
+  const result = await updateDesktopBatchProviderPreference({
+    credentials: storage.values()[desktopConnectionStorageKey],
+    enabled: true,
+    provider: 'deviantart',
+    storage,
+    transport: {
+      runtimePolicy: async () => ({
+        revision: 3,
+        settings: { schemaVersion: 1, settings: { batchProviderPreferences: {} } },
+      }),
+      async updateBatchProviderPreference(_credentials, body) {
+        expectedRevisions.push(body.expected_revision);
+        if (expectedRevisions.length === 1) {
+          throw createDesktopContractError(
+            'POLICY_REVISION_CONFLICT', 'Policy changed.', true,
+          );
+        }
+        return { enabled: body.enabled, provider: body.provider, revision: 4 };
+      },
+    },
+  });
+
+  assert.deepEqual(expectedRevisions, [2, 3]);
+  assert.deepEqual(result, { enabled: true, provider: 'deviantart', revision: 4 });
+  assert.deepEqual(storage.values()[batchProviderPreferencesKey], { deviantart: true });
+  assert.equal(storage.values()[desktopConnectionStorageKey].runtimePolicyRevision, 4);
+});
+
+test('does not mirror an invalid batch provider response into local storage', async () => {
+  const storage = createStorage({
+    [batchProviderPreferencesKey]: {},
+    [desktopConnectionStorageKey]: {
+      channel: 'dev', clientId: 'client', clientToken: 'token', runtimePolicyRevision: 2,
+    },
+  });
+
+  await assert.rejects(updateDesktopBatchProviderPreference({
+    credentials: storage.values()[desktopConnectionStorageKey],
+    enabled: true,
+    provider: 'deviantart',
+    storage,
+    transport: {
+      async updateBatchProviderPreference() {
+        return { enabled: true, provider: 'reddit', revision: 3 };
+      },
+    },
+  }), (error) => error.code === 'INVALID_RUNTIME_POLICY');
+
+  assert.deepEqual(storage.values()[batchProviderPreferencesKey], {});
+  assert.equal(storage.values()[desktopConnectionStorageKey].runtimePolicyRevision, 2);
 });
 
 function createStorage(initial) {
