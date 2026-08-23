@@ -288,6 +288,7 @@ test('creates close tab mode presentation data when available', () => {
   assert.deepEqual(badge.closeTab, {
     available: true,
     mode: 'on_complete',
+    supported: true,
   });
 });
 

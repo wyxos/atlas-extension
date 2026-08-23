@@ -100,6 +100,7 @@ export function getOverlayStyles() {
     .atlas-static-controls {
       align-items: center;
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       justify-content: center;
       width: 100%;

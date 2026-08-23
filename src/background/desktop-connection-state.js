@@ -4,14 +4,19 @@ import {
   resolveExtensionChannel,
   serializeDesktopError,
 } from '../shared/desktop-contract.js';
+import {
+  desktopConnectionStorageKey,
+  normalizeDesktopCapabilities,
+} from '../shared/desktop-capabilities.js';
 
-export const desktopConnectionStorageKey = 'atlasDesktopConnection';
+export { desktopConnectionStorageKey } from '../shared/desktop-capabilities.js';
 
-const desktopConnectionStorageVersion = 2;
+const desktopConnectionStorageVersion = 3;
 
 export function createDefaultDesktopConnectionState(channel = resolveExtensionChannel()) {
   return {
     app: null,
+    capabilities: [],
     channel,
     clientId: '',
     clientToken: '',
@@ -83,6 +88,7 @@ export function publicDesktopDiagnostics(state, runtime = globalThis.chrome?.run
 
   return {
     app: normalized.app,
+    capabilities: normalized.capabilities,
     baseUrl: desktopBaseForChannel(normalized.channel),
     channel: normalized.channel,
     clientId: normalized.clientId || null,
@@ -118,6 +124,7 @@ export function normalizeDesktopConnectionState(value) {
 
   return {
     app: normalizeApp(value?.app),
+    capabilities: normalizeDesktopCapabilities(value?.capabilities),
     channel,
     clientId: channelMatchesBuild ? stringValue(value?.clientId) : '',
     clientToken: channelMatchesBuild ? stringValue(value?.clientToken) : '',

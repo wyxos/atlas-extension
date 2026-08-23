@@ -62,3 +62,13 @@ test('normalizes live event diagnostics without exposing credentials', () => {
   assert.equal(diagnostics.reconnectAttempt, 2);
   assert.doesNotMatch(JSON.stringify(diagnostics), /secret-token/);
 });
+
+test('persists only normalized Desktop hello capabilities', () => {
+  const state = normalizeDesktopConnectionState({
+    capabilities: ['close-tab-mode', '', 'close-tab-mode', 42],
+    channel: 'dev',
+  });
+
+  assert.deepEqual(state.capabilities, ['close-tab-mode']);
+  assert.deepEqual(publicDesktopDiagnostics(state).capabilities, ['close-tab-mode']);
+});

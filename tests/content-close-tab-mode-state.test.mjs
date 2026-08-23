@@ -6,18 +6,19 @@ import {
   safeCloseTabSaveError,
 } from '../src/content/close-tab-mode-state.js';
 import { closeTabModes, closeTabPreferencesKey } from '../src/shared/close-tab-preferences.js';
+import { desktopConnectionStorageKey } from '../src/shared/desktop-capabilities.js';
 
 test('updates active tab close mode from storage changes for the current site domain', async () => {
   const listeners = [];
   const changedModes = [];
   const storage = {
-    async get() {
-      return {
-        [closeTabPreferencesKey]: {
+    async get(key) {
+      return key === desktopConnectionStorageKey
+        ? { [desktopConnectionStorageKey]: { capabilities: ['close-tab-mode'] } }
+        : { [closeTabPreferencesKey]: {
           modesBySiteDomain: {},
           version: 1,
-        },
-      };
+        } };
     },
     async set() {},
   };
@@ -51,6 +52,7 @@ test('updates active tab close mode from storage changes for the current site do
   assert.deepEqual(state.presentationState(), {
     available: true,
     mode: closeTabModes.afterQueue,
+    supported: true,
   });
 });
 
@@ -68,13 +70,13 @@ test('ignores close mode storage changes for other site domains', async () => {
       },
     },
     storage: {
-      async get() {
-        return {
-          [closeTabPreferencesKey]: {
+      async get(key) {
+        return key === desktopConnectionStorageKey
+          ? { [desktopConnectionStorageKey]: { capabilities: ['close-tab-mode'] } }
+          : { [closeTabPreferencesKey]: {
             modesBySiteDomain: {},
             version: 1,
-          },
-        };
+          } };
       },
       async set() {},
     },
@@ -114,7 +116,11 @@ test('saves close mode in Desktop before adopting it and reverts on failure', as
       return { mode };
     },
     storage: {
-      async get() { return {}; },
+      async get(key) {
+        return key === desktopConnectionStorageKey
+          ? { [desktopConnectionStorageKey]: { capabilities: ['close-tab-mode'] } }
+          : {};
+      },
     },
   });
   await state.initialize();
@@ -128,4 +134,49 @@ test('saves close mode in Desktop before adopting it and reverts on failure', as
   assert.equal(state.presentationState().mode, closeTabModes.afterQueue);
   assert.equal(state.presentationState().saving, undefined);
   assert.equal(safeCloseTabSaveError(new Error('private detail')), 'Atlas Desktop could not save the close tab setting.');
+});
+
+test('disables close tab modes until Desktop advertises the capability', async () => {
+  const listeners = [];
+  let saveCalls = 0;
+  const state = createCloseTabModeState({
+    getLocationHref: () => 'https://www.deviantart.com/art/example',
+    onStorageChanged: {
+      addListener(listener) { listeners.push(listener); },
+    },
+    async saveMode() { saveCalls += 1; },
+    storage: { async get() { return {}; } },
+  });
+
+  await state.initialize();
+  assert.deepEqual(state.presentationState(), {
+    available: true,
+    mode: closeTabModes.off,
+    supported: false,
+    unsupportedMessage: 'Update Atlas Desktop to change close tab behavior.',
+  });
+  await state.setMode(closeTabModes.afterQueue);
+  assert.equal(saveCalls, 0);
+
+  listeners[0]({
+    [desktopConnectionStorageKey]: {
+      newValue: { capabilities: ['close-tab-mode'] },
+    },
+  }, 'local');
+  assert.equal(state.presentationState().supported, true);
+});
+
+test('maps capability, response, and pairing failures to safe distinct copy', () => {
+  assert.equal(
+    safeCloseTabSaveError({ code: 'DESKTOP_CAPABILITY_REQUIRED' }),
+    'Update Atlas Desktop and confirm this extension uses the same release channel.',
+  );
+  assert.equal(
+    safeCloseTabSaveError({ code: 'INVALID_RESPONSE' }),
+    'Atlas Desktop returned an invalid settings response. Update both apps and try again.',
+  );
+  assert.equal(
+    safeCloseTabSaveError({ code: 'CLIENT_REVOKED' }),
+    'Pair this browser with Atlas Desktop before changing this setting.',
+  );
 });

@@ -10,8 +10,23 @@
       <header class="atlas-popup__header">
         <h1>Atlas Extension</h1>
       </header>
+      <section class="atlas-popup__desktop-status" aria-label="Atlas Desktop status">
+        <div class="atlas-popup__desktop-status-item">
+          <span class="atlas-popup__desktop-status-label">Connection</span>
+          <span id="atlas-popup-connection-status" class="atlas-popup__desktop-status-value" aria-live="polite">
+            Checking…
+          </span>
+        </div>
+        <div class="atlas-popup__desktop-status-item">
+          <span class="atlas-popup__desktop-status-label">Pairing</span>
+          <span id="atlas-popup-pairing-status" class="atlas-popup__desktop-status-value" aria-live="polite">
+            Checking…
+          </span>
+        </div>
+      </section>
       <button id="atlas-popup-scan" class="atlas-popup__button atlas-popup__button--primary" type="button">
-        Scan page
+        <span data-atlas-popup-icon="scan" aria-hidden="true"></span>
+        <span>Scan page</span>
       </button>
       <section class="atlas-popup__field" aria-labelledby="atlas-popup-load-next-tabs-label">
         <label id="atlas-popup-load-next-tabs-label" class="atlas-popup__label" for="atlas-popup-load-next-tabs-limit">
@@ -24,7 +39,7 @@
             type="button"
             aria-label="Decrease tab count"
           >
-            -
+            <span data-atlas-popup-icon="decrement" aria-hidden="true"></span>
           </button>
           <input
             id="atlas-popup-load-next-tabs-limit"
@@ -41,32 +56,39 @@
             type="button"
             aria-label="Increase tab count"
           >
-            +
+            <span data-atlas-popup-icon="increment" aria-hidden="true"></span>
           </button>
         </div>
       </section>
       <button id="atlas-popup-load-next-tabs" class="atlas-popup__button atlas-popup__button--secondary" type="button">
-        Load next tabs
+        <span data-atlas-popup-icon="load-tabs" aria-hidden="true"></span>
+        <span>Load next tabs</span>
       </button>
       <button id="atlas-popup-copy-tab-links" class="atlas-popup__button atlas-popup__button--secondary" type="button">
-        Copy open links
+        <span data-atlas-popup-icon="copy-links" aria-hidden="true"></span>
+        <span>Copy open links</span>
       </button>
       <button
         id="atlas-popup-open-clipboard-links"
         class="atlas-popup__button atlas-popup__button--secondary"
         type="button"
       >
-        Open clipboard links
+        <span data-atlas-popup-icon="open-links" aria-hidden="true"></span>
+        <span>Open clipboard links</span>
       </button>
       <button id="atlas-popup-reload" class="atlas-popup__button atlas-popup__button--secondary" type="button">
-        Reload extension
+        <span data-atlas-popup-icon="reload" aria-hidden="true"></span>
+        <span>Reload extension</span>
       </button>
       <button id="atlas-popup-test-events" class="atlas-popup__button atlas-popup__button--secondary" type="button">
-        Test event path
+        <span data-atlas-popup-icon="test-events" aria-hidden="true"></span>
+        <span>Test event path</span>
       </button>
-      <p id="atlas-popup-status" class="atlas-popup__status" role="status" aria-live="polite">
-        Ready
-      </p>
+      <button id="atlas-popup-open-options" class="atlas-popup__button atlas-popup__button--secondary" type="button">
+        <span data-atlas-popup-icon="options" aria-hidden="true"></span>
+        <span>Open options</span>
+      </button>
+      <p id="atlas-popup-action-status" class="atlas-popup__status" role="status" aria-live="polite"></p>
     </main>
     <script type="module" src="/src/popup/main.js"></script>
   </body>

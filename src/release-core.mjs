@@ -9,6 +9,7 @@ import {
   readPackageVersion,
 } from './build-config.mjs';
 import { copyStaticAssets } from './static-assets.mjs';
+import { writeDesktopCompatibilityMarker } from './desktop-compatibility.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +30,7 @@ export {
   resolveBuildDestination,
 } from './build-config.mjs';
 export { copyStaticAssets } from './static-assets.mjs';
+export { createDesktopCompatibilityMarker, validateDesktopCompatibilityMarker } from './desktop-compatibility.mjs';
 
 export function getCommitRange(lastReleaseTag) {
   return lastReleaseTag ? `${lastReleaseTag}..HEAD` : 'HEAD';
@@ -232,11 +234,7 @@ export async function buildExtension({ destination, root }) {
   fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
   fs.copyFileSync(path.join(root, 'manifest.json'), path.join(buildOutputPath, 'manifest.json'));
   copyStaticAssets({ buildOutputPath, root });
-  fs.writeFileSync(path.join(buildOutputPath, 'atlas-desktop-compatibility.json'), `${JSON.stringify({
-    channel,
-    desktopBaseUrl: channel === 'stable' ? 'http://127.0.0.1:37420' : 'http://127.0.0.1:17420',
-    protocolVersion: 1,
-  }, null, 2)}\n`);
+  writeDesktopCompatibilityMarker({ buildOutputPath, channel });
 
   const copied = copyDirectory({ destination, source: buildOutputPath });
   return {

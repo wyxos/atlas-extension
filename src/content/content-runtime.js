@@ -1,4 +1,5 @@
 import { initializeTabCounterBadge } from './tab-counter-badge.js';
+import { createDownloadEventRenderQueue } from './download-events.js';
 
 export const locationBridgeEventName = 'atlas-extension-location-change';
 
@@ -164,31 +165,24 @@ function delay(windowContext, ms) {
 }
 
 function listenForDownloadEvents({ handleDownloadEvent, referrerBadges, updateBadgeStateBySource }) {
+  const applyEvent = typeof handleDownloadEvent === 'function'
+    ? handleDownloadEvent
+    : (payload) => {
+      updateBadgeStateBySource(payload.assetUrl, {
+        download: payload.download,
+        file: payload.file,
+        reaction: payload.reaction,
+      });
+      referrerBadges.updateByDownloadEvent(payload);
+    };
+  const renderQueue = createDownloadEventRenderQueue({ applyEvent });
+
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message) => {
     if (message?.type !== 'atlas-extension.download-event') {
       return;
     }
 
-    const assetUrl = typeof message.payload?.assetUrl === 'string'
-      ? message.payload.assetUrl
-      : null;
-
-    if (assetUrl === null) {
-      return;
-    }
-
-    if (typeof handleDownloadEvent === 'function') {
-      handleDownloadEvent(message.payload);
-
-      return;
-    }
-
-    updateBadgeStateBySource(assetUrl, {
-      download: message.payload.download,
-      file: message.payload.file,
-      reaction: message.payload.reaction,
-    });
-    referrerBadges.updateByDownloadEvent(message.payload);
+    renderQueue.push(message.payload);
   });
 }
 

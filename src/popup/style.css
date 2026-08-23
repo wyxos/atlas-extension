@@ -13,7 +13,7 @@
 
 body {
   margin: 0;
-  min-width: 280px;
+  min-width: 300px;
   background: var(--atlas-popup-background);
   color: var(--atlas-popup-foreground);
 }
@@ -39,6 +39,10 @@ body {
 }
 
 .atlas-popup__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   min-height: 32px;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -77,6 +81,57 @@ body {
 
 .atlas-popup__button--secondary:hover {
   background: var(--atlas-popup-secondary);
+}
+
+.atlas-popup__button [data-atlas-popup-icon],
+.atlas-popup__icon-button [data-atlas-popup-icon] {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.atlas-popup__desktop-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--atlas-popup-border);
+  border-radius: 4px;
+}
+
+.atlas-popup__desktop-status-item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.atlas-popup__desktop-status-item + .atlas-popup__desktop-status-item {
+  border-left: 1px solid var(--atlas-popup-border);
+}
+
+.atlas-popup__desktop-status-label {
+  color: var(--atlas-popup-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.atlas-popup__desktop-status-value {
+  overflow: hidden;
+  color: var(--atlas-popup-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-popup__desktop-status-value[data-state="connected"],
+.atlas-popup__desktop-status-value[data-state="paired"] {
+  color: #4ade80;
 }
 
 .atlas-popup__field {

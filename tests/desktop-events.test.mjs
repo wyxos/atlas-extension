@@ -173,6 +173,38 @@ test('reports diagnostic probes separately from download events', async () => {
   client.stop();
 });
 
+test('does not relay media processing events as download progress', async () => {
+  const sockets = [];
+  const downloads = [];
+  const client = createDesktopEventClient({
+    credentials: {},
+    getSequence: async () => 0,
+    onEvent: (event) => downloads.push(event),
+    transport: {
+      baseUrl: 'http://127.0.0.1:17420',
+      eventTicket: async () => ({ websocket_url: 'ws://127.0.0.1:17420/v1/events?ticket=abc' }),
+    },
+    WebSocketImpl: class FakeSocket {
+      constructor() { this.listeners = new Map(); sockets.push(this); }
+      addEventListener(type, callback) { this.listeners.set(type, callback); }
+      close() {}
+      emit(type, payload) { this.listeners.get(type)?.(payload); }
+    },
+  });
+
+  await client.start();
+  sockets[0].emit('message', {
+    data: JSON.stringify({
+      data: { progress_percent: 0 },
+      sequence: 12,
+      type: 'media.progress',
+    }),
+  });
+
+  assert.deepEqual(downloads, []);
+  client.stop();
+});
+
 test('keeps the MV3 service worker event socket alive and stops the heartbeat cleanly', async () => {
   const sockets = [];
   const heartbeats = [];

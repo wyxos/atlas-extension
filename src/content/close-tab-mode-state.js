@@ -5,6 +5,14 @@ import {
   normalizeCloseTabMode,
   normalizeSiteDomain,
 } from '../shared/close-tab-preferences.js';
+import {
+  desktopCapabilities,
+  desktopCapabilitiesFromStorageChange,
+  hasDesktopCapability,
+  loadDesktopCapabilities,
+} from '../shared/desktop-capabilities.js';
+
+const unsupportedMessage = 'Update Atlas Desktop to change close tab behavior.';
 
 export function createCloseTabModeState({
   getLocationHref = () => globalThis.location?.href,
@@ -17,6 +25,7 @@ export function createCloseTabModeState({
 } = {}) {
   let mode = closeTabModes.off;
   let saving = false;
+  let supported = false;
   let isBound = false;
 
   async function initialize() {
@@ -28,14 +37,19 @@ export function createCloseTabModeState({
       return;
     }
 
-    mode = await loadCloseTabModeForSiteDomain(siteDomain, storage);
+    const [savedMode, capabilities] = await Promise.all([
+      loadCloseTabModeForSiteDomain(siteDomain, storage),
+      loadDesktopCapabilities(storage),
+    ]);
+    mode = savedMode;
+    supported = hasDesktopCapability(capabilities, desktopCapabilities.closeTabMode);
     onChanged();
   }
 
   async function setMode(nextMode) {
     const siteDomain = currentSiteDomain();
 
-    if (siteDomain === null || saving || typeof saveMode !== 'function') {
+    if (siteDomain === null || !supported || saving || typeof saveMode !== 'function') {
       return;
     }
 
@@ -62,6 +76,8 @@ export function createCloseTabModeState({
       : {
         available: true,
         mode,
+        supported,
+        ...(!supported ? { unsupportedMessage } : {}),
         ...(saving ? { saving: true } : {}),
       };
   }
@@ -77,6 +93,17 @@ export function createCloseTabModeState({
 
     isBound = true;
     onStorageChanged?.addListener?.((changes, areaName) => {
+      const capabilities = desktopCapabilitiesFromStorageChange(changes, areaName);
+
+      if (capabilities !== null) {
+        const nextSupported = hasDesktopCapability(capabilities, desktopCapabilities.closeTabMode);
+
+        if (nextSupported !== supported) {
+          supported = nextSupported;
+          onChanged();
+        }
+      }
+
       const preferences = closeTabPreferencesFromStorageChange(changes, areaName);
 
       if (preferences !== null) {
@@ -119,11 +146,17 @@ export function safeCloseTabSaveError(error) {
   if (error?.code === 'DESKTOP_TIMEOUT') {
     return 'Atlas Desktop did not respond. The setting was not saved.';
   }
-  if (error?.code === 'PAIRING_REQUIRED') {
+  if (['PAIRING_REQUIRED', 'CLIENT_REVOKED', 'INVALID_CLIENT', 'UNAUTHORIZED'].includes(error?.code)) {
     return 'Pair this browser with Atlas Desktop before changing this setting.';
+  }
+  if (['DESKTOP_CAPABILITY_REQUIRED', 'PROTOCOL_MISMATCH', 'CHANNEL_MISMATCH'].includes(error?.code)) {
+    return 'Update Atlas Desktop and confirm this extension uses the same release channel.';
   }
   if (error?.code === 'POLICY_REVISION_CONFLICT') {
     return 'The setting changed again before Atlas could save it. Try once more.';
+  }
+  if (['INVALID_RESPONSE', 'INVALID_RUNTIME_POLICY', 'STALE_RUNTIME_POLICY'].includes(error?.code)) {
+    return 'Atlas Desktop returned an invalid settings response. Update both apps and try again.';
   }
   return 'Atlas Desktop could not save the close tab setting.';
 }

@@ -163,6 +163,7 @@ test('observes visibility-related media attributes for rescan', async () => {
 
 test('download events are delegated for state and cache updates', async () => {
   const calls = [];
+  const animationFrames = [];
   const listeners = [];
   const originalDocument = globalThis.document;
   const originalMutationObserver = globalThis.MutationObserver;
@@ -185,6 +186,11 @@ test('download events are delegated for state and cache updates', async () => {
     history: {
       pushState() {},
       replaceState() {},
+    },
+    requestAnimationFrame(callback) {
+      animationFrames.push(callback);
+
+      return animationFrames.length;
     },
   };
   globalThis.document = {
@@ -229,6 +235,7 @@ test('download events are delegated for state and cache updates', async () => {
       payload,
       type: 'atlas-extension.download-event',
     }));
+    animationFrames.forEach((callback) => callback());
   } finally {
     globalThis.MutationObserver = originalMutationObserver;
     globalThis.document = originalDocument;

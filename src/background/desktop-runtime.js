@@ -4,6 +4,11 @@ import {
   serializeDesktopError,
 } from '../shared/desktop-contract.js';
 import {
+  desktopCapabilities,
+  hasDesktopCapability,
+  normalizeDesktopCapabilities,
+} from '../shared/desktop-capabilities.js';
+import {
   clearDesktopClientCredentials,
   desktopErrorState,
   hasDesktopClientCredentials,
@@ -57,6 +62,7 @@ export function createDesktopRuntime(options = {}) {
       const hello = await transport.hello();
       let state = await patchDesktopConnectionState({
         app: hello.app,
+        capabilities: normalizeDesktopCapabilities(hello.capabilities),
         channel: transport.channel,
         health: 'unpaired',
         lastCheckedAt: new Date().toISOString(),
@@ -187,6 +193,15 @@ export function createDesktopRuntime(options = {}) {
 
   async function updateCloseTabMode(siteDomain, mode) {
     const { credentials } = await requestContext();
+
+    if (!hasDesktopCapability(credentials, desktopCapabilities.closeTabMode)) {
+      throw createDesktopContractError(
+        'DESKTOP_CAPABILITY_REQUIRED',
+        'Atlas Desktop does not support close tab mode settings.',
+        false,
+      );
+    }
+
     return updateDesktopCloseTabMode({
       credentials,
       mode,

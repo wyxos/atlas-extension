@@ -15,5 +15,11 @@ export function getOverlayNoticeStyles() {
       position: absolute;
       right: 0;
     }
+
+    .atlas-static-close-mode-unavailable {
+      color: #fbbf24;
+      font-size: 10px;
+      line-height: 1.3;
+    }
   `;
 }

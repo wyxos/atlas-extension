@@ -30,6 +30,8 @@ test('asset badge exposes the close tab mode selector', () => {
   assert.match(source, /Close tab:/);
   assert.match(source, /After queue/);
   assert.match(source, /On complete/);
+  assert.match(source, /!badge\.closeTab\.supported/);
+  assert.match(source, /badge\.closeTab\.unsupportedMessage/);
 });
 
 test('asset badge renders actionable failure copy without a failed zero-percent state', () => {

@@ -33,6 +33,7 @@ export async function loadNextTabsFromActive({
 
   if (typeof tabsApi.reload === 'function') {
     return await reloadTabs({
+      activeTab,
       limit: normalizedLimit,
       runtime,
       tabsApi,
@@ -50,6 +51,7 @@ export async function loadNextTabsFromActive({
 }
 
 async function reloadTabs({
+  activeTab,
   limit,
   runtime,
   tabsApi,
@@ -57,7 +59,7 @@ async function reloadTabs({
 }) {
   const loadedTabIds = [];
 
-  for (const tab of tabsToLoad) {
+  for (const tab of [activeTab, ...tabsToLoad]) {
     await reloadTab({ runtime, tabId: tab.id, tabsApi });
     loadedTabIds.push(tab.id);
   }

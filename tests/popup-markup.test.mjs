@@ -17,6 +17,10 @@ test('popup exposes a manual scan action', () => {
   assert.match(popupHtml, /atlas-popup-copy-tab-links/);
   assert.match(popupHtml, /atlas-popup-open-clipboard-links/);
   assert.match(popupHtml, /atlas-popup-test-events/);
+  assert.match(popupHtml, /atlas-popup-open-options/);
+  assert.match(popupHtml, /atlas-popup-connection-status/);
+  assert.match(popupHtml, /atlas-popup-pairing-status/);
+  assert.match(popupHtml, /atlas-popup-action-status/);
   assert.doesNotMatch(popupHtml, /atlas-popup-reaction-widget-visibility/);
   assert.match(popupHtml, /\/src\/popup\/main\.js/);
   assert.match(popupHtml, /Scan page/);
@@ -24,6 +28,24 @@ test('popup exposes a manual scan action', () => {
   assert.match(popupHtml, /Load next tabs/);
   assert.match(popupHtml, /Copy open links/);
   assert.match(popupHtml, /Open clipboard links/);
+  assert.match(popupHtml, /Open options/);
+  assert.doesNotMatch(popupHtml, />\s*Ready\s*</);
   assert.doesNotMatch(popupHtml, /Hide reaction widget/);
   assert.doesNotMatch(popupHtml, /Show reaction widget/);
+});
+
+test('popup provides a Lucide icon mount for every action and stepper control', () => {
+  for (const icon of [
+    'scan',
+    'decrement',
+    'increment',
+    'load-tabs',
+    'copy-links',
+    'open-links',
+    'reload',
+    'test-events',
+    'options',
+  ]) {
+    assert.match(popupHtml, new RegExp(`data-atlas-popup-icon="${icon}"`));
+  }
 });

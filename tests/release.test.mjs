@@ -9,6 +9,7 @@ import {
   copyContentBuild,
   copyDirectory,
   copyStaticAssets,
+  createDesktopCompatibilityMarker,
   getCommitRange,
   incrementVersion,
   localOutputEnvKey,
@@ -21,6 +22,7 @@ import {
   runChecked,
   shouldAskCodexForRelease,
   updateJsonVersion,
+  validateDesktopCompatibilityMarker,
 } from '../src/release-core.mjs';
 
 test('increments semantic versions for supported bump types', () => {
@@ -153,6 +155,21 @@ test('copies only the single-file background build into the extension package', 
   });
 
   assert.equal(fs.readFileSync(path.join(buildOutputPath, 'assets', 'background.js'), 'utf8'), 'background');
+});
+
+test('packages the required Desktop capabilities in the compatibility marker', () => {
+  const marker = createDesktopCompatibilityMarker('stable');
+
+  assert.deepEqual(validateDesktopCompatibilityMarker(marker), {
+    channel: 'stable',
+    desktopBaseUrl: 'http://127.0.0.1:37420',
+    protocolVersion: 1,
+    requiredCapabilities: ['close-tab-mode'],
+  });
+  assert.throws(
+    () => validateDesktopCompatibilityMarker({ ...marker, requiredCapabilities: [] }),
+    /compatibility marker is incomplete/,
+  );
 });
 
 test('rejects split content builds because Chrome content scripts are not module entries', () => {

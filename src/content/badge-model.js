@@ -183,6 +183,10 @@ function optionalCloseTabState(closeTab) {
     closeTab: {
       available: true,
       mode: normalizeCloseTabMode(closeTab.mode ?? closeTabModes.off),
+      supported: closeTab.supported !== false,
+      ...(typeof closeTab.unsupportedMessage === 'string' && closeTab.unsupportedMessage.trim() !== '' ? {
+        unsupportedMessage: closeTab.unsupportedMessage.trim(),
+      } : {}),
       ...(closeTab.saving === true ? { saving: true } : {}),
     },
   };

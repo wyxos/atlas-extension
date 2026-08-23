@@ -50,7 +50,7 @@ test('activates the next 10 tabs after the active tab and restores the active ta
   ]);
 });
 
-test('reloads a custom number of next tabs without reloading the original active tab', async () => {
+test('reloads the active tab first followed by a custom number of next tabs', async () => {
   const calls = [];
   const tabs = Array.from({ length: 16 }, (_value, index) => ({
     active: index === 2,
@@ -83,11 +83,12 @@ test('reloads a custom number of next tabs without reloading the original active
   assert.deepEqual(result, {
     activated: 0,
     limit: 12,
-    reloaded: 12,
+    reloaded: 13,
     restored: false,
-    tabIds: [103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114],
+    tabIds: [102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114],
   });
   assert.deepEqual(calls, [
+    ['reload', 102],
     ['reload', 103],
     ['reload', 104],
     ['reload', 105],
@@ -101,6 +102,41 @@ test('reloads a custom number of next tabs without reloading the original active
     ['reload', 113],
     ['reload', 114],
   ]);
+});
+
+test('reloads the active tab and only the tabs available before the end of the window', async () => {
+  const reloadCalls = [];
+  const tabs = Array.from({ length: 6 }, (_value, index) => ({
+    active: index === 4,
+    id: index + 50,
+    index,
+    windowId: 7,
+  }));
+  const tabsApi = {
+    query(_query, callback) {
+      callback(tabs);
+    },
+    reload(tabId, callback) {
+      reloadCalls.push(tabId);
+      callback();
+    },
+  };
+
+  const result = await loadNextTabsFromActive({
+    activeTabId: 54,
+    limit: 10,
+    tabsApi,
+    windowId: 7,
+  });
+
+  assert.deepEqual(result, {
+    activated: 0,
+    limit: 10,
+    reloaded: 2,
+    restored: false,
+    tabIds: [54, 55],
+  });
+  assert.deepEqual(reloadCalls, [54, 55]);
 });
 
 test('does not wrap around to tabs before the active tab', async () => {

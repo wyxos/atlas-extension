@@ -26,6 +26,7 @@ import { loadNextTabsRequestType } from '../shared/load-next-tabs-messages.js';
 import { tabCounterSnapshotRequestType } from '../shared/tab-counter-messages.js';
 import { serializeDesktopError } from '../shared/desktop-contract.js';
 import { createDesktopRuntime } from './desktop-runtime.js';
+import { createDownloadEventState } from './download-event-state.js';
 import { createEventProbeRunner } from './event-probe-runtime.js';
 import { createPerformanceDiagnosticStore } from './performance-diagnostics.js';
 import { fanoutTabMessage } from './message-fanout.js';
@@ -33,6 +34,7 @@ import { fanoutTabMessage } from './message-fanout.js';
 const openTabs = createOpenTabRegistry();
 const performanceDiagnostics = createPerformanceDiagnosticStore();
 const contentInterests = createContentInterestRegistry();
+const downloadEvents = createDownloadEventState();
 const closeTabIntents = createCloseTabIntentManager({
   onMetric: (metric) => performanceDiagnostics.record(metric),
 });
@@ -247,8 +249,14 @@ function isAtlasApiMessage(message) {
 }
 
 function relayDownloadEvent(payload) {
-  closeTabIntents.handleDownloadEvent(payload);
-  void relayTargetedDownloadEvent(payload);
+  const acceptedPayload = downloadEvents.accept(payload);
+
+  if (acceptedPayload === null) {
+    return;
+  }
+
+  closeTabIntents.handleDownloadEvent(acceptedPayload);
+  void relayTargetedDownloadEvent(acceptedPayload);
 }
 
 async function relayTargetedDownloadEvent(payload) {

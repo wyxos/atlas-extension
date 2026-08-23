@@ -226,7 +226,7 @@ function handleBadgeShortcut(event) {
           type="button"
           class="atlas-static-close-mode-option"
           :class="{ 'atlas-static-close-mode-option-active': badge.closeTab.mode === item.value }"
-          :disabled="badge.isBusy || badge.isDeleting || badge.closeTab.saving"
+          :disabled="badge.isBusy || badge.isDeleting || badge.closeTab.saving || !badge.closeTab.supported"
           :aria-label="item.label"
           :title="item.label"
           @click.stop.prevent="$emit('close-mode-change', item.value)"
@@ -234,6 +234,11 @@ function handleBadgeShortcut(event) {
           {{ item.shortLabel }}
         </button>
       </div>
+      <span
+        v-if="badge.closeTab?.supported === false"
+        class="atlas-static-close-mode-unavailable"
+        role="status"
+      >{{ badge.closeTab.unsupportedMessage }}</span>
     </div>
 
     <div class="atlas-static-icons">

@@ -12,6 +12,7 @@ test('shares one in-progress initialization and creates one event client per pro
     [desktopConnectionStorageKey]: {
       ...createDefaultDesktopConnectionState('dev'),
       channel: 'dev',
+      capabilities: ['close-tab-mode'],
       clientId: 'client-1',
       clientToken: 'token-1',
     },
@@ -49,6 +50,7 @@ test('shares one in-progress initialization and creates one event client per pro
   const second = runtime.initialize();
   helloGate.resolve({
     app: { channel: 'dev', version: '1.0.0' },
+    capabilities: ['close-tab-mode'],
     protocol_version: 1,
   });
   await Promise.all([first, second]);
@@ -58,11 +60,42 @@ test('shares one in-progress initialization and creates one event client per pro
   assert.equal(eventClientStarts, 1);
 });
 
+test('rejects close tab mode changes when Desktop did not advertise the capability', async () => {
+  const storage = createStorage({
+    [desktopConnectionStorageKey]: {
+      ...createDefaultDesktopConnectionState('dev'),
+      channel: 'dev',
+      clientId: 'client-1',
+      clientToken: 'token-1',
+      runtimePolicyRevision: 5,
+    },
+  });
+  const runtime = createDesktopRuntime({ storage, transport: { channel: 'dev' } });
+  const response = new Promise((resolve) => {
+    runtime.handleMessage({
+      mode: 'after_queue',
+      siteDomain: 'deviantart.com',
+      type: 'atlas-extension.desktop.update-close-tab-mode',
+    }, resolve);
+  });
+
+  assert.deepEqual(await response, {
+    error: {
+      code: 'DESKTOP_CAPABILITY_REQUIRED',
+      details: undefined,
+      message: 'Atlas Desktop does not support close tab mode settings.',
+      retryable: false,
+    },
+    ok: false,
+  });
+});
+
 test('routes close tab mode changes through the authenticated Desktop runtime', async () => {
   const storage = createStorage({
     [desktopConnectionStorageKey]: {
       ...createDefaultDesktopConnectionState('dev'),
       channel: 'dev',
+      capabilities: ['close-tab-mode'],
       clientId: 'client-1',
       clientToken: 'token-1',
       runtimePolicyRevision: 5,
