@@ -35,6 +35,9 @@ test('preserves the reaction payload including browser cookies and user agent', 
   assert.equal(request.user_agent, 'Browser UA');
   assert.equal(request.asset_url, 'https://cdn.example.test/image.jpg');
   assert.equal(request.download_action, 'download');
+  assert.deepEqual(request.metadata, {
+    asset_type: 'image', resolution: '1200x800', width: 1200, height: 800,
+  });
 });
 
 test('sends the complete YouTube watch URL to Desktop', async () => {
@@ -109,4 +112,34 @@ test('deduplicates status requests and keeps derived match identities', async ()
 
   assert.deepEqual(request.asset_urls, ['https://cdn.example.test/1.jpg']);
   assert.equal(request.match_items[0].lookup_id, 'lookup-1');
+});
+
+test('sends DeviantArt batch original-size hints without calculating preview sizes', async () => {
+  let request;
+  await postAssetReactionBatch({
+    credentials: {},
+    items: [{
+      asset: { source: 'https://cdn.example.test/portrait.jpg', type: 'image', resolution: '1200x1800' },
+      referrerUrl: 'https://www.deviantart.com/artist/art/example?file=2',
+      source: 'www.deviantart.com',
+    }],
+    reactionType: 'like',
+    transport: { reactionBatch: async (_credentials, body) => { request = body; return {}; } },
+  });
+  assert.deepEqual(request.items[0].metadata, {
+    asset_type: 'image', resolution: '1200x1800', width: 1200, height: 1800,
+  });
+});
+
+test('omits numeric dimensions when resolution is absent, incomplete, or invalid', async () => {
+  for (const resolution of [undefined, '', '1200x', '0x1800', '-1x1800', '1.5x1800', '4294967296x1800']) {
+    let request;
+    await postAssetReaction({
+      asset: { source: 'https://cdn.example.test/image.jpg', type: 'image', resolution },
+      credentials: {}, reactionType: 'like',
+      transport: { reaction: async (_credentials, body) => { request = body; return {}; } },
+    });
+    assert.equal(Object.hasOwn(request.metadata, 'width'), false);
+    assert.equal(Object.hasOwn(request.metadata, 'height'), false);
+  }
 });

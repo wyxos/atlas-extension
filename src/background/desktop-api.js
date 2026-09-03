@@ -67,10 +67,20 @@ export function openAtlasFile({ credentials, fileId, transport }) {
 }
 
 function buildAssetMetadata(asset) {
+  // Browser dimensions are hints until Desktop probes the downloaded original.
+  // Keep resolution for older Desktop versions; numeric fields are additive.
+  const match = typeof asset.resolution === 'string'
+    ? /^(\d+)x(\d+)$/.exec(asset.resolution.trim())
+    : null;
+  const width = match ? Number(match[1]) : null;
+  const height = match ? Number(match[2]) : null;
+  const validDimensions = [width, height].every((value) =>
+    Number.isInteger(value) && value > 0 && value <= 0xFFFFFFFF);
   return Object.fromEntries(
     Object.entries({
       asset_type: asset.type,
       resolution: asset.resolution,
+      ...(validDimensions ? { width, height } : {}),
     }).filter(([, value]) => value !== null && value !== undefined && value !== ''),
   );
 }
