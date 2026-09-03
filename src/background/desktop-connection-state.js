@@ -12,6 +12,7 @@ import {
 export { desktopConnectionStorageKey } from '../shared/desktop-capabilities.js';
 
 const desktopConnectionStorageVersion = 3;
+const pendingStorageWrites = new WeakMap();
 
 export function createDefaultDesktopConnectionState(channel = resolveExtensionChannel()) {
   return {
@@ -62,8 +63,20 @@ export async function saveDesktopConnectionState(state, storage = getExtensionSt
 }
 
 export async function patchDesktopConnectionState(patch, storage = getExtensionStorage()) {
-  const current = await loadDesktopConnectionState(storage);
-  return saveDesktopConnectionState({ ...current, ...patch }, storage);
+  if (!storage) throw new Error('Extension storage is unavailable.');
+  // Event callbacks and explicit connection actions share this record. Serialize
+  // read/modify/write operations so a late heartbeat cannot restore old credentials.
+  const previous = pendingStorageWrites.get(storage) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(async () => {
+    const current = await loadDesktopConnectionState(storage);
+    return saveDesktopConnectionState({ ...current, ...patch }, storage);
+  });
+  pendingStorageWrites.set(storage, next);
+  try {
+    return await next;
+  } finally {
+    if (pendingStorageWrites.get(storage) === next) pendingStorageWrites.delete(storage);
+  }
 }
 
 export async function clearDesktopClientCredentials(storage = getExtensionStorage()) {
@@ -72,6 +85,12 @@ export async function clearDesktopClientCredentials(storage = getExtensionStorag
     clientToken: '',
     eventSequence: 0,
     eventStatus: 'disconnected',
+    eventConnectedAt: null,
+    lastEventAt: null,
+    lastHeartbeatAt: null,
+    lastError: null,
+    reconnectAttempt: 0,
+    runtimePolicyRevision: null,
     health: 'unpaired',
     pairingPending: false,
   }, storage);

@@ -3,10 +3,34 @@ import test from 'node:test';
 
 import {
   createDefaultDesktopConnectionState,
+  clearDesktopClientCredentials,
+  desktopConnectionStorageKey,
+  loadDesktopConnectionState,
+  patchDesktopConnectionState,
   hasDesktopClientCredentials,
   normalizeDesktopConnectionState,
   publicDesktopDiagnostics,
 } from '../src/background/desktop-connection-state.js';
+
+test('concurrent event checkpoints cannot resurrect credentials cleared by unpair', async () => {
+  let state = { ...createDefaultDesktopConnectionState(), clientId: 'old', clientToken: 'old-token' };
+  const storage = {
+    async get() {
+      const snapshot = globalThis.structuredClone(state);
+      await new Promise((resolve) => globalThis.setImmediate(resolve));
+      return { [desktopConnectionStorageKey]: snapshot };
+    },
+    async set(value) { state = globalThis.structuredClone(value[desktopConnectionStorageKey]); },
+  };
+  await Promise.all([
+    patchDesktopConnectionState({ lastHeartbeatAt: '2026-09-04T00:00:00Z' }, storage),
+    clearDesktopClientCredentials(storage),
+  ]);
+  const result = await loadDesktopConnectionState(storage);
+  assert.equal(result.clientId, '');
+  assert.equal(result.clientToken, '');
+  assert.equal(result.lastHeartbeatAt, null);
+});
 
 test('defaults to the build channel without credentials', () => {
   const state = createDefaultDesktopConnectionState('dev');

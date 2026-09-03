@@ -1,6 +1,7 @@
 import {
   createDesktopContractError,
   desktopMessageTypes,
+  isDesktopPairingRequiredError,
   serializeDesktopError,
 } from '../shared/desktop-contract.js';
 import {
@@ -84,7 +85,7 @@ export function createDesktopRuntime(options = {}) {
       await startEventClient(state);
       return publicDesktopDiagnostics(await loadDesktopConnectionState(storage), runtime);
     } catch (error) {
-      if (isRevokedCredentialError(error)) {
+      if (isDesktopPairingRequiredError(error)) {
         await clearDesktopClientCredentials(storage);
       }
 
@@ -154,7 +155,13 @@ export function createDesktopRuntime(options = {}) {
     const state = await loadDesktopConnectionState(storage);
 
     if (hasDesktopClientCredentials(state)) {
-      await transport.unpair(state);
+      try {
+        await transport.unpair(state);
+      } catch (error) {
+        // An absent/revoked Desktop client must not trap local credentials.
+        // Other failures still need attention; do not claim remote revocation.
+        if (!isDesktopPairingRequiredError(error)) throw error;
+      }
     }
 
     stopEventClient();
@@ -288,8 +295,13 @@ export function createDesktopRuntime(options = {}) {
       onReconnectAttempt: (reconnectAttempt) => {
         void patchDesktopConnectionState({ reconnectAttempt }, storage);
       },
-      onStatus: (eventStatus, error) => {
-        void patchDesktopConnectionState({
+      onStatus: async (eventStatus, error) => {
+        if (isDesktopPairingRequiredError(error)) {
+          await clearDesktopClientCredentials(storage);
+          await patchDesktopConnectionState({ lastError: serializeDesktopError(error) }, storage);
+          return;
+        }
+        await patchDesktopConnectionState({
           eventStatus,
           ...(eventStatus === 'connected' ? {
             eventConnectedAt: new Date().toISOString(),
@@ -323,8 +335,4 @@ export function createDesktopRuntime(options = {}) {
     updateBatchProviderPreference,
     updateCloseTabMode,
   };
-}
-
-function isRevokedCredentialError(error) {
-  return ['CLIENT_REVOKED', 'INVALID_CLIENT', 'UNAUTHORIZED'].includes(error?.code);
 }

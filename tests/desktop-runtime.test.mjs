@@ -6,6 +6,119 @@ import {
   desktopConnectionStorageKey,
 } from '../src/background/desktop-connection-state.js';
 import { createDesktopRuntime } from '../src/background/desktop-runtime.js';
+import { createDesktopContractError } from '../src/shared/desktop-contract.js';
+
+function pairedStorage() {
+  return createStorage({
+    unrelatedSetting: { retained: true },
+    [desktopConnectionStorageKey]: {
+      ...createDefaultDesktopConnectionState('dev'),
+      clientId: 'client-old',
+      clientToken: 'token-old',
+      eventSequence: 4971,
+      eventConnectedAt: '2026-08-26T00:00:00Z',
+      lastEventAt: '2026-08-24T00:00:00Z',
+      lastHeartbeatAt: '2026-08-24T00:00:00Z',
+      reconnectAttempt: 20,
+      runtimePolicyRevision: 9,
+      lastError: { code: 'PAIRING_REQUIRED', message: 'Not authorized.', retryable: false },
+    },
+  });
+}
+
+for (const code of ['PAIRING_REQUIRED', 'CLIENT_REVOKED', 'INVALID_CLIENT', 'UNAUTHORIZED']) {
+  test(`unpair clears rejected ${code} credentials and permits a fresh dev pairing`, async () => {
+    const storage = pairedStorage();
+    let starts = 0;
+    const runtime = createDesktopRuntime({
+      storage,
+      createEventClient: () => ({ async start() { starts += 1; }, stop() {} }),
+      transport: {
+        channel: 'dev',
+        async unpair(credentials) {
+          assert.equal(credentials.clientId, 'client-old');
+          throw createDesktopContractError(code, 'Not authorized.');
+        },
+        async pair() { return { client_id: 'client-new', client_token: 'token-new' }; },
+        async hello() {
+          return { app: { channel: 'dev', version: '1.0.0' }, protocol_version: 1, capabilities: [] };
+        },
+        async runtimePolicy(credentials) {
+          assert.equal(credentials.clientId, 'client-new');
+          return { revision: 1, settings: { schemaVersion: 1, settings: {} } };
+        },
+      },
+    });
+
+    const cleared = await runtime.unpair();
+    assert.equal(cleared.paired, false);
+    assert.equal(cleared.health, 'unpaired');
+    assert.equal(cleared.eventStatus, 'disconnected');
+    assert.equal(cleared.eventSequence, 0);
+    assert.equal(cleared.reconnectAttempt, 0);
+    for (const field of ['clientId', 'runtimePolicyRevision', 'lastError', 'eventConnectedAt', 'lastEventAt', 'lastHeartbeatAt']) {
+      assert.equal(cleared[field], null, field);
+    }
+    assert.equal((await storage.get(desktopConnectionStorageKey))[desktopConnectionStorageKey].clientToken, '');
+    assert.deepEqual(await storage.get('unrelatedSetting'), { unrelatedSetting: { retained: true } });
+    const paired = await runtime.pair();
+    assert.equal(paired.paired, true);
+    assert.equal(paired.clientId, 'client-new');
+    assert.equal(paired.runtimePolicyRevision, 1);
+    assert.equal(starts, 1);
+  });
+}
+
+test('reconnect clears Desktop PAIRING_REQUIRED credentials instead of leaving Pair hidden', async () => {
+  const runtime = createDesktopRuntime({
+    storage: pairedStorage(),
+    transport: {
+      channel: 'dev',
+      async hello() { return { app: { channel: 'dev' }, protocol_version: 1 }; },
+      async runtimePolicy() { throw createDesktopContractError('PAIRING_REQUIRED', 'Not authorized.'); },
+    },
+  });
+  await assert.rejects(runtime.reconnect(), { code: 'PAIRING_REQUIRED' });
+  assert.equal((await runtime.diagnostics()).paired, false);
+  assert.equal((await runtime.diagnostics()).runtimePolicyRevision, null);
+});
+
+test('unpair preserves credentials and reports unexpected remote failures', async () => {
+  const runtime = createDesktopRuntime({
+    storage: pairedStorage(),
+    transport: {
+      channel: 'dev',
+      async unpair() { throw createDesktopContractError('DESKTOP_OFFLINE', 'Offline.', true); },
+    },
+  });
+  await assert.rejects(runtime.unpair(), { code: 'DESKTOP_OFFLINE' });
+  assert.equal((await runtime.diagnostics()).paired, true);
+});
+
+test('event ticket authorization failure clears credentials and stops reconnecting', async () => {
+  let tickets = 0;
+  const storage = pairedStorage();
+  // The saved policy is current here; rejection occurs only on the event endpoint.
+  const runtime = createDesktopRuntime({
+    storage,
+    transport: {
+      channel: 'dev',
+      async hello() { return { app: { channel: 'dev' }, protocol_version: 1 }; },
+      async runtimePolicy() { return { revision: 9, settings: { schemaVersion: 1, settings: {} } }; },
+      async eventTicket() {
+        tickets += 1;
+        throw createDesktopContractError('PAIRING_REQUIRED', 'Not authorized.');
+      },
+    },
+  });
+  const result = await runtime.reconnect();
+  assert.equal(result.paired, false);
+  assert.equal(result.health, 'unpaired');
+  assert.equal(result.eventStatus, 'disconnected');
+  assert.equal(result.reconnectAttempt, 0);
+  assert.equal(result.lastError.code, 'PAIRING_REQUIRED');
+  assert.equal(tickets, 1);
+});
 
 test('shares one in-progress initialization and creates one event client per profile', async () => {
   const storage = createStorage({

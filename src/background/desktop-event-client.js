@@ -1,4 +1,4 @@
-import { createDesktopContractError } from '../shared/desktop-contract.js';
+import { createDesktopContractError, isDesktopPairingRequiredError } from '../shared/desktop-contract.js';
 
 const reconnectDelaysMs = [1000, 2500, 5000, 10000, 30000];
 const downloadEventTypes = new Set([
@@ -76,7 +76,13 @@ export function createDesktopEventClient({
       socket = new WebSocketImpl(websocketUrl);
       bindSocket(socket, generation);
     } catch (error) {
-      onStatus?.('error', error);
+      if (stopped || generation !== connectionGeneration) return;
+      if (isDesktopPairingRequiredError(error)) {
+        stopped = true;
+        clearReconnectTimer();
+        closeSocket();
+      }
+      await onStatus?.('error', error);
       scheduleReconnect(generation);
     }
   }

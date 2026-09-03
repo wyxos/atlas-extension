@@ -70,6 +70,10 @@ export function createDesktopContractError(code, message, retryable = false, det
   return error;
 }
 
+export function isDesktopPairingRequiredError(error) {
+  return ['PAIRING_REQUIRED', 'CLIENT_REVOKED', 'INVALID_CLIENT', 'UNAUTHORIZED'].includes(error?.code);
+}
+
 export function serializeDesktopError(error, fallbackMessage = 'Atlas Desktop request failed.') {
   return {
     code: typeof error?.code === 'string' ? error.code : 'DESKTOP_REQUEST_FAILED',
