@@ -11,8 +11,15 @@ const interactiveShortcutTargetSelector = [
   '[role="slider"]',
 ].join(',');
 const suppressedShortcutTargetSelector = [
-  interactiveShortcutTargetSelector,
+  'input',
+  'select',
+  'textarea',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[role="textbox"]',
+  '[role="slider"]',
   '[data-atlas-asset-badge="true"]',
+  '[data-atlas-extension-badge-host]',
+  '#atlas-extension-asset-overlay',
 ].join(',');
 
 export function reactionFromAssetShortcutEvent(event) {
@@ -42,9 +49,12 @@ export function handleAssetShortcutEvent(event, options) {
     return false;
   }
 
-  const id = registeredAssetIdFromEvent(event, options?.getAssetIdForElement);
+  const directId = hasShortcutTarget(event, interactiveShortcutTargetSelector)
+    ? null
+    : registeredAssetIdFromEvent(event, options?.getAssetIdForElement);
+  const id = directId ?? options?.getFallbackAssetId?.(event);
 
-  if (id === null) {
+  if (typeof id !== 'string' || id === '') {
     return false;
   }
 

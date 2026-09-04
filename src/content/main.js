@@ -3,6 +3,7 @@ import { createBatchProviderState } from './batch-provider-state.js';
 import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateBatchProviderPreferenceViaBackground, updateCloseTabModeViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
 import { decorateAssetWithMatchIdentity as decorateAssetWithMatchIdentityForRuntime, statusMatchItemForAsset } from './asset-match-runtime.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
+import { findAssetShortcutFallback } from './asset-shortcut-target.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
 import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
 import { resolveAssetBatchContext } from './batch-providers/index.js';
@@ -397,9 +398,10 @@ function handleBadgeCloseModeChange(event) { void closeTabMode.setMode(event.mod
 function handleAssetShortcut(event) {
   handleAssetShortcutEvent(event, {
     getAssetIdForElement: (element) => assetIds.get(element) ?? null,
-    onReact: ({ id, type }) => {
-      void handleBadgeReaction({ id, type });
-    },
+    getFallbackAssetId: (shortcutEvent) => findAssetShortcutFallback(shortcutEvent, { assetIds,
+      isAssetVisible: (element) => getVisibleRect(element) !== null && describeAssetElement(element) !== null,
+    }),
+    onReact: ({ id, type }) => void handleBadgeReaction({ id, type }),
   });
 }
 
