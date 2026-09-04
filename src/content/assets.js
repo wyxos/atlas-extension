@@ -61,7 +61,7 @@ export function getAssetSource(element, options = {}) {
   return getAssetTarget(element, options)?.source ?? null;
 }
 
-function getAssetTarget(element, options = {}) {
+export function getAssetTarget(element, options = {}) {
   const tagName = String(element?.tagName ?? '').toUpperCase();
 
   if (tagName === 'IMG' && shouldUseHighestSrcsetCandidate(element, options)) {

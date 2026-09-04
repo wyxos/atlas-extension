@@ -2,8 +2,10 @@ import {
   collectDeviantArtBatchItems,
   resolveDeviantArtBatchContext,
 } from './deviantart.js';
+import { collectRedditBatchItems, resolveRedditBatchContext } from './reddit.js';
 
 const providers = new Map([
+  ['reddit', { collect: collectRedditBatchItems, resolve: resolveRedditBatchContext }],
   ['deviantart', {
     collect: collectDeviantArtBatchItems,
     resolve: resolveDeviantArtBatchContext,
@@ -29,5 +31,5 @@ export async function collectAssetBatchItems(context, options = {}) {
     return [];
   }
 
-  return provider.collect(options);
+  return provider.collect({ ...options, context });
 }

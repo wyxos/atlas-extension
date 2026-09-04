@@ -12,6 +12,10 @@ export function reactionFailureFromError(error) {
     DESKTOP_OFFLINE: 'Atlas Desktop is offline',
     DESKTOP_TIMEOUT: 'Atlas Desktop did not respond',
     PAIRING_REQUIRED: 'Desktop pairing is required',
+    BATCH_INCOMPLETE: 'Could not collect every gallery image. Nothing was queued. Try again after the gallery loads.',
+    BATCH_POST_CHANGED: 'The post changed. Start the batch again on the current post.',
+    BATCH_TOO_LARGE: 'This gallery exceeds the batch limit of 50 items.',
+    BATCH_UNSUPPORTED_MEDIA: 'This gallery contains unsupported media. Turn off Batch to download items individually.',
   };
   return {
     errorCode: code,
