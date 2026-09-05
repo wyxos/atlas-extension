@@ -52,7 +52,7 @@ export function createAssetOverlay(shadowRoot, options = {}) {
 
     pendingReactionResolve = null;
     state.reactionRequest = null;
-    resolve?.(choice === 'redownload' || choice === 'update-only' ? choice : 'cancel');
+    resolve?.(choice === 'redownload' || choice === 'update-only' || choice === 'browser-download' ? choice : 'cancel');
   }
 
   return {

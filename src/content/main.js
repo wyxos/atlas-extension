@@ -1,3 +1,5 @@
+import { mergeReferrerCounts } from './referrer-counts.js';
+import { matchesReactionFile, submitWithProviderFallback } from './provider-reaction.js';
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
 import { createBatchProviderState } from './batch-provider-state.js';
 import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateBatchProviderPreferenceViaBackground, updateCloseTabModeViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
@@ -102,7 +104,7 @@ const referrerOpenGuard = createReferrerOpenGuard({
 const contentInterests = createContentInterestReporter({
   diagnostics: performanceDiagnostics,
   getInterests: () => ({
-    referrerUrls: [...referrerBadges.getKnownReferrerUrls(),
+    referrerUrls: [window.location.href, ...referrerBadges.getKnownReferrerUrls(),
       ...[...assetsById.values()].map((asset) => asset.referrerUrl)],
     sourceUrls: [...assetsById.values()].map((asset) => asset.source),
   }),
@@ -258,7 +260,7 @@ function renderBadgeState(id, nextState) {
 }
 function updateBadgeStateBySource(source, nextState) {
   for (const [id, asset] of assetsById.entries()) {
-    if (asset.source === source) {
+    if (matchesReactionFile(source, asset, badgeStatesById.get(id), nextState)) {
       updateBadgeState(id, nextState);
     }
   }
@@ -281,16 +283,7 @@ function decorateAssetWithMatchIdentity(asset, options = {}) {
 }
 
 function mergeOpenReferrerCounts(referrerUrls, counts) {
-  for (const referrerUrl of referrerUrls) {
-    const count = Number(counts?.[referrerUrl] ?? 0);
-
-    if (Number.isFinite(count) && count > 0) {
-      openReferrerCounts[referrerUrl] = Math.floor(count);
-    } else {
-      delete openReferrerCounts[referrerUrl];
-    }
-  }
-
+  mergeReferrerCounts(openReferrerCounts, referrerUrls, counts);
   referrerBadges.updateOpenCounts(openReferrerCounts);
 }
 async function handleBadgeReaction(event) {
@@ -323,15 +316,20 @@ async function handleBadgeReaction(event) {
 
   let payload;
   try {
-    payload = await postAssetOrBatchReaction({
-      asset,
-      batchContext: batchContextsById.get(event.id),
-      currentState,
-      documentContext: document,
-      downloadAction,
-      event,
-      locationContext: window.location,
+    const locationContext = { href: window.location.href, hostname: window.location.hostname };
+    payload = await submitWithProviderFallback({
+      confirmFallback: (request) => getOverlayController().confirmReactionUpdate(request),
+      isCurrent: () => window.location.href === locationContext.href && shouldApplyAssetResponse(asset, assetsById.get(event.id)),
+      submit: (useBrowserDownload) => postAssetOrBatchReaction({
+        asset, batchContext: batchContextsById.get(event.id), currentState,
+        documentContext: document, downloadAction, event, locationContext, useBrowserDownload,
+      }),
     });
+    if (payload === null) {
+      updateBadgeState(event.id, { isBusy: false, submittingReaction: null });
+      performanceDiagnostics.finish('reaction-latency', reactionStartedAt, { canceled: true, reactionType: event.type });
+      return;
+    }
 
   } catch (error) {
     if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {

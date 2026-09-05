@@ -32,6 +32,7 @@ export async function postAssetOrBatchReaction({
   downloadAction,
   event,
   locationContext,
+  useBrowserDownload,
 }) {
   if (currentState.batch?.checked === true && batchContext !== undefined) {
     const items = await collectAssetBatchItems(batchContext, {
@@ -44,6 +45,7 @@ export async function postAssetOrBatchReaction({
         downloadAction,
         items,
         reactionType: event.type,
+    ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
       });
     }
   }
@@ -52,6 +54,7 @@ export async function postAssetOrBatchReaction({
     asset,
     downloadAction,
     reactionType: event.type,
+    ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
     referrerUrl: locationContext.href,
     source: locationContext.hostname,
   });

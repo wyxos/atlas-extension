@@ -58,6 +58,7 @@ export function postAssetReactionViaBackground({
   asset,
   downloadAction,
   reactionType,
+  useBrowserDownload,
   referrerUrl,
   runtime = globalThis.chrome?.runtime,
   source,
@@ -67,6 +68,7 @@ export function postAssetReactionViaBackground({
     asset,
     downloadAction,
     reactionType,
+    ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
     referrerUrl,
     source,
     type: 'atlas-extension.asset-reaction',
@@ -77,6 +79,7 @@ export function postAssetReactionBatchViaBackground({
   downloadAction,
   items,
   reactionType,
+  useBrowserDownload,
   runtime = globalThis.chrome?.runtime,
   timeoutMs = defaultTimeoutMs,
 }) {
@@ -84,6 +87,7 @@ export function postAssetReactionBatchViaBackground({
     downloadAction,
     items,
     reactionType,
+    ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
     type: 'atlas-extension.asset-reaction-batch',
   }, { runtime, timeoutMs });
 }

@@ -222,6 +222,7 @@ async function handleAtlasApiMessage(message) {
       downloadAction: message.downloadAction,
       items: message.items,
       reactionType: message.reactionType,
+      useBrowserDownload: message.useBrowserDownload,
       runtimeContext: await collectReactionRuntimeContext(message),
       transport,
     })
@@ -230,6 +231,7 @@ async function handleAtlasApiMessage(message) {
       credentials,
       downloadAction: message.downloadAction,
       reactionType: message.reactionType,
+      useBrowserDownload: message.useBrowserDownload,
       referrerUrl: message.referrerUrl,
       runtimeContext: await collectReactionRuntimeContext(message),
       source: message.source,

@@ -3,6 +3,7 @@ export function postAssetReaction({
   credentials,
   downloadAction,
   reactionType,
+  useBrowserDownload,
   referrerUrl,
   runtimeContext,
   source,
@@ -16,6 +17,7 @@ export function postAssetReaction({
     referrer_url: referrerUrl,
     ...buildRuntimeContextPayload(runtimeContext),
     source,
+    ...(useBrowserDownload === true ? { use_browser_download: true } : {}),
     type: reactionType,
   });
 }
@@ -25,6 +27,7 @@ export function postAssetReactionBatch({
   downloadAction,
   items,
   reactionType,
+  useBrowserDownload,
   runtimeContext,
   transport,
 }) {
@@ -32,6 +35,7 @@ export function postAssetReactionBatch({
     ...(downloadAction ? { download_action: downloadAction } : {}),
     items: normalizeBatchItems(items),
     ...buildRuntimeContextPayload(runtimeContext),
+    ...(useBrowserDownload === true ? { use_browser_download: true } : {}),
     type: reactionType,
   });
 }
@@ -142,6 +146,8 @@ function normalizeStatusMatchItem(item) {
       match_url: matchUrl,
       rule_digest: item?.rule_digest,
       rule_id: item?.rule_id,
+      referrer_url: item?.referrer_url,
+      asset_url: item?.asset_url,
     }).filter(([, value]) => value !== null && value !== undefined && value !== ''),
   );
 }

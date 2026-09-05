@@ -10,7 +10,6 @@ import {
 } from './build-config.mjs';
 import { copyStaticAssets } from './static-assets.mjs';
 import { writeDesktopCompatibilityMarker } from './desktop-compatibility.mjs';
-
 const execFileAsync = promisify(execFile);
 
 export const extensionFiles = [
@@ -211,7 +210,12 @@ export function copyContentBuild({ buildOutputPath, contentOutputPath, entryName
   fs.copyFileSync(source, destination);
 }
 
-export async function buildExtension({ destination, root }) {
+export async function buildExtension({ channel, destination, root }) {
+  if (channel !== undefined && !['dev', 'stable'].includes(channel)) {
+    throw new Error(`Unsupported Atlas Desktop channel: ${channel}`);
+  }
+  const buildEnv = loadBuildEnv(root);
+  channel ??= ['dev', 'stable'].includes(buildEnv.CHANNEL) ? buildEnv.CHANNEL : 'dev';
   const buildOutputPath = getBuildOutputPath(root);
   const backgroundOutputPath = getBackgroundBuildOutputPath(root);
   const contentOutputPath = getContentBuildOutputPath(root);
@@ -220,8 +224,6 @@ export async function buildExtension({ destination, root }) {
   fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
   fs.rmSync(contentOutputPath, { force: true, recursive: true });
   fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
-  const buildEnv = loadBuildEnv(root);
-  const channel = ['dev', 'stable'].includes(buildEnv.CHANNEL) ? buildEnv.CHANNEL : 'dev';
   await runViteBuild({ channel, outDir: buildOutputPath, root, target: 'options' });
   await runViteBuild({ channel, outDir: backgroundOutputPath, root, target: 'background' });
   await runViteBuild({ channel, outDir: contentOutputPath, root, target: 'content' });

@@ -1,4 +1,5 @@
 import { deriveAssetMatchIdentity } from '../shared/asset-match-identity.js';
+import { civitaiPage } from '../shared/civitai-page.js';
 
 export function decorateAssetWithMatchIdentity({
   asset,
@@ -20,6 +21,7 @@ export function decorateAssetWithMatchIdentity({
     : {
         ...asset,
         matchIdentity: result.matchIdentity,
+        ...(civitaiPage(result.rawReferrerUrl) ? { providerReferrerUrl: result.rawReferrerUrl } : {}),
       };
 }
 
@@ -36,6 +38,10 @@ export function statusMatchItemForAsset(asset, variant) {
   return {
     ...asset.matchIdentity,
     lookup_id: lookupIdForTarget(variant, targetKey),
+    ...(variant === 'asset' && asset.providerReferrerUrl ? {
+      referrer_url: asset.providerReferrerUrl,
+      asset_url: asset.source,
+    } : {}),
   };
 }
 
