@@ -2,7 +2,7 @@
 
 ## Dev and production extensions
 
-Use the **Rebuild Atlas Extension Dev** shortcut on the Windows desktop to compile the current
+Use the **Rebuild Atlas Extension** shortcut on the Windows desktop to compile the current
 extension source for both channels. It runs `scripts/rebuild-dev-extension.ps1` with
 explicit channel selection and verifies each build's channel marker:
 
@@ -11,6 +11,15 @@ explicit channel selection and verifies each build's channel marker:
 
 Reload each Atlas extension in the browser extensions page after building. This
 compile-only launcher does not bump versions, commit source changes, or rebuild Desktop.
+
+## Desktop launcher completion
+
+The **Atlas Desktop Dev**, **Rebuild Atlas Extension**, and **Update Atlas (Desktop + Extension)**
+desktop shortcuts run their scripts through `scripts/run-desktop-script.ps1`. When the
+script finishes or fails, the window shows **Press Enter to exit** and closes after Enter.
+The wrapper preserves the script's exit code. Shortcuts must omit `-NoExit`, which would
+leave an interactive shell open afterward. Calling the underlying scripts directly remains
+suitable for unattended workflows.
 
 ## Stable update workflow
 
