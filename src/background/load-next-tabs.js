@@ -58,17 +58,29 @@ async function reloadTabs({
   tabsToLoad,
 }) {
   const loadedTabIds = [];
+  let activated = 0;
 
-  for (const tab of [activeTab, ...tabsToLoad]) {
-    await reloadTab({ runtime, tabId: tab.id, tabsApi });
-    loadedTabIds.push(tab.id);
+  try {
+    for (const tab of tabsToLoad) {
+      if (tab.frozen || tab.discarded) {
+        await activateTab({ runtime, tabId: tab.id, tabsApi });
+        activated += 1;
+      }
+
+      await reloadTab({ runtime, tabId: tab.id, tabsApi });
+      loadedTabIds.push(tab.id);
+    }
+  } finally {
+    if (activated > 0) {
+      await activateTab({ runtime, tabId: activeTab.id, tabsApi });
+    }
   }
 
   return {
-    activated: 0,
+    activated,
     limit,
     reloaded: loadedTabIds.length,
-    restored: false,
+    restored: activated > 0,
     tabIds: loadedTabIds,
   };
 }

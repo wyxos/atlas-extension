@@ -50,7 +50,7 @@ test('activates the next 10 tabs after the active tab and restores the active ta
   ]);
 });
 
-test('reloads the active tab first followed by a custom number of next tabs', async () => {
+test('reloads only a custom number of tabs after the active tab', async () => {
   const calls = [];
   const tabs = Array.from({ length: 16 }, (_value, index) => ({
     active: index === 2,
@@ -83,12 +83,11 @@ test('reloads the active tab first followed by a custom number of next tabs', as
   assert.deepEqual(result, {
     activated: 0,
     limit: 12,
-    reloaded: 13,
+    reloaded: 12,
     restored: false,
-    tabIds: [102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114],
+    tabIds: [103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114],
   });
   assert.deepEqual(calls, [
-    ['reload', 102],
     ['reload', 103],
     ['reload', 104],
     ['reload', 105],
@@ -104,7 +103,7 @@ test('reloads the active tab first followed by a custom number of next tabs', as
   ]);
 });
 
-test('reloads the active tab and only the tabs available before the end of the window', async () => {
+test('reloads only the following tabs available before the end of the window', async () => {
   const reloadCalls = [];
   const tabs = Array.from({ length: 6 }, (_value, index) => ({
     active: index === 4,
@@ -132,11 +131,11 @@ test('reloads the active tab and only the tabs available before the end of the w
   assert.deepEqual(result, {
     activated: 0,
     limit: 10,
-    reloaded: 2,
+    reloaded: 1,
     restored: false,
-    tabIds: [54, 55],
+    tabIds: [55],
   });
-  assert.deepEqual(reloadCalls, [54, 55]);
+  assert.deepEqual(reloadCalls, [55]);
 });
 
 test('does not wrap around to tabs before the active tab', async () => {
@@ -182,4 +181,99 @@ test('reports when the Chrome tabs API cannot load tabs', async () => {
     () => loadNextTabsFromActive({ tabsApi: null }),
     /Chrome tabs API is unavailable/,
   );
+});
+
+test('reloads exactly the next 10 tabs by index by default, excluding the focused tab', async () => {
+  const reloaded = [];
+  const tabs = Array.from({ length: 15 }, (_, index) => ({
+    id: index + 1, index, active: index === 2,
+  })).reverse();
+  const result = await loadNextTabsFromActive({
+    tabsApi: {
+      query(query, callback) {
+        assert.deepEqual(query, { currentWindow: true });
+        callback(tabs);
+      },
+      reload(id, _options, callback) {
+        reloaded.push(id);
+        callback();
+      },
+    },
+  });
+  assert.deepEqual(reloaded, [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+  assert.deepEqual(result.tabIds, reloaded);
+  assert.equal(result.reloaded, 10);
+});
+
+test('does nothing when the active tab is last in its window', async () => {
+  const result = await loadNextTabsFromActive({
+    tabsApi: {
+      query(_query, callback) {
+        callback([{ id: 1, index: 0 }, { id: 2, index: 1, active: true }]);
+      },
+      reload() { assert.fail('No tab should be reloaded'); },
+      update() { assert.fail('No tab should be activated'); },
+    },
+  });
+  assert.deepEqual(result, {
+    activated: 0, limit: 10, reloaded: 0, restored: false, tabIds: [],
+  });
+});
+
+test('wakes frozen and discarded targets before reloading and restores original focus', async () => {
+  const calls = [];
+  const result = await loadNextTabsFromActive({
+    limit: 3,
+    tabsApi: {
+      query(_query, callback) {
+        callback([
+          { id: 1, index: 0, active: true },
+          { id: 2, index: 1, frozen: true },
+          { id: 3, index: 2, discarded: true },
+          { id: 4, index: 3 },
+          { id: 5, index: 4, frozen: true },
+        ]);
+      },
+      update(id, properties, callback) {
+        assert.deepEqual(properties, { active: true });
+        calls.push(['activate', id]);
+        callback({ id });
+      },
+      reload(id, callback) {
+        calls.push(['reload', id]);
+        callback();
+      },
+    },
+  });
+  assert.deepEqual(calls, [
+    ['activate', 2], ['reload', 2],
+    ['activate', 3], ['reload', 3],
+    ['reload', 4], ['activate', 1],
+  ]);
+  assert.deepEqual(result, {
+    activated: 2, limit: 3, reloaded: 3, restored: true, tabIds: [2, 3, 4],
+  });
+});
+
+test('restores original focus even when reloading a woken tab fails', async () => {
+  const calls = [];
+  const runtime = {};
+  await assert.rejects(loadNextTabsFromActive({
+    runtime,
+    tabsApi: {
+      query(_query, callback) {
+        callback([{ id: 1, index: 0, active: true }, { id: 2, index: 1, frozen: true }]);
+      },
+      update(id, _properties, callback) {
+        calls.push(id);
+        callback({ id });
+      },
+      reload(_id, callback) {
+        runtime.lastError = { message: 'Reload failed' };
+        callback();
+        delete runtime.lastError;
+      },
+    },
+  }), /Reload failed/);
+  assert.deepEqual(calls, [2, 1]);
 });

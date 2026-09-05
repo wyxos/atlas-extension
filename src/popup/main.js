@@ -22,11 +22,7 @@ import {
   copyCurrentWindowTabLinksToClipboard,
   openClipboardLinksInCurrentWindow,
 } from './tab-links.js';
-import {
-  loadNextTabsDefaultLimit,
-  normalizeLoadNextTabsLimit,
-  stepLoadNextTabsLimit,
-} from '../shared/load-next-tabs-messages.js';
+import { initializeNextTabsLimit } from './load-next-tabs-limit.js';
 
 const scanButton = document.querySelector('#atlas-popup-scan');
 const loadNextTabsButton = document.querySelector('#atlas-popup-load-next-tabs');
@@ -44,18 +40,6 @@ const pairingStatusElement = document.querySelector('#atlas-popup-pairing-status
 
 scanButton?.addEventListener('click', () => {
   void scanActiveTab();
-});
-
-loadNextTabsDecrementButton?.addEventListener('click', () => {
-  stepNextTabsLimit(-1);
-});
-
-loadNextTabsIncrementButton?.addEventListener('click', () => {
-  stepNextTabsLimit(1);
-});
-
-loadNextTabsLimitInput?.addEventListener('blur', () => {
-  normalizeNextTabsLimitInput();
 });
 
 loadNextTabsButton?.addEventListener('click', () => {
@@ -88,7 +72,12 @@ globalThis.addEventListener?.('unload', () => {
 });
 
 initializeIcons();
-initializeNextTabsLimit();
+const nextTabsLimit = initializeNextTabsLimit({
+  input: loadNextTabsLimitInput,
+  decrementButton: loadNextTabsDecrementButton,
+  incrementButton: loadNextTabsIncrementButton,
+  onError: setActionStatus,
+});
 void refreshDesktopStatus();
 
 async function scanActiveTab() {
@@ -102,10 +91,11 @@ async function scanActiveTab() {
 }
 
 async function loadNextTabs() {
-  const limit = normalizeNextTabsLimitInput();
+  await nextTabsLimit.ready;
+  const limit = nextTabsLimit.normalize();
 
   setBusy(true);
-  setActionStatus(`Loading current tab and next ${limit} tabs...`);
+  setActionStatus(`Loading next ${limit} tabs...`);
 
   const result = await requestNextTabsLoad({ limit });
 
@@ -267,19 +257,11 @@ function tabsLoadedMessage(result) {
     return 'No tabs to load';
   }
 
-  if (activated === 0) {
+  if (reloaded > 0) {
     return reloaded === 1 ? 'Reloaded 1 tab' : `Reloaded ${reloaded} tabs`;
   }
 
-  const loadedMessage = activated === 1 ? 'Loaded 1 tab' : `Loaded ${activated} tabs`;
-
-  if (reloaded === 0) {
-    return loadedMessage;
-  }
-
-  const reloadedMessage = reloaded === 1 ? 'reloaded 1 tab' : `reloaded ${reloaded} tabs`;
-
-  return `${loadedMessage} and ${reloadedMessage}`;
+  return activated === 1 ? 'Loaded 1 tab' : `Loaded ${activated} tabs`;
 }
 
 function copiedLinksMessage(result) {
@@ -296,28 +278,4 @@ function openedLinksMessage(result) {
   const message = opened === 1 ? 'Opened 1 link' : `Opened ${opened} links`;
 
   return skipped > 0 ? `${message}; skipped ${skipped}` : message;
-}
-
-function initializeNextTabsLimit() {
-  if (loadNextTabsLimitInput !== null) {
-    loadNextTabsLimitInput.value = String(loadNextTabsDefaultLimit);
-  }
-}
-
-function normalizeNextTabsLimitInput() {
-  const limit = normalizeLoadNextTabsLimit(loadNextTabsLimitInput?.value);
-
-  if (loadNextTabsLimitInput !== null) {
-    loadNextTabsLimitInput.value = String(limit);
-  }
-
-  return limit;
-}
-
-function stepNextTabsLimit(delta) {
-  const limit = stepLoadNextTabsLimit(loadNextTabsLimitInput?.value, delta);
-
-  if (loadNextTabsLimitInput !== null) {
-    loadNextTabsLimitInput.value = String(limit);
-  }
 }
