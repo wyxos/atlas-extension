@@ -15,8 +15,10 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { assetSourceLabel, listReactionSheetAssets } from "./asset-sheet-model.js";
 import { reactionFromBadgeShortcutEvent } from "./asset-shortcuts.js";
 import AssetSheetPreview from "./AssetSheetPreview.vue";
+import AssetRequestInfo from "./AssetRequestInfo.vue";
 
 const props = defineProps({
+  inspectReaction: { type: Function, default: null },
   badges: {
     type: Array,
     required: true,
@@ -106,8 +108,8 @@ function handleCardShortcut(event, asset) {
 
 function keepFocusInSheet(event) {
   const focusable = [...(sheetPanel.value?.querySelectorAll?.(
-    'button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
-  ) ?? [])];
+    'button:not(:disabled), a[href], summary, select, input, [tabindex]:not([tabindex="-1"])',
+  ) ?? [])].filter((element) => element.getClientRects().length > 0);
 
   if (focusable.length === 0) {
     return;
@@ -226,6 +228,9 @@ function sourceLabel(asset) {
                 <span class="atlas-asset-sheet-source" :title="asset.source">
                   {{ sourceLabel(asset) }}
                 </span>
+                <span v-if="asset.failureMessage" class="atlas-asset-sheet-failure" role="status">
+                  {{ asset.failureMessage }}
+                </span>
               </div>
 
               <div class="atlas-asset-sheet-reactions" role="group" :aria-label="`React to ${assetTypeFor(asset).label.toLowerCase()}`">
@@ -258,6 +263,7 @@ function sourceLabel(asset) {
                   />
                 </button>
               </div>
+              <AssetRequestInfo v-if="inspectReaction" :asset="asset" :inspect-reaction="inspectReaction" />
             </article>
           </div>
         </section>

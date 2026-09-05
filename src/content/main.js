@@ -129,6 +129,16 @@ function getOverlayController() {
     onOpenFile: badgeFileActions.handleOpenFile,
     onPlacementChange: widgetPlacement.change,
     onReact: handleBadgeReaction,
+    inspectReaction: async ({ id, type, downloadAction, useBrowserDownload }) => {
+      const asset = assetsById.get(id);
+      if (!asset) throw new Error('This asset is no longer available.');
+      return postAssetOrBatchReaction({
+        asset, batchContext: batchContextsById.get(id), currentState: badgeStatesById.get(id) ?? {},
+        documentContext: document, downloadAction, event: { type },
+        locationContext: { href: window.location.href, hostname: window.location.hostname },
+        previewOnly: true, useBrowserDownload,
+      });
+    },
   });
   return overlayController;
 }
@@ -273,15 +283,12 @@ function clearAtlasAssetStateBySource(source) {
   }
 }
 function queueAssetStatusCheck(source, options) { statusChecks.queueAssetStatusCheck(source, options); }
-
 function queueReferrerStatusCheck(referrerUrl, options) { statusChecks.queueReferrerStatusCheck(referrerUrl, options); }
-
 function decorateAssetWithMatchIdentity(asset, options = {}) {
   return decorateAssetWithMatchIdentityForRuntime({
     asset, pageUrl: window.location.href, preferences: getCurrentAssetSourcePreferences(), referrerUrl: options.referrerUrl ?? asset.referrerUrl, siteDomain: window.location.hostname,
   });
 }
-
 function mergeOpenReferrerCounts(referrerUrls, counts) {
   mergeReferrerCounts(openReferrerCounts, referrerUrls, counts);
   referrerBadges.updateOpenCounts(openReferrerCounts);
@@ -390,9 +397,7 @@ function handleBadgeBatchToggle(event) {
   if (context === undefined) return;
   void batchProviderState.changeProvider(context.provider, event.checked === true);
 }
-
 function handleBadgeCloseModeChange(event) { void closeTabMode.setMode(event.mode); }
-
 function handleAssetShortcut(event) {
   handleAssetShortcutEvent(event, {
     getAssetIdForElement: (element) => assetIds.get(element) ?? null,
@@ -402,11 +407,8 @@ function handleAssetShortcut(event) {
     onReact: ({ id, type }) => void handleBadgeReaction({ id, type }),
   });
 }
-
 function getVisibleRect(element) { return resolveVisibleRect(element, viewportPadding); }
-
 function getReferrerVisibleRect(element) { return resolveVisibleRect(element, viewportPadding, { minVisibleWidth: referrerMinVisibleWidth }); }
-
 function scanAssets(root = document) {
   const scanStartedAt = performanceDiagnostics.start();
   let scannedElements = 0;
@@ -423,13 +425,11 @@ function scanAssets(root = document) {
   contentInterests.schedule();
   performanceDiagnostics.finish('scan-duration', scanStartedAt, { scannedElements });
 }
-
 function handleResyncRequired() {
   statusChecks.reset();
   referrerBadges.refreshKnownReferrers?.({ refreshOpenCounts: true, refreshStatus: true });
   scanAssets();
 }
-
 function positionKnownBadges() {
   for (const element of assetIds.keys()) {
     if (!element.isConnected || describeAssetElement(element) === null) {
@@ -443,7 +443,6 @@ function positionKnownBadges() {
   referrerBadges.positionKnown();
   contentInterests.schedule();
 }
-
 function scheduleScan() {
   if (scheduledScan !== null) {
     return;
@@ -454,7 +453,6 @@ function scheduleScan() {
     scanAssets();
   }, scanDelayMs);
 }
-
 function schedulePositionUpdate() {
   if (scheduledPositionUpdate !== null) {
     return;
@@ -465,13 +463,11 @@ function schedulePositionUpdate() {
     positionKnownBadges();
   }, scanDelayMs);
 }
-
 function updateAllAssetBadgePresentations() {
   for (const [id, state] of badgeStatesById.entries()) {
     renderBadgeState(id, state);
   }
 }
-
 function updateAllBadgeStates(patch) { for (const id of badgeStatesById.keys()) updateBadgeState(id, patch); }
 
 startContentRuntime({

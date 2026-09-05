@@ -3,6 +3,7 @@ import {
   fetchAssetStatuses,
   postAssetReactionBatch,
   postAssetReaction,
+  reactionPreviewTransport,
 } from './desktop-api.js';
 import { createCloseTabIntentManager } from './close-tab-intents.js';
 import { createContentInterestRegistry } from './content-interest-registry.js';
@@ -196,7 +197,11 @@ globalThis.chrome?.runtime?.onInstalled?.addListener?.((details) => {
 });
 
 async function handleAtlasApiMessage(message) {
-  const { credentials, transport } = await desktopRuntime.requestContext();
+  const preview = message.previewOnly === true
+    && ['atlas-extension.asset-reaction', 'atlas-extension.asset-reaction-batch'].includes(message.type);
+  const { credentials, transport } = preview
+    ? { transport: reactionPreviewTransport }
+    : await desktopRuntime.requestContext();
 
   if (message.type === 'atlas-extension.asset-statuses') {
     return fetchAssetStatuses({

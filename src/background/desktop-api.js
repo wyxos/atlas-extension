@@ -1,3 +1,18 @@
+export const reactionPreviewTransport = {
+  reaction: (_, body) => previewRequest('/v1/reactions', body),
+  reactionBatch: (_, body) => previewRequest('/v1/reactions/batch', body),
+};
+
+function previewRequest(path, body) {
+  return {
+    method: 'POST', path,
+    body: {
+      ...body,
+      ...(body.cookies ? { cookies: body.cookies.map((cookie) => ({ ...cookie, value: '[redacted]' })) } : {}),
+    },
+  };
+}
+
 export function postAssetReaction({
   asset,
   credentials,

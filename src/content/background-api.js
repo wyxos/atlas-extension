@@ -56,6 +56,7 @@ export function armDownloadCloseIntentViaBackground({
 
 export function postAssetReactionViaBackground({
   asset,
+  previewOnly,
   downloadAction,
   reactionType,
   useBrowserDownload,
@@ -72,11 +73,13 @@ export function postAssetReactionViaBackground({
     referrerUrl,
     source,
     type: 'atlas-extension.asset-reaction',
+    ...(previewOnly === true ? { previewOnly: true } : {}),
   }, { runtime, timeoutMs });
 }
 
 export function postAssetReactionBatchViaBackground({
   downloadAction,
+  previewOnly,
   items,
   reactionType,
   useBrowserDownload,
@@ -89,6 +92,7 @@ export function postAssetReactionBatchViaBackground({
     reactionType,
     ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
     type: 'atlas-extension.asset-reaction-batch',
+    ...(previewOnly === true ? { previewOnly: true } : {}),
   }, { runtime, timeoutMs });
 }
 

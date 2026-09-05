@@ -19,6 +19,7 @@ export function createAssetOverlay(shadowRoot, options = {}) {
     setup() {
       return () => h(AssetOverlay, {
         badges: state.badges,
+        inspectReaction: options.inspectReaction,
         confirmRequest: state.confirmRequest,
         onBatchToggle: options.onBatchToggle,
         onCloseModeChange: options.onCloseModeChange,

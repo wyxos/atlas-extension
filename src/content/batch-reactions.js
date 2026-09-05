@@ -32,6 +32,7 @@ export async function postAssetOrBatchReaction({
   downloadAction,
   event,
   locationContext,
+  previewOnly,
   useBrowserDownload,
 }) {
   if (currentState.batch?.checked === true && batchContext !== undefined) {
@@ -45,6 +46,7 @@ export async function postAssetOrBatchReaction({
         downloadAction,
         items,
         reactionType: event.type,
+        ...(previewOnly === true ? { previewOnly: true } : {}),
     ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
       });
     }
@@ -54,6 +56,7 @@ export async function postAssetOrBatchReaction({
     asset,
     downloadAction,
     reactionType: event.type,
+    ...(previewOnly === true ? { previewOnly: true } : {}),
     ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
     referrerUrl: locationContext.href,
     source: locationContext.hostname,

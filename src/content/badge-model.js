@@ -136,6 +136,7 @@ function normalizeDownloadState(download) {
 
   return {
     downloaded_at: typeof download.downloaded_at === 'string' ? download.downloaded_at : null,
+    ...optionalString('error', stringOrNull(download.error)?.trim()),
     file_id: normalizePositiveInteger(download.file_id ?? download.fileId),
     progress_percent: normalizeProgress(download.progress_percent),
     status: typeof download.status === 'string' ? download.status : null,
@@ -265,7 +266,7 @@ function optionalFailureMessage(reactionFailure, download) {
   if (download?.status !== 'failed') {
     return {};
   }
-  const detail = ({
+  const detail = download.error ?? ({
     access_denied: 'Source access denied',
     download_failed: 'Download attempt failed',
     media_processing: 'Media processing failed',

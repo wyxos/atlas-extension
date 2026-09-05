@@ -1,14 +1,16 @@
 # Update Atlas Desktop and Extension
 
-## Chrome dev extension
+## Dev and production extensions
 
 Use the **Rebuild Atlas Extension Dev** shortcut on the Windows desktop to compile the current
-extension source for Chrome. It runs `scripts/rebuild-dev-extension.ps1`, explicitly
-selects `--channel dev`, and writes to Chrome's existing unpacked directory:
-`D:\code\wyxos\js\atlas-extension\dist\atlas-extension-v0.1.0`.
-Reload Atlas in `chrome://extensions` after building. This compile-only launcher
-does not bump versions or commit source changes. Brave's stable profiles use
-`dist\atlas-extension-stable-validation` through the stable update workflow below.
+extension source for both channels. It runs `scripts/rebuild-dev-extension.ps1` with
+explicit channel selection and verifies each build's channel marker:
+
+- Dev (`--channel dev`): `D:\code\wyxos\js\atlas-extension\dist\atlas-extension-v0.1.0`.
+- Production (`--channel stable`): `D:\code\wyxos\js\atlas-extension\dist\atlas-extension-stable-validation`.
+
+Reload each Atlas extension in the browser extensions page after building. This
+compile-only launcher does not bump versions, commit source changes, or rebuild Desktop.
 
 ## Stable update workflow
 

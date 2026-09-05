@@ -135,7 +135,8 @@ export function getAssetSheetStyles() {
       gap: 10px;
       grid-template-areas:
         "preview meta"
-        "preview reactions";
+        "preview reactions"
+        "info info";
       grid-template-columns: 84px minmax(0, 1fr);
       padding: 10px;
     }
@@ -147,6 +148,16 @@ export function getAssetSheetStyles() {
       grid-area: meta;
       min-width: 0;
     }
+
+    .atlas-asset-sheet-failure { color: #fca5a5; font-size: 12px; overflow-wrap: anywhere; }
+    .atlas-asset-request-info { grid-area: info; min-width: 0; font-size: 12px; }
+    .atlas-asset-request-info summary { cursor: pointer; color: #93c5fd; }
+    .atlas-asset-request-info summary svg { vertical-align: middle; }
+    .atlas-asset-request-info p { color: #cbd5e1; }
+    .atlas-asset-request-info label { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+    .atlas-asset-request-info select { background: #0f172a; color: #f9fafb; border: 1px solid #64748b; padding: 4px; }
+    .atlas-asset-request-info pre { background: #0f172a; padding: 8px; max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .atlas-asset-request-info :focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
 
     .atlas-asset-sheet-preview {
       align-items: center;

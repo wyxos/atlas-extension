@@ -6,6 +6,7 @@ import ReferrerAssetBadge from "./ReferrerAssetBadge.vue";
 import ReferrerOpenDialog from "./ReferrerOpenDialog.vue";
 
 defineProps({
+  inspectReaction: { type: Function, default: null },
   badges: {
     type: Array,
     required: true,
@@ -81,6 +82,7 @@ defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "open-fil
     @resolve="$emit('reaction-confirm', $event)"
   />
   <AssetSheet
+    :inspect-reaction="inspectReaction"
     :badges="badges"
     :portal-target="portalTarget"
     @react="$emit('react', $event)"
