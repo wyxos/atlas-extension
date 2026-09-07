@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -169,6 +170,54 @@ test('synchronizes Desktop version files without changing dependency versions', 
   const cargoLock = fs.readFileSync(path.join(repos[1].root, 'src-tauri/Cargo.lock'), 'utf8');
   assert.match(cargoLock, /name = "another"\nversion = "8.0.0"/);
   assert.match(cargoLock, /name = "atlas-desktop"\nversion = "1.2.3"/);
+});
+
+test('failed version replacement restores every original byte and removes staging files', (t) => {
+  const { repos } = fixture(t);
+  const repo = repos[1];
+  const files = ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock'];
+  const originals = files.map((file) => fs.readFileSync(path.join(repo.root, file)));
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (source, target) => {
+    if (target === path.join(repo.root, 'src-tauri/Cargo.toml')) {
+      throw Object.assign(new Error('Injected replacement failure'), { code: 'EIO' });
+    }
+    return rename(source, target);
+  });
+  assert.throws(() => updateVersions(repo, '1.2.3'), /Cannot replace .*Cargo.toml \(EIO\)/);
+  files.forEach((file, index) => assert.deepEqual(fs.readFileSync(path.join(repo.root, file)), originals[index]));
+  for (const directory of [repo.root, path.join(repo.root, 'src-tauri')]) {
+    assert.equal(fs.readdirSync(directory).some((file) => file.endsWith('.tmp')), false);
+  }
+});
+
+test('Windows mapped manifest reproduces UNKNOWN and version update waits for its release', {
+  skip: process.platform !== 'win32', timeout: 20000,
+}, async (t) => {
+  const { repos } = fixture(t);
+  const repo = repos[1];
+  const target = path.join(repo.root, 'src-tauri/Cargo.toml');
+  const script = `
+    $ErrorActionPreference = 'Stop'
+    $stream = [IO.File]::Open($env:ATLAS_TEST_MANIFEST, 'Open', 'Read', ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    $map = [IO.MemoryMappedFiles.MemoryMappedFile]::CreateFromFile($stream, ('AtlasTest' + [guid]::NewGuid()), 0, 'Read', 'None', $true)
+    $view = $map.CreateViewAccessor(0, 0, 'Read')
+    try { Write-Output 'mapped'; Start-Sleep -Milliseconds 1200 }
+    finally { $view.Dispose(); $map.Dispose(); $stream.Dispose() }
+  `;
+  const child = spawn('pwsh.exe', ['-NoProfile', '-Command', script], {
+    windowsHide: true, env: { ...process.env, ATLAS_TEST_MANIFEST: target },
+  });
+  t.after(() => { if (child.exitCode === null) child.kill(); });
+  await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code) => reject(new Error(`Mapping helper exited before readiness: ${code}`)));
+    child.stdout.once('data', (data) => data.toString().includes('mapped') ? resolve() : reject(new Error('Mapping helper was not ready')));
+  });
+  assert.throws(() => fs.writeFileSync(target, 'must not truncate'), { code: 'UNKNOWN' });
+  updateVersions(repo, '1.2.3');
+  assert.match(fs.readFileSync(target, 'utf8'), /version = "1.2.3"/);
+  assert.equal(readVersion(repo), '1.2.3');
 });
 
 test('Codex refusal and Git conflicts stop without committing', async (t) => {

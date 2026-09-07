@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -75,6 +75,28 @@ export function bumpVersion(version, bump) {
   return numbers.join('.');
 }
 
+function replaceVersionFile(target, text) {
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, text, { flag: 'wx', mode: fs.statSync(target).mode });
+    // Windows cannot replace files while a compiler/indexer has them mapped.
+    // Keep the original intact and allow short-lived handles to close.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        fs.renameSync(temporary, target);
+        return;
+      } catch (error) {
+        if (attempt >= 20 || !['UNKNOWN', 'EPERM', 'EACCES', 'EBUSY'].includes(error.code)) {
+          throw new Error(`Cannot replace ${target} (${error.code}); close processes holding the file and retry.`, { cause: error });
+        }
+        globalThis.Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+      }
+    }
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
 export function updateVersions(repo, version) {
   const jsonFiles = ['package.json', 'package-lock.json',
     repo.kind === 'desktop' ? 'src-tauri/tauri.conf.json' : 'manifest.json'];
@@ -98,7 +120,24 @@ export function updateVersions(repo, version) {
       updates.push([target, text.replace(pattern, (_, before, after) => `${before}${version}${after}`)]);
     }
   }
-  for (const [target, text] of updates) fs.writeFileSync(target, text);
+  const originals = new Map(updates.map(([target]) => [target, fs.readFileSync(target)]));
+  const replaced = [];
+  try {
+    for (const [target, text] of updates) {
+      replaceVersionFile(target, text);
+      replaced.push(target);
+    }
+  } catch (error) {
+    const failures = [error];
+    for (const target of replaced.reverse()) {
+      try { replaceVersionFile(target, originals.get(target)); }
+      catch (rollbackError) { failures.push(rollbackError); }
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, `Version update and rollback failed: ${failures.map((failure) => failure.message).join('; ')}`, { cause: error });
+    }
+    throw error;
+  }
 }
 
 export function releaseBase(repo, currentVersion) {
