@@ -3,7 +3,7 @@
   "minimum_chrome_version": "116",
   "name": "Atlas Extension",
   "description": "Browser capture companion for Atlas Desktop.",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "permissions": [
     "storage",
     "tabs",

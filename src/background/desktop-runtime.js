@@ -61,6 +61,10 @@ export function createDesktopRuntime(options = {}) {
     stopEventClient();
 
     try {
+      // A background restart drops the request but leaves its saved pending flag.
+      if (pairingController === null) {
+        await patchDesktopConnectionState({ pairingPending: false }, storage);
+      }
       const hello = await transport.hello();
       let state = await patchDesktopConnectionState({
         app: hello.app,
@@ -138,11 +142,7 @@ export function createDesktopRuntime(options = {}) {
   }
 
   async function cancelPairing() {
-    if (pairingController === null) {
-      return diagnostics();
-    }
-
-    pairingController.abort(createDesktopContractError(
+    pairingController?.abort(createDesktopContractError(
       'PAIRING_CANCELLED',
       'Desktop pairing was cancelled.',
       true,

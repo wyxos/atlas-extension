@@ -26,6 +26,83 @@ function pairedStorage() {
   });
 }
 
+for (const action of ['initialize', 'reconnect', 'cancelPairing']) {
+  test(`${action} clears an abandoned pairing and permits a fresh request`, async () => {
+    const storage = createStorage({
+      unrelatedSetting: { retained: true },
+      [desktopConnectionStorageKey]: {
+        ...createDefaultDesktopConnectionState('dev'),
+        pairingPending: true,
+      },
+    });
+    const runtime = createDesktopRuntime({
+      storage,
+      createEventClient: () => ({ async start() {}, stop() {} }),
+      transport: {
+        channel: 'dev',
+        async hello() { return { app: { channel: 'dev' }, protocol_version: 1 }; },
+        async pair() { return { client_id: 'client-new', client_token: 'token-new' }; },
+        async runtimePolicy() { return { revision: 0, settings: { schemaVersion: 1, settings: {} } }; },
+      },
+    });
+
+    const recovered = await runtime[action]();
+    assert.equal(recovered.pairingPending, false);
+    assert.equal(recovered.paired, false);
+    assert.equal((await storage.get(desktopConnectionStorageKey))[desktopConnectionStorageKey].pairingPending, false);
+    assert.deepEqual(await storage.get('unrelatedSetting'), { unrelatedSetting: { retained: true } });
+    const paired = await runtime.pair();
+    assert.equal(paired.pairingPending, false);
+    assert.equal(paired.paired, true);
+  });
+}
+
+test('initialization clears abandoned pairing even when Desktop is offline', async () => {
+  const runtime = createDesktopRuntime({
+    storage: createStorage({
+      [desktopConnectionStorageKey]: { ...createDefaultDesktopConnectionState('dev'), pairingPending: true },
+    }),
+    transport: {
+      channel: 'dev',
+      async hello() { throw createDesktopContractError('DESKTOP_OFFLINE', 'Offline.', true); },
+    },
+  });
+  const result = await runtime.initialize();
+  assert.equal(result.pairingPending, false);
+  assert.equal(result.health, 'offline');
+});
+
+test('reconnect preserves live pairing and cancel aborts it before retry', async () => {
+  const started = deferred();
+  let signal;
+  const runtime = createDesktopRuntime({
+    storage: createStorage({}),
+    createEventClient: () => ({ async start() {}, stop() {} }),
+    transport: {
+      channel: 'dev',
+      async hello() { return { app: { channel: 'dev' }, protocol_version: 1 }; },
+      async pair(options) {
+        if (signal) return { client_id: 'client-new', client_token: 'token-new' };
+        signal = options.signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          started.resolve();
+        });
+      },
+      async runtimePolicy() { return { revision: 0, settings: { schemaVersion: 1, settings: {} } }; },
+    },
+  });
+  const pairing = runtime.pair();
+  const cancelled = assert.rejects(pairing, { code: 'PAIRING_CANCELLED' });
+  await started.promise;
+  assert.equal((await runtime.reconnect()).pairingPending, true);
+  await assert.rejects(runtime.pair(), { code: 'PAIRING_PENDING' });
+  assert.equal((await runtime.cancelPairing()).pairingPending, false);
+  assert.equal(signal.aborted, true);
+  await cancelled;
+  assert.equal((await runtime.pair()).paired, true);
+});
+
 for (const code of ['PAIRING_REQUIRED', 'CLIENT_REVOKED', 'INVALID_CLIENT', 'UNAUTHORIZED']) {
   test(`unpair clears rejected ${code} credentials and permits a fresh dev pairing`, async () => {
     const storage = pairedStorage();
