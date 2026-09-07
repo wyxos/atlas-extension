@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { git, readVersion, snapshot, updateVersions } from '../scripts/smart-rebuild/repository.mjs';
+import { assertReady, git, readVersion, snapshot, updateVersions } from '../scripts/smart-rebuild/repository.mjs';
 import { runUpdate } from '../scripts/smart-rebuild/workflow.mjs';
 import { createReviewInput } from '../scripts/smart-rebuild/review-input.mjs';
 
@@ -49,6 +49,17 @@ function fixture(t) {
   };
   return { repos, options, calls };
 }
+
+test('repository validation accepts directory aliases and rejects nested directories', (t) => {
+  const { repos } = fixture(t);
+  const root = repos[0].root;
+  const alias = path.join(path.dirname(root), 'extension-alias');
+  fs.symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.doesNotThrow(() => assertReady(root));
+  assert.doesNotThrow(() => assertReady(alias));
+  assert.doesNotThrow(() => assertReady(fs.realpathSync.native(root)));
+  assert.throws(() => assertReady(path.join(root, 'src-tauri')), /Expected an independent repository/);
+});
 
 test('dirty release commits tracked/untracked/deleted files, then skips both; AE changes do not rebuild AD', async (t) => {
   const { repos, options, calls } = fixture(t);

@@ -37,7 +37,8 @@ export function assertSnapshot(root, expected) {
 }
 
 export function assertReady(root) {
-  if (git(root, ['rev-parse', '--show-toplevel']).toLowerCase() !== root.replaceAll('\\', '/').toLowerCase()) {
+  // Resolve Windows short paths and directory aliases before comparing roots.
+  if (fs.realpathSync.native(git(root, ['rev-parse', '--show-toplevel'])) !== fs.realpathSync.native(root)) {
     throw new Error(`Expected an independent repository at ${root}.`);
   }
   git(root, ['symbolic-ref', '--quiet', 'HEAD']);
