@@ -1,4 +1,4 @@
-import { canonicalCivitaiPage } from '../shared/civitai-page.js';
+import { canonicalProviderPage } from '../shared/provider-page.js';
 
 const contentInterestStorageKey = 'atlasContentInterestsV1';
 
@@ -61,7 +61,7 @@ export function createContentInterestRegistry({
 
   function matchingTabIds(payload) {
     const sourceUrl = normalizeUrl(payload?.assetUrl);
-    const referrerUrl = canonicalCivitaiPage(normalizeUrl(payload?.referrerUrl));
+    const referrerUrl = canonicalProviderPage(normalizeUrl(payload?.referrerUrl));
     return [...new Set([
       ...(sourceUrl === null ? [] : sourceTabIds.get(sourceUrl) ?? []),
       ...(referrerUrl === null ? [] : referrerTabIds.get(referrerUrl) ?? []),
@@ -182,14 +182,14 @@ export function createContentInterestRegistry({
     deleteRecord(record.tabId);
     records.set(record.tabId, record);
     addToIndex(sourceTabIds, record.sourceUrls, record.tabId);
-    addToIndex(referrerTabIds, record.referrerUrls.map(canonicalCivitaiPage), record.tabId);
+    addToIndex(referrerTabIds, record.referrerUrls.map(canonicalProviderPage), record.tabId);
   }
 
   function deleteRecord(tabId) {
     const record = records.get(tabId);
     if (!record) return false;
     removeFromIndex(sourceTabIds, record.sourceUrls, tabId);
-    removeFromIndex(referrerTabIds, record.referrerUrls.map(canonicalCivitaiPage), tabId);
+    removeFromIndex(referrerTabIds, record.referrerUrls.map(canonicalProviderPage), tabId);
     records.delete(tabId);
     return true;
   }

@@ -26,6 +26,7 @@ export function postAssetReaction({
 }) {
   return transport.reaction(credentials, {
     asset_url: asset.source,
+    ...(asset.providerIdentity ? { provider_identity: asset.providerIdentity } : {}),
     ...(asset.matchIdentity ? { match_identity: asset.matchIdentity } : {}),
     ...(downloadAction ? { download_action: downloadAction } : {}),
     metadata: buildAssetMetadata(asset),
@@ -107,6 +108,7 @@ function buildAssetMetadata(asset) {
 function normalizeBatchItems(items) {
   return (items ?? []).map((item) => ({
     asset_url: item.asset?.source,
+    ...(item.asset?.providerIdentity ? { provider_identity: item.asset.providerIdentity } : {}),
     ...(item.asset?.matchIdentity ? { match_identity: item.asset.matchIdentity } : {}),
     metadata: buildAssetMetadata(item.asset ?? {}),
     referrer_url: item.referrerUrl,
@@ -163,6 +165,7 @@ function normalizeStatusMatchItem(item) {
       rule_id: item?.rule_id,
       referrer_url: item?.referrer_url,
       asset_url: item?.asset_url,
+      provider_identity: item?.provider_identity,
     }).filter(([, value]) => value !== null && value !== undefined && value !== ''),
   );
 }

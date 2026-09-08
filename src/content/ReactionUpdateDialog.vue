@@ -28,7 +28,7 @@ function reactionLabel(value) {
 
 function descriptionFor(request) {
   if (request?.kind === 'provider-fallback') {
-    return 'CivitAI could not return this item. Use the existing Atlas item when available, or save the browser media without CivitAI metadata.';
+    return 'The provider could not return this item. Use the existing Atlas item when available, or save the browser media without provider metadata.';
   }
   const current = reactionLabel(request?.currentReaction);
   const next = reactionLabel(request?.nextReaction);
@@ -42,7 +42,7 @@ function descriptionFor(request) {
   <ExtensionDialog
     :open="request !== null"
     :portal-target="portalTarget"
-    :title="request?.kind === 'provider-fallback' ? 'Continue without CivitAI?' : 'Update reaction?'"
+    :title="request?.kind === 'provider-fallback' ? 'Continue without provider metadata?' : 'Update reaction?'"
     :description="descriptionFor(request)"
     @cancel="emit('resolve', 'cancel')"
   >
@@ -68,7 +68,7 @@ function descriptionFor(request) {
         type="button"
         @click="emit('resolve', request?.kind === 'provider-fallback' ? 'browser-download' : 'redownload')"
       >
-        {{ request?.kind === 'provider-fallback' ? 'Continue without CivitAI' : 'React + redownload' }}
+        {{ request?.kind === 'provider-fallback' ? 'Continue without provider metadata' : 'React + redownload' }}
       </button>
     </div>
   </ExtensionDialog>

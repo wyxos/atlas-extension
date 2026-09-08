@@ -1,4 +1,5 @@
 import { collectAssetBatchItems } from './batch-providers/index.js';
+import { captureProviderIdentity } from './provider-identities.js';
 import {
   postAssetReactionBatchViaBackground,
   postAssetReactionViaBackground,
@@ -53,7 +54,7 @@ export async function postAssetOrBatchReaction({
   }
 
   return postAssetReactionViaBackground({
-    asset,
+    asset: { ...asset, providerIdentity: captureProviderIdentity({ documentContext, pageUrl: locationContext.href }) ?? undefined },
     downloadAction,
     reactionType: event.type,
     ...(previewOnly === true ? { previewOnly: true } : {}),

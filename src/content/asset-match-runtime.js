@@ -1,5 +1,6 @@
 import { deriveAssetMatchIdentity } from '../shared/asset-match-identity.js';
 import { civitaiPage } from '../shared/civitai-page.js';
+import { captureProviderIdentity } from './provider-identities.js';
 
 export function decorateAssetWithMatchIdentity({
   asset,
@@ -7,7 +8,10 @@ export function decorateAssetWithMatchIdentity({
   preferences,
   referrerUrl,
   siteDomain,
+  documentContext = globalThis.document,
 }) {
+  const providerIdentity = captureProviderIdentity({ documentContext, pageUrl });
+  if (providerIdentity) asset = { ...asset, providerIdentity, providerReferrerUrl: pageUrl };
   const result = deriveAssetMatchIdentity({
     asset,
     pageUrl,
@@ -37,6 +41,7 @@ export function statusMatchItemForAsset(asset, variant) {
 
   return {
     ...asset.matchIdentity,
+    ...(asset.providerIdentity ? { provider_identity: asset.providerIdentity } : {}),
     lookup_id: lookupIdForTarget(variant, targetKey),
     ...(variant === 'asset' && asset.providerReferrerUrl ? {
       referrer_url: asset.providerReferrerUrl,

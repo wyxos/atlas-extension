@@ -69,7 +69,7 @@ watch(() => props.asset.activeReaction, (activeReaction) => {
           <option value="force">React + redownload</option>
         </select>
       </label>
-      <label><input v-model="useBrowserDownload" type="checkbox"> Preview “Continue without CivitAI”</label>
+      <label><input v-model="useBrowserDownload" type="checkbox"> Preview “Continue without provider metadata”</label>
       <p v-if="asset.activeReaction">
         When reacting, Atlas asks whether to update only or redownload.
       </p>

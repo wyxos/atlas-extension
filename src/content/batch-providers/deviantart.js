@@ -1,3 +1,4 @@
+import { captureProviderIdentity } from '../provider-identities.js';
 const providerName = 'deviantart';
 const defaultMaxItems = 50;
 const defaultNavigationTimeoutMs = 2500;
@@ -92,6 +93,9 @@ export function readCurrentDeviantArtBatchItem({
 
   return {
     asset: {
+      ...(captureProviderIdentity({ documentContext, pageUrl: locationContext?.href }) ? {
+        providerIdentity: captureProviderIdentity({ documentContext, pageUrl: locationContext?.href }),
+      } : {}),
       resolution: readImageResolution(image),
       source,
       type: 'image',
