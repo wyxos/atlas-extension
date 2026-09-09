@@ -321,3 +321,53 @@ test('Codex input contains immutable working edits, untracked additions, deletio
   assert.match(input, /deleted file mode/);
   assert.doesNotMatch(input, /a later edit must not enter/);
 });
+
+function reviewEvidence(input) {
+  return JSON.parse(input.split('BEGIN GIT EVIDENCE (JSON DATA)\n')[1].split('\nEND GIT EVIDENCE')[0]);
+}
+
+test('large task history stays bounded for clean and dirty releases without losing working evidence', (t) => {
+  const { repos } = fixture(t);
+  const repo = repos[0];
+  const taskContext = { tasks: Array.from({ length: 80 }, (_, id) => ({ id,
+    title: 'Task', request: '\\"\n'.repeat(2000), finalAnswer: 'Verified outcome' })) };
+  for (const dirty of [false, true]) {
+    if (dirty) fs.writeFileSync(path.join(repo.root, 'new.txt'), 'Complete working evidence\n');
+    const initial = snapshot(repo.root);
+    const evidence = reviewEvidence(createReviewInput({ repo, initial, base: 'v0.1.0', currentVersion: '0.1.0', taskContext }));
+    assert.ok(JSON.stringify(evidence, null, 2).length <= 750_000);
+    assert.ok(evidence.taskContext.tasks.length > 0 && evidence.taskContext.tasks.length < 80);
+    assert.match(evidence.taskContext.coverage, /omitted/);
+    assert.deepEqual(evidence.changeUnits, changeUnits(repo.root, initial.head, initial.tree));
+    if (dirty) assert.match(evidence.workingChanges.patch, /Complete working evidence/);
+    else assert.equal(evidence.workingChanges.patch, '');
+  }
+  assert.equal(taskContext.tasks.length, 80);
+});
+
+test('oversized working evidence still stops review instead of truncating changes', (t) => {
+  const { repos } = fixture(t);
+  const repo = repos[0];
+  fs.writeFileSync(path.join(repo.root, 'large.txt'), 'x'.repeat(400_000));
+  assert.throws(() => createReviewInput({ repo, initial: snapshot(repo.root), base: 'v0.1.0', currentVersion: '0.1.0' }),
+    /Git evidence alone exceeds.*task history is excluded/);
+});
+
+test('working evidence takes priority over optional historical patch and task excerpts', (t) => {
+  const { repos } = fixture(t);
+  const repo = repos[0];
+  fs.writeFileSync(path.join(repo.root, 'history.txt'), 'h'.repeat(190_000));
+  git(repo.root, ['add', '-A']);
+  git(repo.root, ['commit', '-m', 'feat: historical feature']);
+  fs.writeFileSync(path.join(repo.root, 'working.txt'), 'w'.repeat(290_000));
+  const initial = snapshot(repo.root);
+  const evidence = reviewEvidence(createReviewInput({ repo, initial, base: 'v0.1.0', currentVersion: '0.1.0',
+    taskContext: { tasks: [{ title: 't'.repeat(800_000) }] } }));
+  assert.ok(JSON.stringify(evidence, null, 2).length <= 750_000);
+  assert.equal(evidence.historicalChanges.patch, null);
+  assert.match(evidence.historicalChanges.commits, /feat: historical feature/);
+  assert.match(evidence.historicalChanges.coverage, /omitted/);
+  assert.deepEqual(evidence.changeUnits, changeUnits(repo.root, initial.head, initial.tree));
+  assert.ok(evidence.workingChanges.patch.includes('w'.repeat(290_000)));
+  assert.match(evidence.taskContext.coverage, /1 omitted/);
+});

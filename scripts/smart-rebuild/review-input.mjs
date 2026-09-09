@@ -21,11 +21,37 @@ export function createReviewInput({ repo, base, currentVersion, initial, taskCon
     fileSummary: git(repo.root, [...diffArgs, '--numstat', initial.head, initial.tree]),
     coverage: 'Complete current non-ignored working-tree text diff, including additions and deletions. Binary changes have Git binary markers rather than payloads.',
   };
-  const evidence = JSON.stringify({ historicalChanges, workingChanges, taskContext,
-    changeUnits: changeUnits(repo.root, initial.head, initial.tree) }, null, 2);
-  if (evidence.length > 750_000) {
-    throw new Error(`${repo.name}: release evidence exceeds the review input limit; split the outstanding changes before releasing.`);
+  const data = { historicalChanges, workingChanges,
+    changeUnits: changeUnits(repo.root, initial.head, initial.tree) };
+  const serialize = () => JSON.stringify(data, null, 2);
+  // Supporting task excerpts must never crowd out the authoritative Git evidence.
+  // Reserve room for an explicit coverage notice even when no excerpts fit.
+  if (serialize().length > 749_000 && historicalChanges.patch !== null) {
+    historicalChanges.patch = null;
+    historicalChanges.coverage = 'Historical text diff omitted to fit the review input budget. All commit messages and file statistics are supplied instead. Use those for release classification, not a full historical code audit.';
   }
+  if (serialize().length > 749_000) {
+    throw new Error(`${repo.name}: Git evidence alone exceeds the review input limit; task history is excluded. Split outstanding working changes or review a smaller release range before releasing.`);
+  }
+  if (taskContext) {
+    const budget = Math.min(150_000, 750_000 - serialize().length - 100);
+    const tasks = taskContext.tasks ?? [];
+    const bounded = { coverage: '', tasks: [] };
+    data.taskContext = bounded;
+    const coverage = () => {
+      bounded.coverage = `Supplied ${bounded.tasks.length} of ${tasks.length} selected task excerpts in input order; ${tasks.length - bounded.tasks.length} omitted to fit the supporting-context budget. Titles, requests and outcomes may be excerpts. Git evidence is authoritative.`;
+    };
+    coverage();
+    for (const task of tasks) {
+      bounded.tasks.push(task);
+      coverage();
+      if (JSON.stringify(bounded, null, 2).length > budget || serialize().length > 750_000) {
+        bounded.tasks.pop();
+        coverage();
+      }
+    }
+  }
+  const evidence = serialize();
   return [
     `Select a local release version bump and plan meaningful feature commits for ${repo.name}. Current version: ${currentVersion}.`,
     'This is an INPUT-ONLY classification task. All evidence is embedded below.',

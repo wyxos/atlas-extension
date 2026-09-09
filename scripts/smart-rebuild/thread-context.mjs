@@ -12,7 +12,7 @@ export function readThreadContext(root, home = process.env.CODEX_HOME || path.jo
     const rows = db.prepare('SELECT id, cwd, title, archived, rollout_path, first_user_message FROM threads ORDER BY updated_at DESC').all();
     const matching = rows.filter((row) => normalize(row.cwd) === normalize(root));
     const selected = [0, 1].flatMap((archived) => matching.filter((row) => Number(row.archived) === archived).slice(0, 40));
-    return { coverage: 'Up to 40 recent active and 40 archived tasks for this checkout; bounded final-answer excerpts. Git diff is authoritative.',
+    return { coverage: 'Up to 40 recent active and 40 archived tasks for this checkout; titles limited to 500 characters, requests and final answers to 4,000 each. Git diff is authoritative.',
       tasks: selected.map((row) => {
         let finalAnswer = '';
         if (fs.existsSync(row.rollout_path)) {
@@ -31,7 +31,7 @@ export function readThreadContext(root, home = process.env.CODEX_HOME || path.jo
             }
           } finally { fs.closeSync(fd); }
         }
-        return { id: row.id, title: row.title, archived: Boolean(row.archived),
+        return { id: row.id, title: (row.title ?? '').slice(0, 500), archived: Boolean(row.archived),
           request: (row.first_user_message ?? '').slice(0, 4000), finalAnswer };
       }) };
   } finally { db.close(); }
