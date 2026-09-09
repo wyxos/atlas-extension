@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runUpdate } from './smart-rebuild/workflow.mjs';
 import { createReviewInput } from './smart-rebuild/review-input.mjs';
+import { readThreadContext } from './smart-rebuild/thread-context.mjs';
 
 const extensionRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const desktopRoot = path.resolve(extensionRoot, '..', 'atlas-desktop');
@@ -34,17 +35,20 @@ function findCodex() {
 
 function analyze(context) {
   const { repo } = context;
-  const prompt = createReviewInput(context);
+  const prompt = createReviewInput({ ...context, taskContext: readThreadContext(repo.root) });
   const output = path.join(stateDirectory, `codex-${repo.kind}.json`);
   const schema = path.join(stateDirectory, 'release-schema.json');
   const logPath = path.join(stateDirectory, `codex-${repo.kind}.log`);
   fs.rmSync(output, { force: true });
   fs.writeFileSync(schema, JSON.stringify({
     type: 'object', additionalProperties: false,
-    required: ['proceed', 'bump', 'commitMessage', 'reason'],
+    required: ['proceed', 'bump', 'commits', 'reason'],
     properties: {
       proceed: { type: 'boolean' }, bump: { enum: ['major', 'minor', 'patch'] },
-      commitMessage: { type: 'string' }, reason: { type: 'string' },
+      commits: { type: 'array', items: { type: 'object', additionalProperties: false,
+        required: ['message', 'reason', 'changes'], properties: { message: { type: 'string' },
+          reason: { type: 'string' }, changes: { type: 'array', items: { type: 'string' } } } } },
+      reason: { type: 'string' },
     },
   }));
   console.log(`${repo.name}: sending captured Git evidence to Codex for commit/version review (${prompt.length} characters). Log: ${logPath}`);
@@ -94,8 +98,12 @@ try {
   await runUpdate({
     repos, statePath, dryRun, analyze,
     check: (repo) => {
-      console.log(`${repo.name}: running npm run check before committing.`);
-      run('pwsh.exe', ['-NoProfile', '-Command', '& npm.cmd run check; exit $LASTEXITCODE'], { cwd: repo.root });
+      const checks = repo.kind === 'desktop'
+        ? ['lint', 'build:desktop:dev', 'test:unit', 'lint:rust', 'test:rust'] : ['check'];
+      for (const check of checks) {
+        console.log(`${repo.name}: running npm run ${check} before committing.`);
+        run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd run ${check}; exit $LASTEXITCODE`], { cwd: repo.root });
+      }
     },
     build: (repo) => {
       const script = repo.kind === 'extension' ? 'rebuild-unpacked-extension.ps1' : 'rebuild-and-run-installer.ps1';

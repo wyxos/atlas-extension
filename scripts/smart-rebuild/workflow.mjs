@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { changeUnits, plannedCommits, publishCommits, versionTree } from './commit-plan.mjs';
 import {
   artifactFingerprint, assertReady, assertSnapshot, bumpVersion, compareVersions,
-  git, readVersion, releaseBase, saveState, snapshot, updateVersions,
+  readVersion, releaseBase, saveState, snapshot, updateVersions,
 } from './repository.mjs';
 
 export async function runUpdate({ repos, statePath, analyze, check, build, dryRun = false, log = console.log }) {
@@ -32,6 +33,9 @@ export async function runUpdate({ repos, statePath, analyze, check, build, dryRu
     }
     const pending = previous.pending?.tree === initial.tree && !initial.status ? previous.pending : null;
     const preparing = previous.preparing?.tree === initial.tree ? previous.preparing : null;
+    if (preparing && !preparing.commits) {
+      throw new Error('Legacy single-commit preparation found; review its version and clear preparing state before retrying.');
+    }
     const repair = previous.success?.tree === initial.tree && !initial.status ? previous.success : null;
     const action = pending || preparing ? 'retry' : repair ? 'restore' : 'release';
     log(`${repo.name}: ${action}${initial.status ? ' (uncommitted changes)' : ''}.`);
@@ -46,10 +50,13 @@ export async function runUpdate({ repos, statePath, analyze, check, build, dryRu
         const currentVersion = readVersion(repo);
         const base = previous.success?.head ?? releaseBase(repo, currentVersion);
         const decision = await analyze({ repo, base, currentVersion, initial });
-        if (decision.proceed !== true || !decision.commitMessage?.trim()
+        if (decision.proceed !== true || !Array.isArray(decision.commits)
           || !['major', 'minor', 'patch'].includes(decision.bump) || !decision.reason?.trim()) {
           throw new Error(`${repo.name}: Codex did not approve release preparation. ${decision.reason ?? ''}`);
         }
+        const files = changeUnits(repo.root, initial.head, initial.tree);
+        const commits = plannedCommits(repo.root, initial.head, files, decision.commits);
+        if (commits.length && commits.at(-1).tree !== initial.tree) throw new Error('Commit plan changed source content.');
         assertSnapshot(repo.root, initial);
         assertOtherRepos(repo);
         const floor = previous.pending?.version ?? previous.success?.version ?? currentVersion;
@@ -57,8 +64,13 @@ export async function runUpdate({ repos, statePath, analyze, check, build, dryRu
         const version = compareVersions(currentVersion, floor) > 0 ? currentVersion
           : bumpVersion(compareVersions(currentVersion, floor) < 0 ? floor : currentVersion, decision.bump);
         log(`${repo.name}: ${currentVersion} -> ${version} (${decision.bump}): ${decision.reason}`);
-        updateVersions(repo, version);
-        plan = { tree: snapshot(repo.root).tree, version, reason: decision.reason, commitMessage: decision.commitMessage };
+        const updates = updateVersions(repo, version);
+        const tree = versionTree(repo.root, initial.tree, updates);
+        if (snapshot(repo.root).tree !== tree) throw new Error('Source changed during version preparation.');
+        commits.push({ tree, message: `chore(release): prepare ${repo.name} ${version}`,
+          reason: `Atlas local release: ${repo.kind} v${version}\n\n${decision.reason}` });
+        plan = { tree, base: initial.head, version, reason: decision.reason, commits };
+        log(`${repo.name}: planned commits:\n${commits.map((commit) => `  ${commit.message}`).join('\n')}`);
         // Save before validation/commit so failures reuse this version on the next run.
         state.repos[key] = { ...previous, preparing: plan };
         saveState(statePath, state);
@@ -68,9 +80,8 @@ export async function runUpdate({ repos, statePath, analyze, check, build, dryRu
       assertSnapshot(repo.root, versioned);
       assertOtherRepos(repo);
       if (versioned.status) {
-        git(repo.root, ['add', '-A', '--', '.']);
-        git(repo.root, ['commit', '-m', plan.commitMessage.trim(), '-m',
-          `Atlas local release: ${repo.kind} v${plan.version}\n\n${plan.reason}`]);
+        if (versioned.head !== plan.base) throw new Error('Release base changed; refusing to publish the commit plan.');
+        publishCommits(repo.root, plan.base, plan.commits);
       }
       const committed = snapshot(repo.root);
       if (committed.status || committed.tree !== versioned.tree) {

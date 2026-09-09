@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { assertReady, git, readVersion, snapshot, updateVersions } from '../scripts/smart-rebuild/repository.mjs';
 import { runUpdate } from '../scripts/smart-rebuild/workflow.mjs';
+import { changeUnits, plannedCommits } from '../scripts/smart-rebuild/commit-plan.mjs';
 import { createReviewInput } from '../scripts/smart-rebuild/review-input.mjs';
 
 function fixture(t) {
@@ -37,9 +38,9 @@ function fixture(t) {
   const calls = { analyze: [], build: [], check: [] };
   const options = {
     repos, statePath: path.join(directory, 'state.json'), log: () => {},
-    analyze: ({ repo }) => {
+    analyze: ({ repo, initial }) => {
       calls.analyze.push(repo.kind);
-      return { proceed: true, bump: 'minor', commitMessage: 'feat: improve capture', reason: 'Adds a capture feature.' };
+      return { proceed: true, bump: 'minor', commits: initial.status ? [{ message: 'feat: improve capture', reason: 'Capture feature', changes: changeUnits(repo.root, initial.head, initial.tree).flatMap(file => file.units.map(unit => unit.id)) }] : [], reason: 'Adds a capture feature.' };
     },
     check: (repo) => calls.check.push(repo.kind),
     build: (repo) => {
@@ -50,6 +51,79 @@ function fixture(t) {
   };
   return { repos, options, calls };
 }
+
+test('semantic groups split shared-file hunks and keep release versioning separate', async (t) => {
+  const { repos, options } = fixture(t);
+  const repo = repos[0];
+  fs.writeFileSync(path.join(repo.root, 'shared.txt'), 'one\nkeep\nkeep\nkeep\ntwo\n');
+  git(repo.root, ['add', '-A']);
+  git(repo.root, ['commit', '-m', 'Shared fixture']);
+  const base = git(repo.root, ['rev-parse', 'HEAD']);
+  fs.writeFileSync(path.join(repo.root, 'shared.txt'), 'first feature\nkeep\nkeep\nkeep\nsecond fix\n');
+  const analyze = options.analyze;
+  options.analyze = (context) => {
+    if (context.repo !== repo) return analyze(context);
+    const units = changeUnits(repo.root, context.initial.head, context.initial.tree).flatMap(file => file.units);
+    assert.equal(units.length, 2);
+    return { proceed: true, bump: 'minor', reason: 'Two tasks', commits: [
+      { message: 'feat: first task', reason: 'Archived task', changes: [units[0].id] },
+      { message: 'fix: second task', reason: 'Active task', changes: [units[1].id] },
+    ] };
+  };
+  await runUpdate(options);
+  assert.deepEqual(git(repo.root, ['log', '--reverse', '--format=%s', `${base}..HEAD`]).split('\n'),
+    ['feat: first task', 'fix: second task', 'chore(release): prepare extension 0.2.0']);
+  assert.equal(git(repo.root, ['show', 'HEAD~2:shared.txt']), 'first feature\nkeep\nkeep\nkeep\ntwo');
+  assert.equal(git(repo.root, ['diff', '--name-only', 'HEAD~1', 'HEAD']).includes('shared.txt'), false);
+});
+
+test('invalid semantic plans fail before versioning and preserve staging', async (t) => {
+  const { repos, options } = fixture(t);
+  const repo = repos[0];
+  fs.writeFileSync(path.join(repo.root, 'source.txt'), 'change\n');
+  git(repo.root, ['add', 'source.txt']);
+  const initial = snapshot(repo.root);
+  const files = changeUnits(repo.root, initial.head, initial.tree);
+  for (const changes of [[], ['unknown'], ['change-1', 'change-1']]) {
+    options.analyze = () => ({ proceed: true, bump: 'patch', reason: 'Fix',
+      commits: changes.length ? [{ message: 'fix: change', reason: 'Task', changes }] : [] });
+    await assert.rejects(runUpdate(options), /cover every|Unknown or duplicate/);
+    assert.deepEqual(snapshot(repo.root), initial);
+  }
+  assert.equal(readVersion(repo), '0.1.0');
+  assert.equal(fs.existsSync(options.statePath), false);
+  assert.throws(() => plannedCommits(repo.root, initial.head, files, null), /Missing semantic/);
+});
+
+test('binary additions and text without a final newline survive semantic commits exactly', (t) => {
+  const { repos } = fixture(t);
+  const repo = repos[0];
+  fs.writeFileSync(path.join(repo.root, 'binary.dat'), Buffer.from([0, 255, 10, 0, 13]));
+  fs.writeFileSync(path.join(repo.root, 'source.txt'), 'replacement with trailing spaces  ');
+  const initial = snapshot(repo.root);
+  const files = changeUnits(repo.root, initial.head, initial.tree);
+  const groups = files.map((file, index) => ({ message: `fix: part ${index}`, reason: 'Separate task',
+    changes: file.units.map((unit) => unit.id) }));
+  assert.equal(plannedCommits(repo.root, initial.head, files, groups).at(-1).tree, initial.tree);
+  assert.deepEqual(snapshot(repo.root), initial);
+});
+
+test('concurrent edits during version replacement cannot enter the release commit', async (t) => {
+  const { repos, options } = fixture(t);
+  const repo = repos[0];
+  const head = git(repo.root, ['rev-parse', 'HEAD']);
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (source, target) => {
+    const result = rename(source, target);
+    if (target === path.join(repo.root, 'manifest.json')) {
+      fs.writeFileSync(path.join(repo.root, 'source.txt'), 'Concurrent edit');
+    }
+    return result;
+  });
+  await assert.rejects(runUpdate(options), /Source changed during version preparation/);
+  assert.equal(git(repo.root, ['rev-parse', 'HEAD']), head);
+  assert.equal(fs.readFileSync(path.join(repo.root, 'source.txt'), 'utf8'), 'Concurrent edit');
+});
 
 test('repository validation accepts directory aliases and rejects nested directories', (t) => {
   const { repos } = fixture(t);
@@ -70,7 +144,7 @@ test('dirty release commits tracked/untracked/deleted files, then skips both; AE
   for (const repo of repos) {
     assert.equal(readVersion(repo), '0.2.0');
     assert.equal(git(repo.root, ['status', '--porcelain']), '');
-    assert.match(git(repo.root, ['log', '-1', '--format=%B']), /feat: improve capture/);
+    assert.match(git(repo.root, ['log', '-1', '--format=%B']), /chore\(release\): prepare/);
   }
   assert.deepEqual((await runUpdate(options)).map((item) => item.action), ['skip', 'skip']);
   fs.writeFileSync(path.join(repos[0].root, 'new.txt'), 'another feature');

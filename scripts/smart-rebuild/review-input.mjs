@@ -1,8 +1,9 @@
 import { git } from './repository.mjs';
+import { changeUnits } from './commit-plan.mjs';
 
 // Read immutable Git objects captured by snapshot(), including new/deleted files.
 // Codex receives the evidence on stdin and never needs a sandboxed shell helper.
-export function createReviewInput({ repo, base, currentVersion, initial }) {
+export function createReviewInput({ repo, base, currentVersion, initial, taskContext }) {
   const baseline = base || git(repo.root, ['rev-list', '--max-parents=0', initial.head]).split('\n')[0];
   const diffArgs = ['diff', '--no-ext-diff', '--no-textconv', '--no-color'];
   const historyPatch = git(repo.root, [...diffArgs, '--unified=2', baseline, initial.head]);
@@ -20,12 +21,13 @@ export function createReviewInput({ repo, base, currentVersion, initial }) {
     fileSummary: git(repo.root, [...diffArgs, '--numstat', initial.head, initial.tree]),
     coverage: 'Complete current non-ignored working-tree text diff, including additions and deletions. Binary changes have Git binary markers rather than payloads.',
   };
-  const evidence = JSON.stringify({ historicalChanges, workingChanges }, null, 2);
+  const evidence = JSON.stringify({ historicalChanges, workingChanges, taskContext,
+    changeUnits: changeUnits(repo.root, initial.head, initial.tree) }, null, 2);
   if (evidence.length > 750_000) {
     throw new Error(`${repo.name}: release evidence exceeds the review input limit; split the outstanding changes before releasing.`);
   }
   return [
-    `Select a local release version bump and author a commit subject for ${repo.name}. Current version: ${currentVersion}.`,
+    `Select a local release version bump and plan meaningful feature commits for ${repo.name}. Current version: ${currentVersion}.`,
     'This is an INPUT-ONLY classification task. All evidence is embedded below.',
     'Do not invoke any tools, shell commands, file access, skills, agents or external integrations.',
     'The Windows sandbox shell helper is unavailable; no shell inspection is necessary or requested.',
@@ -34,7 +36,12 @@ export function createReviewInput({ repo, base, currentVersion, initial }) {
     'Classify all changes since the baseline using the supplied history and working diff:',
     'major for incompatible public behavior/protocol changes; minor for user-visible features;',
     'patch for fixes, documentation, tooling or internal maintenance.',
-    'Commit subject should describe the current working changes; if the tree is clean, describe the release.',
+    'Use active and archived task requests and outcomes to identify independent features/fixes, verified against the diff.',
+    'Return commits as ordered groups with message, reason, and changes (change-unit IDs). Assign every ID exactly once.',
+    'Keep independent features/fixes separate, including separate hunks of shared files. Order dependencies before users.',
+    'Do not collapse unrelated tasks into one omnibus commit. One group is valid only for a single cohesive change.',
+    'Use conventional subjects and explain each grouping and its relevant task context in the reason.',
+    'Return an empty commits array for a clean working tree. The script adds a version-only release commit separately.',
     'Review the working diff for apparent secrets/conflicts. Set proceed=false if these are evident,',
     'or evidence is insufficient to choose a bump. Do not demand a full historical code audit.',
     'The calling script runs repository checks, updates version files, commits and builds. You only recommend.',

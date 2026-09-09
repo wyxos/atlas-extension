@@ -138,6 +138,7 @@ export function updateVersions(repo, version) {
     }
     throw error;
   }
+  return updates.map(([target, text]) => ({ file: path.relative(repo.root, target).replaceAll('\\', '/'), text }));
 }
 
 export function releaseBase(repo, currentVersion) {
