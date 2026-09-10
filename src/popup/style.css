@@ -203,3 +203,15 @@ body {
   font-size: 12px;
   line-height: 1.35;
 }
+
+.atlas-popup__button-description {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.atlas-popup__button-hint {
+  color: var(--atlas-popup-muted);
+  font-size: 11px;
+  font-weight: 400;
+}

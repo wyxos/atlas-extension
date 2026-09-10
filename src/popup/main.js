@@ -3,6 +3,7 @@ import {
   Activity,
   ClipboardCopy,
   ClipboardPaste,
+  CodeXml,
   Minus,
   Plus,
   RefreshCw,
@@ -16,6 +17,7 @@ import { requestDesktopDiagnostics } from '../shared/desktop-messages.js';
 import { requestNextTabsLoad } from './load-next-tabs.js';
 import { describeDesktopStatus } from './desktop-status.js';
 import { openExtensionOptions } from './open-options.js';
+import { openServiceWorkerDetails } from './open-service-worker.js';
 import { requestExtensionReload } from './reload-extension.js';
 import { requestActiveTabScan } from './scan-active-tab.js';
 import {
@@ -34,6 +36,7 @@ const copyTabLinksButton = document.querySelector('#atlas-popup-copy-tab-links')
 const openClipboardLinksButton = document.querySelector('#atlas-popup-open-clipboard-links');
 const reloadButton = document.querySelector('#atlas-popup-reload');
 const testEventsButton = document.querySelector('#atlas-popup-test-events');
+const serviceWorkerButton = document.querySelector('#atlas-popup-service-worker');
 const openOptionsButton = document.querySelector('#atlas-popup-open-options');
 const actionStatusElement = document.querySelector('#atlas-popup-action-status');
 const connectionStatusElement = document.querySelector('#atlas-popup-connection-status');
@@ -65,6 +68,13 @@ testEventsButton?.addEventListener('click', () => {
 
 openOptionsButton?.addEventListener('click', () => {
   void openOptionsPage().catch(() => { setActionStatus('The action failed. Try again.'); setBusy(false); });
+});
+
+serviceWorkerButton?.addEventListener('click', async () => {
+  setBusy(true);
+  const result = await openServiceWorkerDetails();
+  setActionStatus(result.ok ? 'Click service worker under Inspect views. Enable Developer mode if needed.' : result.error);
+  setBusy(false);
 });
 
 globalThis.chrome?.storage?.onChanged?.addListener?.(handleStorageChange);
@@ -203,6 +213,7 @@ function initializeIcons() {
     reload: RefreshCw,
     scan: ScanSearch,
     'test-events': Activity,
+    'service-worker': CodeXml,
   };
 
   for (const element of document.querySelectorAll('[data-atlas-popup-icon]')) {
@@ -230,6 +241,7 @@ function setBusy(isBusy) {
     reloadButton,
     testEventsButton,
     openOptionsButton,
+    serviceWorkerButton,
   ]) {
     if (control !== null) {
       control.disabled = isBusy;
