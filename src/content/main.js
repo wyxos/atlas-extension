@@ -135,7 +135,7 @@ function getOverlayController() {
       return postAssetOrBatchReaction({
         asset, batchContext: batchContextsById.get(id), currentState: badgeStatesById.get(id) ?? {},
         documentContext: document, downloadAction, event: { type },
-        locationContext: { href: window.location.href, hostname: window.location.hostname },
+        locationContext: window.location,
         previewOnly: true, useBrowserDownload,
       });
     },
@@ -323,13 +323,13 @@ async function handleBadgeReaction(event) {
 
   let payload;
   try {
-    const locationContext = { href: window.location.href, hostname: window.location.hostname };
+    const originalPageUrl = window.location.href;
     payload = await submitWithProviderFallback({
       confirmFallback: (request) => getOverlayController().confirmReactionUpdate(request),
-      isCurrent: () => window.location.href === locationContext.href && shouldApplyAssetResponse(asset, assetsById.get(event.id)),
+      isCurrent: () => window.location.href === originalPageUrl && shouldApplyAssetResponse(asset, assetsById.get(event.id)),
       submit: (useBrowserDownload) => postAssetOrBatchReaction({
         asset, batchContext: batchContextsById.get(event.id), currentState,
-        documentContext: document, downloadAction, event, locationContext, useBrowserDownload,
+        documentContext: document, downloadAction, event, locationContext: window.location, useBrowserDownload,
       }),
     });
     if (payload === null) {

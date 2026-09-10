@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { postAssetOrBatchReaction } from '../src/content/batch-reactions.js';
+import { postAssetReactionBatch } from '../src/background/desktop-api.js';
 
 import {
   collectDeviantArtBatchItems,
@@ -229,6 +231,113 @@ test('collects DeviantArt batch items from thumbnails when navigation skips file
   assert.equal(currentFile, 1);
 });
 
+test('keeps every thumbnail item when the page URL stays on file 1', async () => {
+  const fixture = createGallery({ fixedUrl: true });
+  const items = await collectDeviantArtBatchItems(fixture);
+
+  assert.deepEqual(items.map((item) => [new URL(item.referrerUrl).searchParams.get('file'), item.asset.source]), [
+    ['1', 'https://images.example.test/file-1.jpg'],
+    ['2', 'https://images.example.test/file-2.jpg'],
+    ['3', 'https://images.example.test/file-3.jpg'],
+  ]);
+  assert.equal(fixture.currentFile(), 1);
+});
+
+test('waits for the image when the URL updates before the media', async () => {
+  const fixture = createGallery({ imageDelayMs: 120 });
+  const items = await collectDeviantArtBatchItems(fixture);
+
+  assert.deepEqual(items.map((item) => item.asset.source), [
+    'https://images.example.test/file-1.jpg',
+    'https://images.example.test/file-2.jpg',
+    'https://images.example.test/file-3.jpg',
+  ]);
+  assert.equal(fixture.currentFile(), 1);
+});
+
+test('navigation-only batches retain all images through the provider request and restore selection', async (t) => {
+  for (const startFile of [1, 3, 5]) {
+    await t.test(`starting at file ${startFile}`, async () => {
+      await verifyNavigationBatchRequest(t, startFile);
+    });
+  }
+});
+
+async function verifyNavigationBatchRequest(t, startFile) {
+  let currentFile = startFile;
+  const files = [1, 2, 3, 4, 5].map((index) => createImage({
+    src: `https://images.example.test/file-${index}.jpg`, width: 1000, height: 700,
+  }));
+  const documentContext = {
+    get images() { return [files[currentFile - 1]]; },
+    querySelector() {
+      return { getAttribute: () => 'DeviantArt://deviation/b7c73535-ddea-08f9-a423-69bb9c4d44ae' };
+    },
+    querySelectorAll(selector) {
+      if (selector !== 'button, [role="button"]') return [];
+      return [
+        currentFile > 1 ? createButton('Previous', () => { currentFile -= 1; }) : null,
+        currentFile < 5 ? createButton('Next', () => { currentFile += 1; }) : null,
+      ].filter(Boolean);
+    },
+  };
+  let sentBody;
+  const originalChrome = globalThis.chrome;
+  t.after(() => { globalThis.chrome = originalChrome; });
+  globalThis.chrome = { runtime: { sendMessage(message, callback) {
+    assert.equal(message.type, 'atlas-extension.asset-reaction-batch');
+    postAssetReactionBatch({ ...message, transport: { reactionBatch: async (_, body) => {
+      sentBody = body;
+      return { items: body.items };
+    } } }).then((payload) => callback({ ok: true, payload }));
+  } } };
+  await postAssetOrBatchReaction({
+    asset: { source: files[startFile - 1].src },
+    batchContext: { provider: 'deviantart' },
+    currentState: { batch: { checked: true } },
+    event: { type: 'like' },
+    documentContext,
+    locationContext: { href: `https://www.deviantart.com/artist/art/title-123?file=${startFile}` },
+  });
+  assert.deepEqual(sentBody.items.map((item) => [new URL(item.referrer_url).searchParams.get('file'), item.asset_url]),
+    files.map((file, index) => [String(index + 1), file.src]));
+  assert.ok(sentBody.items.every((item) => item.provider_identity?.provider === 'deviantart'));
+  assert.equal(sentBody.use_browser_download, undefined);
+  assert.equal(currentFile, startFile);
+}
+
+function createGallery({ fixedUrl = false, imageDelayMs = 0, neverLoads = false } = {}) {
+  let currentFile = 1;
+  let urlFile = 1;
+  const files = [1, 2, 3].map((index) => createImage({
+    src: `https://images.example.test/file-${index}.jpg`, width: 1000, height: 700,
+  }));
+  const buttons = files.map((_, index) => createButton('', () => {
+    urlFile = index + 1;
+    if (neverLoads) files[index].complete = false;
+    if (imageDelayMs) {
+      setTimeout(() => { currentFile = index + 1; }, imageDelayMs);
+    } else {
+      currentFile = index + 1;
+    }
+  }));
+  const thumbnails = buttons.map((button, index) => createImage({
+    button, section: { textContent: 'All Images' },
+    src: `https://images.example.test/file-${index + 1}-thumb.jpg`, width: 36, height: 36,
+  }));
+  return {
+    currentFile: () => currentFile,
+    documentContext: {
+      get images() { return [files[currentFile - 1], ...thumbnails]; },
+      querySelectorAll(selector) { return selector === 'section img' ? thumbnails : []; },
+    },
+    locationContext: {
+      get href() { return `https://www.deviantart.com/artist/art/title-123?file=${fixedUrl ? 1 : urlFile}`; },
+      hostname: 'www.deviantart.com',
+    },
+  };
+}
+
 function createButton(label, onClick = () => {}) {
   return {
     disabled: false,
@@ -282,3 +391,15 @@ function createImage({
     },
   };
 }
+
+test('collects distinct sources and restores selection before image bytes load', { timeout: 1500 }, async () => {
+  const fixture = createGallery({ neverLoads: true, imageDelayMs: 120 });
+  const items = await collectDeviantArtBatchItems(fixture);
+  assert.ok(items.slice(1).every((item) => item.asset.resolution === null));
+  assert.deepEqual(items.map((item) => [new URL(item.referrerUrl).searchParams.get('file'), item.asset.source]), [
+    ['1', 'https://images.example.test/file-1.jpg'],
+    ['2', 'https://images.example.test/file-2.jpg'],
+    ['3', 'https://images.example.test/file-3.jpg'],
+  ]);
+  assert.equal(fixture.currentFile(), 1);
+});

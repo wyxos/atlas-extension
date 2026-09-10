@@ -1,7 +1,8 @@
 import { captureProviderIdentity } from '../provider-identities.js';
 const providerName = 'deviantart';
 const defaultMaxItems = 50;
-const defaultNavigationTimeoutMs = 2500;
+// Allow slow gallery rendering, but never wait for the image bytes to download.
+const defaultNavigationTimeoutMs = 30000;
 const defaultPollMs = 50;
 
 export function resolveDeviantArtBatchContext({
@@ -45,35 +46,25 @@ export async function collectDeviantArtBatchItems({
 
   const originalFileIndex = fileIndexFromUrl(locationContext?.href);
   const itemsByReferrer = new Map();
+  const options = { documentContext, locationContext, maxItems, waitForChange, currentFileIndex: originalFileIndex };
 
-  collectCurrentItem(itemsByReferrer, documentContext, locationContext);
+  collectCurrentItem(itemsByReferrer, documentContext, locationContext, options.currentFileIndex);
 
-  let attempts = 0;
-  while (attempts < maxItems && await moveNavigation('Previous', {
-    documentContext,
-    locationContext,
-    waitForChange,
-  })) {
-    attempts += 1;
-    collectCurrentItem(itemsByReferrer, documentContext, locationContext);
+  try {
+    let attempts = 0;
+    while (attempts < maxItems && await moveNavigation('Previous', options)) {
+      attempts += 1;
+      collectCurrentItem(itemsByReferrer, documentContext, locationContext, options.currentFileIndex);
+    }
+
+    attempts = 0;
+    while (attempts < maxItems && await moveNavigation('Next', options)) {
+      attempts += 1;
+      collectCurrentItem(itemsByReferrer, documentContext, locationContext, options.currentFileIndex);
+    }
+  } finally {
+    await restoreFileIndex(originalFileIndex, options);
   }
-
-  attempts = 0;
-  while (attempts < maxItems && await moveNavigation('Next', {
-    documentContext,
-    locationContext,
-    waitForChange,
-  })) {
-    attempts += 1;
-    collectCurrentItem(itemsByReferrer, documentContext, locationContext);
-  }
-
-  await restoreFileIndex(originalFileIndex, {
-    documentContext,
-    locationContext,
-    maxItems,
-    waitForChange,
-  });
 
   return [...itemsByReferrer.values()].sort((left, right) => (
     fileIndexFromUrl(left.referrerUrl) - fileIndexFromUrl(right.referrerUrl)
@@ -83,6 +74,7 @@ export async function collectDeviantArtBatchItems({
 export function readCurrentDeviantArtBatchItem({
   documentContext = globalThis.document,
   locationContext = globalThis.location,
+  fileIndex = fileIndexFromUrl(locationContext?.href),
 } = {}) {
   const image = findMainImage(documentContext);
   const source = normalizeUrl(readImageSource(image));
@@ -100,7 +92,7 @@ export function readCurrentDeviantArtBatchItem({
       source,
       type: 'image',
     },
-    referrerUrl: deviantArtReferrerForFileIndex(locationContext.href, fileIndexFromUrl(locationContext.href)),
+    referrerUrl: deviantArtReferrerForFileIndex(locationContext.href, fileIndex),
     source: new URL(locationContext.href).hostname,
   };
 }
@@ -113,8 +105,8 @@ export function deviantArtReferrerForFileIndex(rawUrl, fileIndex) {
   return url.href;
 }
 
-function collectCurrentItem(itemsByReferrer, documentContext, locationContext) {
-  const item = readCurrentDeviantArtBatchItem({ documentContext, locationContext });
+function collectCurrentItem(itemsByReferrer, documentContext, locationContext, fileIndex) {
+  const item = readCurrentDeviantArtBatchItem({ documentContext, locationContext, fileIndex });
 
   if (item !== null) {
     itemsByReferrer.set(item.referrerUrl, item);
@@ -130,21 +122,21 @@ async function collectThumbnailBatchItems(thumbnailButtons, {
   const originalFileIndex = fileIndexFromUrl(locationContext?.href);
   const itemsByReferrer = new Map();
   const buttons = thumbnailButtons.slice(0, maxItems);
+  // The carousel can change media without updating location. Track the selected
+  // thumbnail ourselves, including when restoring the original selection.
+  const options = { documentContext, locationContext, maxItems, waitForChange, currentFileIndex: originalFileIndex };
 
-  for (const [index, button] of buttons.entries()) {
-    const targetFileIndex = index + 1;
-
-    if (await selectThumbnailFile(targetFileIndex, button, { documentContext, locationContext, waitForChange })) {
-      collectCurrentItem(itemsByReferrer, documentContext, locationContext);
+  try {
+    for (const [index, button] of buttons.entries()) {
+      const targetFileIndex = index + 1;
+      if (!await selectThumbnailFile(targetFileIndex, button, options)) {
+        throw new Error('Atlas could not read every image in this deviation. Retry the batch.');
+      }
+      collectCurrentItem(itemsByReferrer, documentContext, locationContext, targetFileIndex);
     }
+  } finally {
+    await restoreThumbnailFileIndex(originalFileIndex, buttons, options);
   }
-
-  await restoreThumbnailFileIndex(originalFileIndex, buttons, {
-    documentContext,
-    locationContext,
-    maxItems,
-    waitForChange,
-  });
 
   return [...itemsByReferrer.values()].sort((left, right) => (
     fileIndexFromUrl(left.referrerUrl) - fileIndexFromUrl(right.referrerUrl)
@@ -152,19 +144,21 @@ async function collectThumbnailBatchItems(thumbnailButtons, {
 }
 
 async function selectThumbnailFile(targetFileIndex, button, options) {
-  if (fileIndexFromUrl(options.locationContext?.href) === targetFileIndex) {
+  if (options.currentFileIndex === targetFileIndex) {
     return true;
   }
 
   const before = snapshotKey(options.documentContext, options.locationContext);
 
-  activateElement(button);
+  activateElement(findThumbnailButtons(options.documentContext)[targetFileIndex - 1] ?? button);
 
-  return options.waitForChange({
+  const changed = await options.waitForChange({
     before,
     documentContext: options.documentContext,
     locationContext: options.locationContext,
   });
+  if (changed) options.currentFileIndex = targetFileIndex;
+  return changed;
 }
 
 async function restoreThumbnailFileIndex(targetFileIndex, buttons, options) {
@@ -182,14 +176,14 @@ async function restoreThumbnailFileIndex(targetFileIndex, buttons, options) {
 async function restoreFileIndex(targetFileIndex, options) {
   let attempts = 0;
 
-  while (attempts < options.maxItems && fileIndexFromUrl(options.locationContext?.href) > targetFileIndex) {
+  while (attempts < options.maxItems && options.currentFileIndex > targetFileIndex) {
     attempts += 1;
     if (!await moveNavigation('Previous', options)) {
       break;
     }
   }
 
-  while (attempts < options.maxItems && fileIndexFromUrl(options.locationContext?.href) < targetFileIndex) {
+  while (attempts < options.maxItems && options.currentFileIndex < targetFileIndex) {
     attempts += 1;
     if (!await moveNavigation('Next', options)) {
       break;
@@ -197,11 +191,8 @@ async function restoreFileIndex(targetFileIndex, options) {
   }
 }
 
-async function moveNavigation(direction, {
-  documentContext,
-  locationContext,
-  waitForChange,
-}) {
+async function moveNavigation(direction, options) {
+  const { documentContext, locationContext, waitForChange } = options;
   const button = findNavigationButton(documentContext, direction);
 
   if (button === null) {
@@ -209,14 +200,22 @@ async function moveNavigation(direction, {
   }
 
   const before = snapshotKey(documentContext, locationContext);
+  const beforeUrl = locationContext?.href;
 
   activateElement(button);
 
-  return waitForChange({
+  const changed = await waitForChange({
     before,
     documentContext,
     locationContext,
   });
+  if (!changed) {
+    throw new Error('Atlas could not read every image in this deviation. Retry the batch.');
+  }
+  options.currentFileIndex = locationContext?.href !== beforeUrl
+    ? fileIndexFromUrl(locationContext?.href)
+    : Math.max(1, options.currentFileIndex + (direction === 'Next' ? 1 : -1));
+  return true;
 }
 
 async function waitForDeviantArtChange({
@@ -233,7 +232,8 @@ async function waitForDeviantArtChange({
       globalThis.setTimeout(resolve, pollMs);
     });
 
-    if (snapshotKey(documentContext, locationContext) !== before) {
+    const source = snapshotKey(documentContext, locationContext);
+    if (source !== '' && source !== before) {
       return true;
     }
   }
@@ -294,6 +294,8 @@ function readImageSource(image) {
 }
 
 function readImageResolution(image) {
+  // Dimensions can still belong to the previous source while a reused image loads.
+  if (image?.complete === false) return null;
   const width = Number(image?.naturalWidth ?? 0);
   const height = Number(image?.naturalHeight ?? 0);
 
@@ -302,11 +304,8 @@ function readImageResolution(image) {
 
 function snapshotKey(documentContext, locationContext) {
   const item = readCurrentDeviantArtBatchItem({ documentContext, locationContext });
-
-  return [
-    locationContext?.href ?? '',
-    item?.asset?.source ?? '',
-  ].join('|');
+  // A URL change alone does not mean the newly selected image has rendered.
+  return item?.asset?.source ?? '';
 }
 
 function fileIndexFromUrl(rawUrl) {
