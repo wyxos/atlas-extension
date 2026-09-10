@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { git, snapshot, assertReady } from './repository.mjs';
+import { terminal } from './terminal.mjs';
 
 export function mainCheckout(root) {
   const records = git(root, ['worktree', 'list', '--porcelain', '-z']).split('\0\0');
@@ -14,11 +15,12 @@ export function mainCheckout(root) {
 }
 
 export async function chooseChanges(repo, count) {
-  console.log(`${repo.name}: ${count} uncommitted change(s) on main.`);
+  terminal.line(`\n${repo.name.toUpperCase()} · ${count} uncommitted changes on main`, 'yellow');
   if (!process.stdin.isTTY) throw new Error('Choose --skip-uncommitted for an unattended committed-main build.');
   const input = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = (await input.question('[C] Commit these changes via Codex, [S] skip changes and build committed main (default), [Q] cancel: ')).trim().toLowerCase();
+    terminal.line('  C  Commit via Codex    S  Build committed main    Q  Cancel', 'dim');
+    const answer = (await input.question(terminal.paint('Choice [S]: ', 'yellow'))).trim().toLowerCase();
     if (answer === 'c') return 'commit';
     if (answer === '' || answer === 's') return 'skip';
     throw new Error('Update canceled.');
@@ -47,7 +49,7 @@ export function codexMessage(repo, initial, stateDirectory) {
   const vendor = path.join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@openai', 'codex',
     'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
   const executable = configured || (fs.existsSync(vendor) ? vendor : 'codex.exe');
-  console.log(`${repo.name}: Codex is reviewing the captured changes. Details: ${logFile}`);
+  terminal.line(`  Reviewing ${repo.name} changes via Codex…`, 'blue');
   const descriptor = fs.openSync(logFile, 'w');
   try {
     const result = spawnSync(executable, ['exec', '--ephemeral', '--sandbox', 'read-only', '-C', repo.root,
@@ -91,7 +93,7 @@ export function commitCapturedMain(root, initial, message) {
 }
 
 export async function prepareMainChanges({ repos, stateDirectory, dryRun = false, skip = false,
-  choose = chooseChanges, review = codexMessage, log = console.log }) {
+  choose = chooseChanges, review = codexMessage, log = terminal.line }) {
   for (const repo of repos) {
     const root = mainCheckout(repo.root);
     if (!root) continue;
@@ -104,6 +106,6 @@ export async function prepareMainChanges({ repos, stateDirectory, dryRun = false
     assertReady(root);
     const message = await review({ ...repo, root }, initial, stateDirectory);
     const head = commitCapturedMain(root, initial, message);
-    log(`${repo.name}: committed ${head.slice(0, 8)} · ${message.split('\n')[0]}`);
+    log(`  Committed ${repo.name} · ${head.slice(0, 8)}`, 'green');
   }
 }

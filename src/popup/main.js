@@ -23,6 +23,7 @@ import {
   openClipboardLinksInCurrentWindow,
 } from './tab-links.js';
 import { initializeNextTabsLimit } from './load-next-tabs-limit.js';
+import { sendBackgroundRequest } from '../content/background-api.js';
 
 const scanButton = document.querySelector('#atlas-popup-scan');
 const loadNextTabsButton = document.querySelector('#atlas-popup-load-next-tabs');
@@ -39,23 +40,23 @@ const connectionStatusElement = document.querySelector('#atlas-popup-connection-
 const pairingStatusElement = document.querySelector('#atlas-popup-pairing-status');
 
 scanButton?.addEventListener('click', () => {
-  void scanActiveTab();
+  void scanActiveTab().catch(() => { setActionStatus('The action failed. Try again.'); setBusy(false); });
 });
 
 loadNextTabsButton?.addEventListener('click', () => {
-  void loadNextTabs();
+  void loadNextTabs().catch(() => { setActionStatus('The action failed. Try again.'); setBusy(false); });
 });
 
 copyTabLinksButton?.addEventListener('click', () => {
-  void copyOpenTabLinks();
+  void copyOpenTabLinks().catch(() => { setActionStatus('The action failed. Try again.'); setBusy(false); });
 });
 
 openClipboardLinksButton?.addEventListener('click', () => {
-  void openClipboardLinks();
+  void openClipboardLinks().catch(() => { setActionStatus('The action failed. Try again.'); setBusy(false); });
 });
 
 reloadButton?.addEventListener('click', () => {
-  void reloadExtension();
+  void reloadExtension().catch(() => { setActionStatus('The action failed. Try again.'); setBusy(false); });
 });
 
 testEventsButton?.addEventListener('click', () => {
@@ -63,7 +64,7 @@ testEventsButton?.addEventListener('click', () => {
 });
 
 openOptionsButton?.addEventListener('click', () => {
-  void openOptionsPage();
+  void openOptionsPage().catch(() => { setActionStatus('The action failed. Try again.'); setBusy(false); });
 });
 
 globalThis.chrome?.storage?.onChanged?.addListener?.(handleStorageChange);
@@ -214,14 +215,7 @@ function initializeIcons() {
 }
 
 function sendRuntimeMessage(message) {
-  return new Promise((resolve, reject) => {
-    globalThis.chrome?.runtime?.sendMessage?.(message, (response) => {
-      const error = globalThis.chrome?.runtime?.lastError?.message;
-      if (error) return reject(new Error(error));
-      if (response?.ok === false) return reject(new Error(response.error?.message ?? response.error));
-      resolve(response?.payload ?? {});
-    });
-  });
+  return sendBackgroundRequest(message);
 }
 
 function setBusy(isBusy) {

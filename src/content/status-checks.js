@@ -9,6 +9,7 @@ export function createStatusCheckQueue({
   delayMs,
   fetchAssetStatuses,
   fetchOpenCounts,
+  reportFailure = () => {},
   windowRef = window,
 }) {
   const checkedAssetSources = new Set();
@@ -162,9 +163,12 @@ export function createStatusCheckQueue({
 
     if (openCountResult.status === 'fulfilled') {
       applyOpenCounts(openReferrerUrls, openCountResult.value.counts ?? {});
+    } else {
+      reportFailure('Could not check open tabs. Duplicate-tab information may be out of date.');
     }
 
     if (statusResult.status !== 'fulfilled') {
+      reportFailure('Could not check library status. Check the Desktop connection and scan the page again.');
       return;
     }
 

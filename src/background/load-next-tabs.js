@@ -12,7 +12,7 @@ export async function loadNextTabsFromActive({
 } = {}) {
   if (
     typeof tabsApi?.query !== 'function'
-    || (typeof tabsApi?.reload !== 'function' && typeof tabsApi?.update !== 'function')
+    || typeof tabsApi?.reload !== 'function'
   ) {
     throw new Error('Chrome tabs API is unavailable.');
   }
@@ -31,87 +31,20 @@ export async function loadNextTabsFromActive({
     .sort((left, right) => left.index - right.index)
     .slice(0, normalizedLimit);
 
-  if (typeof tabsApi.reload === 'function') {
-    return await reloadTabs({
-      activeTab,
-      limit: normalizedLimit,
-      runtime,
-      tabsApi,
-      tabsToLoad,
-    });
-  }
-
-  return await activateTabs({
-    activeTab,
-    limit: normalizedLimit,
-    runtime,
-    tabsApi,
-    tabsToLoad,
-  });
-}
-
-async function reloadTabs({
-  activeTab,
-  limit,
-  runtime,
-  tabsApi,
-  tabsToLoad,
-}) {
   const loadedTabIds = [];
-  let activated = 0;
-
-  try {
-    for (const tab of tabsToLoad) {
-      if (tab.frozen || tab.discarded) {
-        await activateTab({ runtime, tabId: tab.id, tabsApi });
-        activated += 1;
-      }
-
+  let failed = 0;
+  for (const tab of tabsToLoad) {
+    try {
       await reloadTab({ runtime, tabId: tab.id, tabsApi });
       loadedTabIds.push(tab.id);
-    }
-  } finally {
-    if (activated > 0) {
-      await activateTab({ runtime, tabId: activeTab.id, tabsApi });
+    } catch {
+      failed += 1;
     }
   }
-
-  return {
-    activated,
-    limit,
-    reloaded: loadedTabIds.length,
-    restored: activated > 0,
-    tabIds: loadedTabIds,
-  };
-}
-
-async function activateTabs({
-  activeTab,
-  limit,
-  runtime,
-  tabsApi,
-  tabsToLoad,
-}) {
-  const activatedTabIds = [];
-
-  try {
-    for (const tab of tabsToLoad) {
-      await activateTab({ runtime, tabId: tab.id, tabsApi });
-      activatedTabIds.push(tab.id);
-    }
-  } finally {
-    if (activatedTabIds.length > 0) {
-      await activateTab({ runtime, tabId: activeTab.id, tabsApi });
-    }
+  if (failed > 0) {
+    throw new Error(`Reloaded ${loadedTabIds.length} tabs; ${failed} tabs could not be reloaded. Try again.`);
   }
-
-  return {
-    activated: activatedTabIds.length,
-    limit,
-    reloaded: 0,
-    restored: activatedTabIds.length > 0,
-    tabIds: activatedTabIds,
-  };
+  return { activated: 0, limit: normalizedLimit, reloaded: loadedTabIds.length, restored: false, tabIds: loadedTabIds };
 }
 
 function queryTabs({ runtime, tabsApi, windowId }) {
@@ -128,22 +61,6 @@ function queryTabs({ runtime, tabsApi, windowId }) {
       }
 
       resolve(Array.isArray(tabs) ? tabs : []);
-    });
-  });
-}
-
-function activateTab({ runtime, tabId, tabsApi }) {
-  return new Promise((resolve, reject) => {
-    tabsApi.update(tabId, { active: true }, (tab) => {
-      const error = runtime?.lastError?.message;
-
-      if (error) {
-        reject(new Error(error));
-
-        return;
-      }
-
-      resolve(tab);
     });
   });
 }
@@ -177,14 +94,12 @@ function reloadTab({ runtime, tabId, tabsApi }) {
 }
 
 function findActiveTab(tabs, activeTabId) {
-  const normalizedActiveTabId = Number(activeTabId);
+  const normalizedActiveTabId = activeTabId === null ? NaN : Number(activeTabId);
 
   if (Number.isInteger(normalizedActiveTabId)) {
     const activeTab = tabs.find((tab) => tab?.id === normalizedActiveTabId);
 
-    if (activeTab) {
-      return activeTab;
-    }
+    return activeTab ?? null;
   }
 
   return tabs.find((tab) => tab?.active === true) ?? null;

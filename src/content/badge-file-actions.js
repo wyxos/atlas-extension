@@ -8,11 +8,19 @@ export function createBadgeFileActions({
   resolveFileId,
   shouldApplyResponse,
   updateBadgeState,
+  reportFailure = () => {},
 }) {
-  function handleOpenFile(event) {
+  async function handleOpenFile(event) {
     const fileId = resolveFileId(badgeStatesById.get(event.id));
     if (fileId !== null) {
-      void openFile({ fileId });
+      try {
+        await openFile({ fileId });
+        if (badgeStatesById.get(event.id)?.fileActionError) updateBadgeState(event.id, { fileActionError: null });
+      } catch {
+        const message = 'Could not open this file in Atlas Desktop. Try again.';
+        updateBadgeState(event.id, { fileActionError: message });
+        reportFailure(message);
+      }
     }
   }
 
@@ -36,11 +44,13 @@ export function createBadgeFileActions({
 
       replaceBadgeState(event.id, {});
     } catch {
+      const message = 'Could not delete this file. Check Atlas Desktop and try again.';
+      reportFailure(message);
       if (!shouldApplyResponse(asset, assetsById.get(event.id))) {
         return;
       }
 
-      updateBadgeState(event.id, { isDeleting: false });
+      updateBadgeState(event.id, { isDeleting: false, fileActionError: message });
     }
   }
 

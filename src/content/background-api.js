@@ -196,7 +196,11 @@ export function sendBackgroundRequest(message, options = {}) {
         return;
       }
 
-      finish(resolve, response?.payload ?? {});
+      if (response?.ok !== true || !response.payload || typeof response.payload !== 'object') {
+        finish(reject, responseError({ code: 'INVALID_RESPONSE', message: 'Atlas extension returned an invalid response.', retryable: true }));
+        return;
+      }
+      finish(resolve, response.payload);
     }
 
     try {

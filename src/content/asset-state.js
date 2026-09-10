@@ -9,7 +9,7 @@ export function stateForSyncedAsset(previousAsset, nextAsset, currentState) {
 export function stateWithoutAtlasAssetStatus(currentState) {
   const nextState = {};
 
-  for (const key of ['batch', 'isBusy', 'isDeleting', 'submittingReaction']) {
+  for (const key of ['batch', 'isBusy', 'isDeleting', 'submittingReaction', 'reactionFailure', 'fileActionError', 'closeTabError', 'closeTabModeError', 'widgetPlacementError']) {
     if (currentState?.[key] !== undefined) {
       nextState[key] = currentState[key];
     }

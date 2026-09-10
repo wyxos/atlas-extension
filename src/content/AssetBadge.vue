@@ -329,6 +329,13 @@ function handleBadgeShortcut(event) {
       </div>
     </div>
     <p
+      v-if="badge.fileActionError"
+      class="atlas-static-close-error"
+      role="alert"
+    >
+      {{ badge.fileActionError }}
+    </p>
+    <p
       v-if="badge.failureMessage"
       class="atlas-static-close-error"
       role="status"

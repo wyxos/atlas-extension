@@ -63,9 +63,14 @@ responsibility of the committed changes.
 
 ## Progress and logs
 
-The terminal shows pending/up-to-date repositories, completed/total steps, the
-active step, elapsed time for long operations, installer status changes, and what
-remains after a failure. Step counts are not estimates of compilation percentage.
+The interactive terminal uses blue repository headings and a single active line
+that updates in place with elapsed time, a completed-step bar and steps remaining.
+Each finished step leaves one green success line; failures are red and outstanding
+actions are yellow. Repeated heartbeat lines and commit-message chatter are omitted.
+Step counts are not estimates of compilation percentage or remaining build time.
+Redirected output uses plain step transitions without animation or ANSI colors;
+`NO_COLOR` disables colors in an interactive terminal too. The detail-log path is
+shown at completion or failure, and the log contains the full outstanding step list.
 Raw compiler, npm, test and installer output goes to
 `%LOCALAPPDATA%\AtlasBuild\build-<timestamp>.log`. The launcher transcript records
 its concise summary. The window still waits for **Press Enter to exit**.
@@ -84,9 +89,7 @@ working-tree release provenance cannot be mistaken for an isolated build. The
 first isolated run builds both repositories once at their committed versions.
 Successful repositories are skipped on retries; failed ones retry without bumps.
 
-`AtlasBuild\update.lock` prevents overlapping unified updates. After a hard kill
-or terminal closure, confirm all child build/installer processes have stopped
-before removing that lock. The next run removes abandoned owned workspaces.
+`AtlasBuild\update.lock` prevents overlapping unified updates. After an interrupted update, run the launcher with `-RecoverLock`. Recovery refuses a live lock owner, surviving isolated-build or installer processes, or processes it cannot inspect. It checks the lock again before removing it. This is recovery, not permission to run overlapping installers. The next run removes abandoned owned workspaces.
 Cleanup failures are reported and retried on a later build. Dedicated caches are
 not shared with active development checkouts and survive workspace cleanup.
 Do not run the low-level rebuild scripts concurrently with the unified updater.

@@ -6,6 +6,7 @@ import ReferrerAssetBadge from "./ReferrerAssetBadge.vue";
 import ReferrerOpenDialog from "./ReferrerOpenDialog.vue";
 
 defineProps({
+  errorMessage: { type: String, default: null },
   inspectReaction: { type: Function, default: null },
   badges: {
     type: Array,
@@ -27,10 +28,18 @@ defineProps({
   },
 });
 
-defineEmits(["batch-toggle", "close-mode-change", "confirm", "delete", "open-file", "placement-change", "react", "reaction-confirm"]);
+defineEmits(["dismiss-error", "batch-toggle", "close-mode-change", "confirm", "delete", "open-file", "placement-change", "react", "reaction-confirm"]);
 </script>
 
 <template>
+  <Teleport :to="portalTarget" :disabled="!portalTarget">
+    <div v-if="errorMessage" class="atlas-operation-error" role="alert">
+      <span>{{ errorMessage }}</span>
+      <button type="button" aria-label="Dismiss error" @click="$emit('dismiss-error')">
+        Dismiss
+      </button>
+    </div>
+  </Teleport>
   <template
     v-for="badge in badges"
     :key="badge.id"

@@ -92,6 +92,7 @@ const statusChecks = createStatusCheckQueue({
   delayMs: statusCheckDelayMs,
   fetchAssetStatuses: fetchAssetStatusesViaBackground,
   fetchOpenCounts: fetchOpenReferrerCountsViaBackground,
+  reportFailure: showOperationError,
 });
 const referrerOpenGuard = createReferrerOpenGuard({
   confirmOpen: (request) => getOverlayController().confirmReferrerOpen(request),
@@ -99,7 +100,7 @@ const referrerOpenGuard = createReferrerOpenGuard({
   getCurrentPageUrl: () => window.location.href,
   getOpenCounts: () => openReferrerCounts,
   navigate: (url) => window.location.assign(url),
-  openInNewTab: (url) => void openReferrerInTabViaBackground({ url }),
+  openInNewTab: (url) => void openReferrerInTabViaBackground({ url }).catch(() => showOperationError('Could not open the tab. Try again.')),
 });
 const contentInterests = createContentInterestReporter({
   diagnostics: performanceDiagnostics,
@@ -116,7 +117,9 @@ const badgeFileActions = createBadgeFileActions({
   openFile: openAtlasFileViaBackground, replaceBadgeState,
   resolveFileId: resolveStateFileId, shouldApplyResponse: shouldApplyAssetResponse,
   updateBadgeState,
+  reportFailure: showOperationError,
 });
+function showOperationError(message) { getOverlayController().showError(message); }
 function getOverlayController() {
   if (overlayController !== null) {
     return overlayController;
@@ -151,16 +154,13 @@ function getAssetId(element) {
   nextAssetId += 1;
   assetIds.set(element, id);
   elementsById.set(id, element);
-
   return id;
 }
 function removeBadge(element) {
   const id = assetIds.get(element);
-
   if (id === undefined) {
     return;
   }
-
   overlayController?.removeBadge(id);
   badgeHosts.remove(id);
   assetIds.delete(element);
@@ -174,15 +174,11 @@ function syncAsset(element) {
   const asset = rawAsset === null
     ? null
     : decorateAssetWithMatchIdentity(rawAsset, { referrerUrl: window.location.href });
-
   if (asset === null || !element?.isConnected) {
     removeBadge(element);
-
     return false;
   }
-
   referrerBadges.remove(element);
-
   const visibleRect = getVisibleRect(element);
   const id = getAssetId(element);
   const nextState = stateForSyncedAsset(assetsById.get(id), asset, badgeStatesById.get(id));
@@ -197,7 +193,6 @@ function syncAsset(element) {
     batchContext,
     batchProviderState.presentationState(batchContext?.provider),
   );
-
   assetsById.set(id, asset);
   if (batchContext === null) {
     batchContextsById.delete(id);
@@ -209,14 +204,11 @@ function syncAsset(element) {
   } else {
     badgeStatesById.set(id, nextBadgeState);
   }
-
   if (visibleRect === null) {
     overlayController?.removeBadge(id);
     badgeHosts.remove(id);
-
     return true;
   }
-
   getOverlayController().upsertBadge(
     id,
     createAssetBadgePresentation({
@@ -232,7 +224,6 @@ function syncAsset(element) {
 }
 function updateBadgeState(id, nextState) {
   const currentState = badgeStatesById.get(id) ?? {};
-
   renderBadgeState(id, {
     ...currentState,
     ...nextState,
@@ -244,21 +235,16 @@ function replaceBadgeState(id, nextState) {
 function renderBadgeState(id, nextState) {
   const element = elementsById.get(id);
   const asset = assetsById.get(id);
-
   if (element === undefined || asset === undefined) {
     return;
   }
-
   const visibleRect = getVisibleRect(element);
-
   badgeStatesById.set(id, nextState);
   if (visibleRect === null) {
     overlayController?.removeBadge(id);
     badgeHosts.remove(id);
-
     return;
   }
-
   getOverlayController().upsertBadge(
     id,
     createAssetBadgePresentation({
@@ -296,11 +282,9 @@ function mergeOpenReferrerCounts(referrerUrls, counts) {
 async function handleBadgeReaction(event) {
   const asset = assetsById.get(event.id);
   const currentState = badgeStatesById.get(event.id) ?? {};
-
   if (asset === undefined || currentState.isBusy === true || currentState.isDeleting === true) {
     return;
   }
-
   const reactionStartedAt = performanceDiagnostics.start();
   const downloadAction = await resolveDownloadActionForReaction({
     asset,
@@ -315,16 +299,23 @@ async function handleBadgeReaction(event) {
     });
     return;
   }
-
   updateBadgeState(event.id, {
     isBusy: true,
     submittingReaction: event.type,
   });
-
   let payload;
+  let reactionNotice;
   try {
     const originalPageUrl = window.location.href;
     payload = await submitWithProviderFallback({
+      onFailure: (error) => {
+        const failure = reactionFailureFromError(error);
+        reactionNotice = `Reaction request failed · ${failure.message}`;
+        showOperationError(reactionNotice);
+        if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
+          updateBadgeState(event.id, { reactionFailure: failure });
+        }
+      },
       confirmFallback: (request) => getOverlayController().confirmReactionUpdate(request),
       isCurrent: () => window.location.href === originalPageUrl && shouldApplyAssetResponse(asset, assetsById.get(event.id)),
       submit: (useBrowserDownload) => postAssetOrBatchReaction({
@@ -337,8 +328,8 @@ async function handleBadgeReaction(event) {
       performanceDiagnostics.finish('reaction-latency', reactionStartedAt, { canceled: true, reactionType: event.type });
       return;
     }
-
   } catch (error) {
+    showOperationError(`Reaction request failed · ${reactionFailureFromError(error).message}`);
     if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
       updateBadgeState(event.id, {
         isBusy: false,
@@ -351,12 +342,11 @@ async function handleBadgeReaction(event) {
     });
     return;
   }
-
   try {
     applyAcceptedReactionPayload(payload, {
       applyBatch: (batchPayload) => applyBatchReactionPayload(batchPayload, {
-        markAssetSourceChecked: (source) => statusChecks.markAssetSourceChecked(source),
-        updateBadgeStateBySource,
+        markAssetSourceChecked: (source, state) => statusChecks.markAssetSourceChecked(source, state),
+        updateBadgeStateBySource: (source, state) => updateBadgeStateBySource(source, { ...state, reactionFailure: null, isBusy: false, submittingReaction: null }),
       }),
       applySingle: (singlePayload) => {
         statusChecks.markAssetSourceChecked(asset.source, singlePayload);
@@ -367,22 +357,24 @@ async function handleBadgeReaction(event) {
         }
       },
     });
+    getOverlayController().clearError(reactionNotice);
     if (Array.isArray(payload.items)) {
       if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
-        updateBadgeState(event.id, { isBusy: false, submittingReaction: null });
+        updateBadgeState(event.id, { isBusy: false, reactionFailure: null, submittingReaction: null });
       }
     }
-
     const closeIntent = await armCloseTabForReaction(payload, {
       loadModeForSiteDomain: closeTabMode.loadModeForReaction,
       locationContext: window.location, reactionType: event.type,
     });
     if (closeIntent?.closeResult?.closed === false) {
+      showOperationError('The reaction was saved, but Chrome could not close the tab.');
       updateBadgeState(event.id, {
         closeTabError: closeIntent.closeResult.error ?? 'Chrome could not close this tab.',
       });
     }
   } catch (error) {
+    showOperationError(safePostReactionError(error));
     updateBadgeState(event.id, {
       closeTabError: safePostReactionError(error),
     });
@@ -412,16 +404,13 @@ function getReferrerVisibleRect(element) { return resolveVisibleRect(element, vi
 function scanAssets(root = document) {
   const scanStartedAt = performanceDiagnostics.start();
   let scannedElements = 0;
-
   for (const element of listAssetElements(root, assetSelector)) {
     scannedElements += 1;
     if (!syncAsset(element)) {
       referrerBadges.sync(element);
     }
-
     watchAssetReadiness(element, scheduleScan);
   }
-
   contentInterests.schedule();
   performanceDiagnostics.finish('scan-duration', scanStartedAt, { scannedElements });
 }
@@ -434,10 +423,8 @@ function positionKnownBadges() {
   for (const element of assetIds.keys()) {
     if (!element.isConnected || describeAssetElement(element) === null) {
       removeBadge(element);
-
       continue;
     }
-
     syncAsset(element);
   }
   referrerBadges.positionKnown();
@@ -447,7 +434,6 @@ function scheduleScan() {
   if (scheduledScan !== null) {
     return;
   }
-
   scheduledScan = window.setTimeout(() => {
     scheduledScan = null;
     scanAssets();
@@ -457,7 +443,6 @@ function schedulePositionUpdate() {
   if (scheduledPositionUpdate !== null) {
     return;
   }
-
   scheduledPositionUpdate = window.setTimeout(() => {
     scheduledPositionUpdate = null;
     positionKnownBadges();
@@ -469,7 +454,6 @@ function updateAllAssetBadgePresentations() {
   }
 }
 function updateAllBadgeStates(patch) { for (const id of badgeStatesById.keys()) updateBadgeState(id, patch); }
-
 startContentRuntime({
   getOpenReferrerCounts: () => openReferrerCounts,
   handleAssetShortcut,

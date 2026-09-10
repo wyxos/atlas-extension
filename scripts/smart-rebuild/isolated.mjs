@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { artifactFingerprint, git, saveState } from './repository.mjs';
 import { verifyInstalledExecutable } from './installed-executable.mjs';
+import { createTerminal } from './terminal.mjs';
 
 export function removeWorkspace(parent, directory) {
   const base = fs.realpathSync(parent);
@@ -72,7 +73,9 @@ export function publishExtension(source, destination) {
 }
 
 export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
-  log = console.log, execute = command, buildOverride }) {
+  log, execute = command, buildOverride }) {
+  const display = createTerminal({ log });
+  log = display.line;
   const statePath = path.join(stateDirectory, 'isolated-state.json');
   const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : { schema: 1, repos: {} };
   if (state.schema !== 1 || !state.repos) throw new Error('Unknown isolated build state format.');
@@ -87,12 +90,13 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     const needed = !previous || previous.tree !== tree || !fingerprint || previous.artifact !== fingerprint;
     return { ...repo, head, tree, key, needed };
   });
-  for (const repo of plans) log(`${repo.name}: ${repo.needed ? 'pending' : 'up to date'} · main ${repo.head.slice(0, 8)}`);
+  log('\nATLAS UPDATE', 'blue');
+  for (const repo of plans) log(`${repo.name}: ${repo.needed ? 'pending' : 'up to date'} · main ${repo.head.slice(0, 8)}`, repo.needed ? 'yellow' : 'green');
   if (dryRun) { log('Inspection complete. No source, versions, builds or installations changed.'); return plans; }
   if (!plans.some((repo) => repo.needed)) { log('Complete. Nothing outstanding.'); return plans; }
   fs.mkdirSync(stateDirectory, { recursive: true });
   const logFile = path.join(stateDirectory, `build-${Date.now()}.log`);
-  log(`Details: ${logFile}`);
+  fs.writeFileSync(logFile, plans.map((repo) => `${repo.name}: main ${repo.head}`).join('\n') + '\n');
   const workspaceParent = path.join(stateDirectory, 'workspaces');
   fs.mkdirSync(workspaceParent, { recursive: true });
   // The launcher lock blocks crash recovery until orphaned children are stopped.
@@ -105,7 +109,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     CARGO_TARGET_DIR: path.join(stateDirectory, 'cache', 'desktop-target') };
   const steps = [];
   const run = (name, args, cwd) => execute(name, args, { cwd, env: environment, logFile,
-    status: (message) => log(`  Status: ${message}`) });
+    status: (message) => display.status(message.replace(/^Desktop: /, '')) });
   const npm = (script, cwd) => {
     // A cold checkout otherwise launches a jsdom worker for nearly every CPU;
     // module transforms contend and short router tests time out before running.
@@ -124,7 +128,10 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     } });
     steps.push({ title: `${repo.name}: install dependencies`, action: async () => {
       const install = fs.existsSync(path.join(repo.snapshot, 'package-lock.json')) ? 'ci' : 'install';
-      if (install === 'install') log(`  ${repo.name}: resolving dependencies (no committed lockfile)`);
+      if (install === 'install') {
+        fs.appendFileSync(logFile, `${repo.name}: resolving dependencies (no committed lockfile)\n`);
+        display.status('resolving dependencies');
+      }
       await run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd ${install} --no-audit --no-fund; exit $LASTEXITCODE`], repo.snapshot);
       if (repo.kind === 'desktop') {
         fs.mkdirSync(environment.CARGO_TARGET_DIR, { recursive: true });
@@ -166,30 +173,33 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   let failure;
   try {
     for (const step of steps) {
-      log(`[${completed}/${steps.length}] Running: ${step.title} · ${steps.length - completed} steps outstanding`);
-      const started = Date.now();
-      const timer = setInterval(() => log(`  Still running: ${step.title} · ${Math.round((Date.now() - started) / 1000)}s elapsed`), 30000);
+      display.start(step.title, completed, steps.length);
+      fs.appendFileSync(logFile, `\nStep ${completed + 1}/${steps.length}: ${step.title}\n`);
+      const timer = setInterval(display.tick, 1000);
       try { await step.action(); } catch (error) {
+        display.fail();
         throw new Error(`${step.title}: ${error.message}`, { cause: error });
       } finally { clearInterval(timer); }
       completed++;
-      log(`[${completed}/${steps.length}] Done: ${step.title} (${Math.round((Date.now() - started) / 1000)}s)`);
+      display.done();
     }
   } catch (error) { failure = error; }
   finally {
-    log('Cleanup: removing temporary source and dependencies');
+    log('\nCleaning temporary workspaces…', 'dim');
     try { removeWorkspace(workspaceParent, workspace); } catch (error) {
       log(`Cleanup pending: ${workspace}`);
       failure ??= error;
     }
   }
   if (failure) {
-    log(`Outstanding: ${steps.slice(completed).map((step) => step.title).join('; ') || 'cleanup'}`);
+    fs.appendFileSync(logFile, `\nStopped: ${failure.message}\nOutstanding: ${steps.slice(completed).map((step) => step.title).join('; ') || 'cleanup'}\n`);
+    log(`Outstanding: ${steps.length - completed} build steps${completed === steps.length ? '; cleanup needs attention' : '. Rerun to retry; completed repositories will be skipped.'}`, 'yellow');
     log(`Details: ${logFile}`);
     throw failure;
   }
-  log(`Complete: ${completed}/${steps.length} steps. Temporary workspaces removed.`);
-  if (plans.some((repo) => repo.kind === 'extension' && repo.needed)) log('Outstanding: reload Atlas Extension in the browser.');
+  log(`Complete: ${completed}/${steps.length} steps. Temporary workspaces removed.`, 'green');
+  log(`Details: ${logFile}`, 'dim');
+  if (plans.some((repo) => repo.kind === 'extension' && repo.needed)) log('Outstanding: reload Atlas Extension in the browser.', 'yellow');
   else log('Nothing outstanding.');
   return plans;
 }

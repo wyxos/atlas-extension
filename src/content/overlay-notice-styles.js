@@ -1,5 +1,36 @@
 export function getOverlayNoticeStyles() {
   return `
+    .atlas-operation-error {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      max-width: 560px;
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+      box-sizing: border-box;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 4px;
+      background: #111827;
+      color: #f9fafb;
+      border: 1px solid #991b1b;
+      font: 500 13px/1.5 system-ui, sans-serif;
+      pointer-events: auto;
+      z-index: 2147483647;
+    }
+    .atlas-operation-error span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .atlas-operation-error button {
+      background: transparent;
+      color: inherit;
+      border: 1px solid currentColor;
+      border-radius: 4px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font: inherit;
+    }
     .atlas-static-close-error {
       background: rgba(127, 29, 29, 0.94);
       bottom: 15px;

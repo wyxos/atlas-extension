@@ -31,6 +31,8 @@ export function sendDesktopMessage(message, runtime = globalThis.chrome?.runtime
 
   return new Promise((resolve, reject) => {
     let settled = false;
+    const timeout = globalThis.setTimeout(() => finish(reject, new Error('Atlas Desktop request timed out.')),
+      message.type === desktopMessageTypes.pair ? 310000 : 20000);
 
     function finish(callback, value) {
       if (settled) {
@@ -38,6 +40,7 @@ export function sendDesktopMessage(message, runtime = globalThis.chrome?.runtime
       }
 
       settled = true;
+      globalThis.clearTimeout(timeout);
       callback(value);
     }
 
@@ -50,8 +53,10 @@ export function sendDesktopMessage(message, runtime = globalThis.chrome?.runtime
         const error = new Error(response.error?.message ?? 'Atlas Desktop request failed.');
         Object.assign(error, response.error ?? {});
         finish(reject, error);
+      } else if (response?.ok === true && response.payload && typeof response.payload === 'object') {
+        finish(resolve, response.payload);
       } else {
-        finish(resolve, response?.payload ?? {});
+        finish(reject, new Error('Atlas Desktop returned an invalid response.'));
       }
     }
 

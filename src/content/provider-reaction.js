@@ -1,7 +1,8 @@
-export async function submitWithProviderFallback({ submit, confirmFallback, isCurrent = () => true }) {
+export async function submitWithProviderFallback({ submit, confirmFallback, onFailure = () => {}, isCurrent = () => true }) {
   try {
     return await submit(false);
   } catch (error) {
+    onFailure(error);
     if (error?.code !== 'PROVIDER_RESOLUTION_FAILED' || !isCurrent()) throw error;
     const choice = await confirmFallback({ kind: 'provider-fallback' });
     if (choice !== 'browser-download' || !isCurrent()) return null;

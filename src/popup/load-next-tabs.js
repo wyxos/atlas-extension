@@ -70,9 +70,9 @@ function sendLoadNextTabsRequest({
         return;
       }
 
-      if (response?.ok === false) {
+      if (response?.ok !== true || !response.payload) {
         resolve({
-          error: response.error ?? 'The tabs could not be loaded.',
+          error: response?.error ?? 'The tabs could not be loaded.',
           ok: false,
         });
 

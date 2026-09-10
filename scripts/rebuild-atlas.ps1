@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$DryRun, [switch]$SkipUncommitted)
+param([switch]$DryRun, [switch]$SkipUncommitted, [switch]$RecoverLock)
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
@@ -9,6 +9,7 @@ $logPath = Join-Path $logDirectory ('update-{0}.log' -f (Get-Date -Format 'yyyyM
 Start-Transcript -LiteralPath $logPath | Out-Null
 $scriptExitCode = 0
 try {
+    if ($RecoverLock -and -not $DryRun) { & (Join-Path $PSScriptRoot 'recover-update-lock.ps1') }
     $arguments = @((Join-Path $PSScriptRoot 'smart-rebuild.mjs'))
     if ($DryRun) { $arguments += '--dry-run' }
     if ($SkipUncommitted) { $arguments += '--skip-uncommitted' }

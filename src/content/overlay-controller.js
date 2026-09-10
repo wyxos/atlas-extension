@@ -9,6 +9,7 @@ export function createAssetOverlay(shadowRoot, options = {}) {
     badges: [],
     confirmRequest: null,
     reactionRequest: null,
+    errorMessage: null,
   });
   const mountElement = document.createElement('div');
   const dialogMountElement = document.createElement('div');
@@ -31,6 +32,8 @@ export function createAssetOverlay(shadowRoot, options = {}) {
         onReactionConfirm: resolveReactionRequest,
         portalTarget: dialogMountElement,
         reactionRequest: state.reactionRequest,
+        errorMessage: state.errorMessage,
+        onDismissError: () => { state.errorMessage = null; },
       });
     },
   });
@@ -57,6 +60,12 @@ export function createAssetOverlay(shadowRoot, options = {}) {
   }
 
   return {
+    showError(message) {
+      state.errorMessage = message;
+    },
+    clearError(message) {
+      if (state.errorMessage === message) state.errorMessage = null;
+    },
     confirmReactionUpdate(request) {
       pendingReactionResolve?.('cancel');
       state.reactionRequest = request;

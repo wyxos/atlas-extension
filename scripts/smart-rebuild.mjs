@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runIsolatedUpdate } from './smart-rebuild/isolated.mjs';
 import { prepareMainChanges } from './smart-rebuild/main-changes.mjs';
+import { terminal } from './smart-rebuild/terminal.mjs';
 const extensionRoot = path.resolve(import.meta.dirname, '..');
 const stateDirectory = path.join(process.env.LOCALAPPDATA, 'AtlasBuild');
 const args = process.argv.slice(2);
@@ -14,7 +15,7 @@ try {
     try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); }
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      throw new Error('An update is running or was interrupted. For an interrupted update, confirm its child processes have stopped before removing AtlasBuild/update.lock.', { cause: error });
+      throw new Error('An update is running or was interrupted. To recover an interrupted update, run rebuild-atlas.ps1 -RecoverLock; it checks for active build processes before unlocking.', { cause: error });
     }
     locked = true;
   }
@@ -27,6 +28,6 @@ try {
   await prepareMainChanges({ repos, stateDirectory, dryRun: args.includes('--dry-run'), skip: args.includes('--skip-uncommitted') });
   await runIsolatedUpdate({ stateDirectory, dryRun: args.includes('--dry-run'), repos });
 } catch (error) {
-  console.error(`Stopped: ${error.message}`);
+  terminal.line(`Stopped: ${error.message}`, 'red');
   process.exitCode = 1;
 } finally { if (locked) fs.unlinkSync(lock); }

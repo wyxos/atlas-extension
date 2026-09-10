@@ -3,7 +3,7 @@ let nextDialogId = 0;
 </script>
 
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 
 const focusableSelector = [
   "button:not([disabled])",
@@ -35,23 +35,33 @@ const props = defineProps({
 
 const emit = defineEmits(["cancel"]);
 const dialog = ref(null);
+const modal = ref(null);
 nextDialogId += 1;
 const instanceId = nextDialogId;
 const titleId = `atlas-extension-dialog-title-${instanceId}`;
 const descriptionId = `atlas-extension-dialog-description-${instanceId}`;
 let previousActiveElement = null;
 
-watch(() => props.open, async (open) => {
+watch(() => [props.open, props.title, props.description], async ([open]) => {
   if (open) {
-    previousActiveElement = activeElementForDialog();
+    previousActiveElement ??= activeElementForDialog();
     await nextTick();
+    if (!props.open || !modal.value) return;
+    // Native modal dialogs occupy the browser top layer, above host-page
+    // dialogs, popovers and all z-index stacking contexts.
+    if (modal.value.open) modal.value.close();
+    modal.value.showModal();
     focusInitialElement();
     return;
   }
 
+  modal.value?.close();
+  await nextTick();
   previousActiveElement?.focus?.({ preventScroll: true });
   previousActiveElement = null;
-});
+}, { immediate: true });
+
+onBeforeUnmount(() => modal.value?.close());
 
 function handleKeydown(event) {
   if (event.key === "Escape") {
@@ -113,8 +123,10 @@ function activeElementForDialog() {
     :to="portalTarget ?? 'body'"
     :disabled="portalTarget == null"
   >
-    <div
+    <dialog
+      ref="modal"
       data-atlas-extension-dialog-root
+      @cancel.prevent="emit('cancel')"
       @keydown.capture="handleKeydown"
     >
       <div
@@ -148,6 +160,6 @@ function activeElementForDialog() {
 
         <slot />
       </section>
-    </div>
+    </dialog>
   </Teleport>
 </template>

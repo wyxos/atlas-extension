@@ -351,7 +351,7 @@ if (contentOverlayStyles !== null) {
   expect(contentOverlayStyles.includes('position: fixed'), 'src/content/overlay-styles.js must position badges without changing page layout');
   expect(contentOverlayStyles.includes('pointer-events: none'), 'src/content/overlay-styles.js must not intercept site interactions');
   expect(contentOverlayStyles.includes('rgba(0, 0, 0, 0.6)'), 'src/content/overlay-styles.js must use the Atlas reaction badge surface');
-  expect(contentOverlayStyles.includes('[data-slot="alert-dialog-content"]'), 'src/content/overlay-styles.js must style the Shadow DOM referrer dialog');
+  expect(contentOverlayStyles.includes('getOverlayDialogStyles'), 'src/content/overlay-styles.js must include the shared dialog styles');
 }
 
 if (contentExtensionDialog !== null) {
@@ -412,8 +412,9 @@ if (backgroundExtensionReload !== null) {
 }
 
 if (backgroundLoadNextTabs !== null) {
-  expect(backgroundLoadNextTabs.includes('loadNextTabsDefaultLimit'), 'src/background/load-next-tabs.js must cap next-tab activation count');
-  expect(backgroundLoadNextTabs.includes('tabsApi.update'), 'src/background/load-next-tabs.js must activate tabs through Chrome tabs API');
+  expect(backgroundLoadNextTabs.includes('loadNextTabsDefaultLimit'), 'src/background/load-next-tabs.js must cap next-tab reload count');
+  expect(backgroundLoadNextTabs.includes('tabsApi.reload'), 'src/background/load-next-tabs.js must reload tabs through Chrome tabs API');
+  expect(!backgroundLoadNextTabs.includes('tabsApi.update'), 'src/background/load-next-tabs.js must preserve the active tab');
 }
 
 const desktopContract = readText('src/shared/desktop-contract.js');
