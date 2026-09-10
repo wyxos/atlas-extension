@@ -21,82 +21,100 @@ The wrapper preserves the script's exit code. Shortcuts must omit `-NoExit`, whi
 leave an interactive shell open afterward. Calling the underlying scripts directly remains
 suitable for unattended workflows.
 
-## Stable update workflow
+## Isolated update workflow
 
-On this Windows machine, use the **Update Atlas (Desktop + Extension)** desktop shortcut.
-It launches `scripts/rebuild-atlas.ps1` in this repository. Both checkouts must be siblings:
-`atlas-extension` and `atlas-desktop`. PowerShell 7, Node/npm, Git, the existing Desktop
-build dependencies, and a signed-in Codex CLI are required. Codex is discovered from
-the desktop app installation or PATH; `CODEX_EXECUTABLE` can override discovery.
+Use **Update Atlas (Desktop + Extension)**. It launches `scripts/rebuild-atlas.ps1`.
+The repositories must remain siblings named `atlas-extension` and `atlas-desktop`.
+PowerShell 7, Git, Node/npm and Desktop build tools are required. The optional
+commit step also requires the signed-in standalone Codex CLI.
 
-For inspection without releasing:
+1. Capture each local `refs/heads/main` commit before starting any build. No fetch
+   from a remote, version bump, stash, branch switch or merge is performed.
+   Before capture, dirty main checkouts offer Commit via Codex, Skip (default), or
+   Cancel. Skip excludes staged, unstaged and untracked edits. Commit asks Codex
+   for a message based on an immutable diff, verifies no edits/staging changed,
+   and commits exactly that snapshot. Version files are not automatically changed.
+   The main checkout is found even when the launcher runs from another branch.
+2. Skip repositories whose committed source tree and published output fingerprint
+   match the last successful isolated build. Missing or altered output is rebuilt.
+3. Fetch each captured commit into a temporary independent Git repository under
+   `%LOCALAPPDATA%\AtlasBuild\workspaces`. Each build uses its own dependencies
+   installed with `npm ci` when a committed lockfile exists, otherwise `npm install`
+   inside the temporary checkout. The Extension currently ignores its lockfile;
+   transitive dependencies may resolve differently between builds. Ignored local `.env`
+   files and local dependency links are not copied.
+4. Run repository checks there. Desktop uses development frontend validation in
+   place of the production frontend check. Build Extension stable output; build
+   Desktop with the existing NSIS installer, graceful shutdown and silent install.
+   Desktop's `EXTENSION_SOURCE` always points to the captured Extension snapshot.
+5. Publish Extension to the existing `dist\atlas-extension-stable-validation`
+   directory only after a successful build and verified copy. Sibling staging and
+   backup directories recover an interrupted replacement. Reload the browser
+   extension afterward. An Extension-only change does not rebuild Desktop.
+6. Record each successful repository independently. Remove temporary checkouts and
+   dependencies on success or failure. Keep dedicated Rust target/sccache caches,
+   normal package download caches, logs and build state for future runs.
+
+Commit desired source and version updates to local main before rebuilding. A change
+already committed to main is included even if the larger feature remains unfinished.
+Moving main after snapshot capture affects only the next run. The two captured
+commits are fixed for the run, but cross-repository compatibility remains the
+responsibility of the committed changes.
+
+## Progress and logs
+
+The terminal shows pending/up-to-date repositories, completed/total steps, the
+active step, elapsed time for long operations, installer status changes, and what
+remains after a failure. Step counts are not estimates of compilation percentage.
+Raw compiler, npm, test and installer output goes to
+`%LOCALAPPDATA%\AtlasBuild\build-<timestamp>.log`. The launcher transcript records
+its concise summary. The window still waits for **Press Enter to exit**.
+
+Use `-DryRun` to inspect captured main commits and rebuild decisions without
+building, publishing, changing versions or invoking Codex:
 
 ```powershell
 pwsh -NoProfile -File D:\code\wyxos\js\atlas-extension\scripts\rebuild-atlas.ps1 -DryRun
 ```
 
-## Behavior
+## State and recovery
 
-1. Validate both Git checkouts, then process Extension followed by Desktop.
-2. Compare each working tree against its own last successful local release.
-   Include tracked, staged, unstaged, deleted and non-ignored untracked files.
-   Git-ignored files (including `.env`, build output and dependencies) are not source changes.
-   Empty commits alone do not cause a rebuild.
-3. Skip unchanged source when its output fingerprint also matches. Missing or altered
-   output is restored at the same version.
-4. Capture immutable Git evidence and pass it to Codex on stdin in read-only mode.
-   Codex classifies the supplied evidence without invoking shell/file tools, avoiding
-   dependency on Windows sandbox helper ACL setup. Input includes all commit messages,
-   file statistics and the full current working-tree text diff (including new files).
-   Historical patches are included up to 200,000 characters; larger histories use all
-   commit messages and statistics, explicitly identified as a summary. Oversized total
-   input stops rather than silently dropping current changes. Ask Codex to
-   return a major/minor/patch recommendation, meaningful commit message and reason.
-   Codex chooses major for breaking changes, minor for visible features, and patch
-   for fixes, documentation, tooling and internal changes. A failed or refused Codex
-   review stops the run; there is no silent heuristic fallback.
-5. Update version files, run that repo's `npm run check`, and make a local commit
-   with Codex's message. All current non-ignored working changes are included.
-   AD and AE have independent versions. No push, remote release or Git tag is created.
-6. Run the existing per-repo script. AE uses `rebuild-unpacked-extension.ps1`, preserving
-   `CHANNEL=stable` and the exact output directory:
-   `D:\code\wyxos\js\atlas-extension\dist\atlas-extension-stable-validation`.
-   AD uses `rebuild-and-run-installer.ps1`, preserving its cached production/NSIS build,
-   graceful shutdown, silent `/S /R /NCRC` installation and reopen behavior.
-7. Record success only after the build/install succeeds and expected output exists.
+`AtlasBuild\isolated-state.json` is separate from the legacy `state.json` so old
+working-tree release provenance cannot be mistaken for an isolated build. The
+first isolated run builds both repositories once at their committed versions.
+Successful repositories are skipped on retries; failed ones retry without bumps.
 
-An AE-only change does **not** trigger an AD build. The next AD build refreshes its
-bundled AE using the existing Desktop preparation logic. Browser profiles continue
-using the same unpacked directory; reload the extension through its existing reload
-control or browser extensions page to activate rebuilt code.
+`AtlasBuild\update.lock` prevents overlapping unified updates. After a hard kill
+or terminal closure, confirm all child build/installer processes have stopped
+before removing that lock. The next run removes abandoned owned workspaces.
+Cleanup failures are reported and retried on a later build. Dedicated caches are
+not shared with active development checkouts and survive workspace cleanup.
+Do not run the low-level rebuild scripts concurrently with the unified updater.
 
-## State, retries and troubleshooting
+The compile-only **Rebuild Atlas Extension** shortcut and **Atlas Desktop Dev**
+continue to use current development sources. This isolated workflow applies to
+**Update Atlas (Desktop + Extension)**.
 
-State and logs live in `%LOCALAPPDATA%\AtlasBuild`, outside the repositories and the
-Atlas installation directory. `state.json` records each checkout's prepared/successful
-commit, Git tree, version and output hash. `update-*.log` contains launcher output;
-`codex-extension.log` and `codex-desktop.log` contain the most recent Codex runs.
+For an unattended build of committed main, pass `-SkipUncommitted` to the PowerShell
+launcher or `--skip-uncommitted` to the Node entry point. Without this flag, a
+noninteractive run with dirty main stops instead of silently choosing to commit.
+Codex review logs use `AtlasBuild\commit-<repository>.log`. A failed/refused review
+or a concurrent edit stops before the commit. Git's index lock protects staging
+while the captured tree is committed; newer working files are never reset.
 
-The old launchers did not record source provenance. The first real run therefore
-prepares and builds each repo once, using the current version tag (or the last commit
-that changed its version declaration) as Codex's review baseline. Later runs use the
-last successful local release. Do not delete state to retry a failed release.
+Desktop frontend tests run with four workers to keep cold module transforms from
+timing out short tests through CPU contention. Codex's input-only review uses
+[non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode).
 
-Preparation is journaled before validation/commit. Validation, commit, build or installer
-failures can be retried with the same prepared version while source is unchanged.
-Already completed repos are skipped. Edits after a failure are reviewed again. Source
-or staging changes detected during review/check/build stop the run. Finish concurrent
-editing before launching an update. A process lock prevents overlapping smart updates;
-stale locks whose process has exited are recovered on the next run.
+The installer controller accepts an explicit RepositoryRoot and honors the dedicated
+CARGO_TARGET_DIR. The controller runs from the maintained Desktop launcher scripts;
+all npm/application inputs come from the captured checkout. Importer preparation
+uses its own temporary output directory for compatibility with older main revisions.
+Temporary build workspaces do not use Cargo cache junctions.
 
-AD version updates cover `package.json`, its root lockfile entry, Tauri configuration,
-the root Cargo package and its Cargo lock entry. AE updates `package.json`,
-`manifest.json`, and the local root lockfile entry if present. Dependency versions are
-preserved. An already manually advanced version after a successful release is retained.
-
-Use the unified launcher for routine updates. The old scripts remain available as
-low-level build tools; invoking them directly does not update smart-release state.
-The previous desktop shortcuts are backed up under `AtlasBuild\previous-shortcuts`.
-
-Codex integration follows the official
-[non-interactive mode documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+Installed-executable verification compares every byte with the built executable,
+allowing only Tauri's single fixed-width bundle marker change from
+__TAURI_BUNDLE_TYPE_VAR_UNK to __TAURI_BUNDLE_TYPE_VAR_NSS. Tauri restores the
+unbundled marker in the build output after NSIS packaging. Any other byte change,
+size difference, missing marker or ambiguous marker is rejected. Native validation
+prepares both the bundled extension and pinned media tools before Rust checks/tests.

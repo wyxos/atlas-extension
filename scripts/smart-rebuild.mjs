@@ -1,123 +1,32 @@
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { runUpdate } from './smart-rebuild/workflow.mjs';
-import { createReviewInput } from './smart-rebuild/review-input.mjs';
-import { readThreadContext } from './smart-rebuild/thread-context.mjs';
-
-const extensionRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const desktopRoot = path.resolve(extensionRoot, '..', 'atlas-desktop');
+import { runIsolatedUpdate } from './smart-rebuild/isolated.mjs';
+import { prepareMainChanges } from './smart-rebuild/main-changes.mjs';
+const extensionRoot = path.resolve(import.meta.dirname, '..');
 const stateDirectory = path.join(process.env.LOCALAPPDATA, 'AtlasBuild');
-const statePath = path.join(stateDirectory, 'state.json');
 const args = process.argv.slice(2);
-if (args.some((arg) => arg !== '--dry-run')) throw new Error('Supported option: --dry-run');
-const dryRun = args.includes('--dry-run');
-
-function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, { windowsHide: true, stdio: 'inherit', ...options });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`${command} failed (exit ${result.status ?? result.signal}).`);
-  return result;
-}
-
-function findCodex() {
-  if (process.env.CODEX_EXECUTABLE) return process.env.CODEX_EXECUTABLE;
-  const directory = path.join(process.env.LOCALAPPDATA, 'OpenAI', 'Codex', 'bin');
-  if (fs.existsSync(directory)) {
-    const candidates = fs.readdirSync(directory).map((entry) => path.join(directory, entry, 'codex.exe'))
-      .filter((file) => fs.existsSync(file))
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-    if (candidates.length) return candidates[0];
-  }
-  return 'codex.exe';
-}
-
-function analyze(context) {
-  const { repo } = context;
-  const prompt = createReviewInput({ ...context, taskContext: readThreadContext(repo.root) });
-  const output = path.join(stateDirectory, `codex-${repo.kind}.json`);
-  const schema = path.join(stateDirectory, 'release-schema.json');
-  const logPath = path.join(stateDirectory, `codex-${repo.kind}.log`);
-  fs.rmSync(output, { force: true });
-  fs.writeFileSync(schema, JSON.stringify({
-    type: 'object', additionalProperties: false,
-    required: ['proceed', 'bump', 'commits', 'reason'],
-    properties: {
-      proceed: { type: 'boolean' }, bump: { enum: ['major', 'minor', 'patch'] },
-      commits: { type: 'array', items: { type: 'object', additionalProperties: false,
-        required: ['message', 'reason', 'changes'], properties: { message: { type: 'string' },
-          reason: { type: 'string' }, changes: { type: 'array', items: { type: 'string' } } } } },
-      reason: { type: 'string' },
-    },
-  }));
-  console.log(`${repo.name}: sending captured Git evidence to Codex for commit/version review (${prompt.length} characters). Log: ${logPath}`);
-  const log = fs.openSync(logPath, 'w');
-  try {
-    run(findCodex(), ['exec', '--ephemeral', '--sandbox', 'read-only', '-C', repo.root,
-      '--output-schema', schema, '--output-last-message', output, '--color', 'never', '-'], {
-      cwd: repo.root, input: prompt, encoding: 'utf8', stdio: ['pipe', log, log], timeout: 15 * 60 * 1000,
-    });
-  } finally {
-    fs.closeSync(log);
-  }
-  return JSON.parse(fs.readFileSync(output, 'utf8'));
-}
-
-function acquireLock() {
-  fs.mkdirSync(stateDirectory, { recursive: true });
-  const lockPath = path.join(stateDirectory, 'update.lock');
-  try {
-    const descriptor = fs.openSync(lockPath, 'wx');
-    fs.writeFileSync(descriptor, String(process.pid));
-    fs.closeSync(descriptor);
-  } catch (error) {
-    if (error.code !== 'EEXIST') throw error;
-    const owner = Number(fs.readFileSync(lockPath, 'utf8'));
-    if (!Number.isInteger(owner) || owner <= 0) throw new Error(`Inspect invalid update lock: ${lockPath}`, { cause: error });
-    try {
-      process.kill(owner, 0);
-    } catch (processError) {
-      if (processError.code !== 'ESRCH') throw processError;
-      fs.unlinkSync(lockPath);
-      return acquireLock();
-    }
-    throw new Error('An Atlas smart update is already running.', { cause: error });
-  }
-  return () => fs.unlinkSync(lockPath);
-}
-
-const repos = [
-  { kind: 'extension', name: 'Atlas Extension', root: extensionRoot,
-    artifact: path.join(extensionRoot, 'dist', 'atlas-extension-stable-validation') },
-  { kind: 'desktop', name: 'Atlas Desktop', root: desktopRoot,
-    artifact: path.join(process.env.LOCALAPPDATA, 'Atlas', 'atlas-desktop.exe') },
-];
-const releaseLock = acquireLock();
+let locked = false;
+const lock = path.join(stateDirectory, 'update.lock');
 try {
-  await runUpdate({
-    repos, statePath, dryRun, analyze,
-    check: (repo) => {
-      const checks = repo.kind === 'desktop'
-        ? ['lint', 'build:desktop:dev', 'test:unit', 'lint:rust', 'test:rust'] : ['check'];
-      for (const check of checks) {
-        console.log(`${repo.name}: running npm run ${check} before committing.`);
-        run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd run ${check}; exit $LASTEXITCODE`], { cwd: repo.root });
-      }
-    },
-    build: (repo) => {
-      const script = repo.kind === 'extension' ? 'rebuild-unpacked-extension.ps1' : 'rebuild-and-run-installer.ps1';
-      run('pwsh.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repo.root, 'scripts', script)], {
-        cwd: repo.root, env: { ...process.env, EXTENSION_SOURCE: extensionRoot },
-      });
-    },
-  });
-  console.log(dryRun ? 'Inspection complete. No Codex calls, commits, versions, builds or installations performed.'
-    : 'Atlas update complete. Reload unpacked extensions in browser profiles to activate changed AE code.');
+  if (args.some((arg) => !['--dry-run', '--skip-uncommitted'].includes(arg))) throw new Error('Supported options: --dry-run, --skip-uncommitted');
+  if (!args.includes('--dry-run')) {
+    fs.mkdirSync(stateDirectory, { recursive: true });
+    try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      throw new Error('An update is running or was interrupted. For an interrupted update, confirm its child processes have stopped before removing AtlasBuild/update.lock.', { cause: error });
+    }
+    locked = true;
+  }
+  const repos = [
+    { kind: 'extension', name: 'Extension', root: extensionRoot,
+      artifact: path.join(extensionRoot, 'dist', 'atlas-extension-stable-validation') },
+    { kind: 'desktop', name: 'Desktop', root: path.resolve(extensionRoot, '..', 'atlas-desktop'),
+      artifact: path.join(process.env.LOCALAPPDATA, 'Atlas', 'atlas-desktop.exe') },
+  ];
+  await prepareMainChanges({ repos, stateDirectory, dryRun: args.includes('--dry-run'), skip: args.includes('--skip-uncommitted') });
+  await runIsolatedUpdate({ stateDirectory, dryRun: args.includes('--dry-run'), repos });
 } catch (error) {
-  console.error(`Atlas update stopped: ${error.message}`);
-  console.error(`State and Codex logs: ${stateDirectory}`);
+  console.error(`Stopped: ${error.message}`);
   process.exitCode = 1;
-} finally {
-  releaseLock();
-}
+} finally { if (locked) fs.unlinkSync(lock); }
