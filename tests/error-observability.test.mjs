@@ -29,7 +29,7 @@ test('a silent worker times out rather than leaving an action busy forever', asy
   await assert.rejects(sendBackgroundRequest({}, { timeoutMs: 5, runtime: { sendMessage() {} } }), /timed out/);
 });
 
-test('status misses preserve user-action errors and the badge presents them', () => {
+test('status misses preserve reaction failure state without duplicating the page notice in the badge', () => {
   const state = stateWithoutAtlasAssetStatus({
     reactionFailure: { message: 'Provider unavailable', errorCode: 'PROVIDER_RESOLUTION_FAILED' },
     closeTabError: 'Close failed', widgetPlacementError: 'Position failed', fileActionError: 'Open failed',
@@ -37,7 +37,8 @@ test('status misses preserve user-action errors and the badge presents them', ()
   });
   assert.equal(state.file, undefined);
   const badge = createBadgePresentation({ source: 'https://fixture.test/a' }, null, 0, state);
-  assert.match(badge.failureMessage, /Provider unavailable/);
+  assert.equal(badge.failureMessage, undefined);
+  assert.equal(badge.reactionFailure.message, 'Provider unavailable');
   assert.equal(badge.closeTabError, 'Close failed');
   assert.equal(badge.widgetPlacementError, 'Position failed');
   assert.equal(badge.fileActionError, 'Open failed');

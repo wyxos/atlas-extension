@@ -27,7 +27,7 @@ export function createBadgePresentation(asset, visibleRect, viewportPadding, sta
     ...optionalString('closeTabError', state.closeTabError),
     ...optionalString('widgetPlacementError', state.widgetPlacementError),
     ...optionalString('fileActionError', state.fileActionError),
-    ...optionalFailureMessage(reactionFailure, download),
+    ...optionalFailureMessage(download),
     isBusy: state.isBusy === true,
     isDeleting: state.isDeleting === true,
     progressLabel,
@@ -262,10 +262,7 @@ function formatProgressLabel(download, progressPercent) {
   return `${status} · ${progressPercent}%`;
 }
 
-function optionalFailureMessage(reactionFailure, download) {
-  if (reactionFailure !== null) {
-    return { failureMessage: `Reaction not saved · ${reactionFailure.message}` };
-  }
+function optionalFailureMessage(download) {
   if (download?.status !== 'failed') {
     return {};
   }

@@ -2,11 +2,12 @@ export function getOverlayNoticeStyles() {
   return `
     .atlas-operation-error {
       position: fixed;
-      top: 12px;
-      left: 12px;
-      right: 12px;
-      max-width: 560px;
+      bottom: max(12px, env(safe-area-inset-bottom, 0px));
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(560px, calc(100% - 24px));
       max-height: calc(100vh - 24px);
+      max-height: calc(100dvh - 24px);
       overflow: auto;
       box-sizing: border-box;
       display: flex;
@@ -23,6 +24,7 @@ export function getOverlayNoticeStyles() {
     }
     .atlas-operation-error span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
     .atlas-operation-error button {
+      flex: 0 0 auto;
       background: transparent;
       color: inherit;
       border: 1px solid currentColor;

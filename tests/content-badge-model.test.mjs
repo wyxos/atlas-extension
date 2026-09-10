@@ -338,7 +338,7 @@ test('renders structured reaction and download failures without failed zero-perc
     },
   });
 
-  assert.equal(reactionFailure.failureMessage, 'Reaction not saved · Atlas Desktop is offline');
+  assert.equal(reactionFailure.failureMessage, undefined);
   assert.equal(reactionFailure.reactionFailure.errorCode, 'DESKTOP_OFFLINE');
   assert.equal(downloadFailure.progressLabel, 'Reaction saved · Download failed');
   assert.equal(downloadFailure.failureMessage, 'Source file unavailable');
