@@ -1,21 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { sendBackgroundRequest } from '../src/content/background-api.js';
-import { submitWithProviderFallback } from '../src/content/provider-reaction.js';
+import { submitReaction } from '../src/content/provider-reaction.js';
 import { stateWithoutAtlasAssetStatus } from '../src/content/asset-state.js';
 import { createBadgePresentation } from '../src/content/badge-model.js';
 import { createBadgeFileActions } from '../src/content/badge-file-actions.js';
 
-test('provider failure is reported before awaiting a fallback decision for either reaction kind', async () => {
+test('provider failure is reported without a fallback prompt for either reaction kind', async () => {
   for (const type of ['atlas-extension.asset-reaction', 'atlas-extension.asset-reaction-batch']) {
     const calls = [];
     const error = { code: 'PROVIDER_RESOLUTION_FAILED', message: 'Provider unavailable', retryable: true };
-    const result = await submitWithProviderFallback({
+    await assert.rejects(submitReaction({
       submit: () => sendBackgroundRequest({ type }, { runtime: { sendMessage(_message, cb) { cb({ ok: false, error }); } } }),
       onFailure: (failure) => calls.push(failure.code),
-      confirmFallback: async () => { assert.deepEqual(calls, ['PROVIDER_RESOLUTION_FAILED']); return 'cancel'; },
-    });
-    assert.equal(result, null);
+      confirmFallback: async () => assert.fail('must not prompt'),
+    }), { code: 'PROVIDER_RESOLUTION_FAILED' });
+    assert.deepEqual(calls, ['PROVIDER_RESOLUTION_FAILED']);
   }
 });
 

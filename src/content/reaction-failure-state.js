@@ -9,7 +9,7 @@ export function applyAcceptedReactionPayload(payload, { applyBatch, applySingle 
 export function reactionFailureFromError(error) {
   const code = typeof error?.code === 'string' ? error.code : 'REACTION_REQUEST_FAILED';
   const messages = {
-    PROVIDER_RESOLUTION_FAILED: 'The provider could not return this item. Try again or use the browser download.',
+    PROVIDER_RESOLUTION_FAILED: 'Atlas could not accept this request. Update Atlas Desktop and retry.',
     DESKTOP_OFFLINE: 'Atlas Desktop is offline',
     DESKTOP_TIMEOUT: 'Atlas Desktop did not respond',
     PAIRING_REQUIRED: 'Desktop pairing is required',

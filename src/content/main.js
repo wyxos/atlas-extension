@@ -1,5 +1,5 @@
 import { mergeReferrerCounts } from './referrer-counts.js';
-import { matchesReactionFile, submitWithProviderFallback } from './provider-reaction.js';
+import { matchesReactionFile, submitReaction } from './provider-reaction.js';
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
 import { createBatchProviderState } from './batch-provider-state.js';
 import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateBatchProviderPreferenceViaBackground, updateCloseTabModeViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
@@ -306,8 +306,7 @@ async function handleBadgeReaction(event) {
   let payload;
   let reactionNotice;
   try {
-    const originalPageUrl = window.location.href;
-    payload = await submitWithProviderFallback({
+    payload = await submitReaction({
       onFailure: (error) => {
         const failure = reactionFailureFromError(error);
         reactionNotice = `Reaction request failed · ${failure.message}`;
@@ -316,8 +315,6 @@ async function handleBadgeReaction(event) {
           updateBadgeState(event.id, { reactionFailure: failure });
         }
       },
-      confirmFallback: (request) => getOverlayController().confirmReactionUpdate(request),
-      isCurrent: () => window.location.href === originalPageUrl && shouldApplyAssetResponse(asset, assetsById.get(event.id)),
       submit: (useBrowserDownload) => postAssetOrBatchReaction({
         asset, batchContext: batchContextsById.get(event.id), currentState,
         documentContext: document, downloadAction, event, locationContext: window.location, useBrowserDownload,

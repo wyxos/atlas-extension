@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { submitWithProviderFallback, matchesReactionFile } from '../src/content/provider-reaction.js';
+import { submitReaction, matchesReactionFile } from '../src/content/provider-reaction.js';
 import { canonicalCivitaiPage } from '../src/shared/civitai-page.js';
 import { createContentInterestRegistry } from '../src/background/content-interest-registry.js';
 import { postAssetReaction, fetchAssetStatuses } from '../src/background/desktop-api.js';
@@ -8,28 +8,15 @@ import { decorateAssetWithMatchIdentity, statusMatchItemForAsset } from '../src/
 
 const providerError = Object.assign(new Error('Unavailable'), { code: 'PROVIDER_RESOLUTION_FAILED' });
 
-test('provider failure requires explicit fallback and preserves normal errors', async () => {
+test('reaction submissions never prompt or resubmit after provider errors', async () => {
   const calls = [];
-  const result = await submitWithProviderFallback({
-    submit: async (fallback) => { calls.push(fallback); if (!fallback) throw providerError; return { saved: true }; },
-    confirmFallback: async () => 'browser-download',
-  });
-  assert.deepEqual(calls, [false, true]);
-  assert.equal(result.saved, true);
-  const canceled = await submitWithProviderFallback({ submit: async () => { throw providerError; }, confirmFallback: async () => 'cancel' });
-  assert.equal(canceled, null);
-  await assert.rejects(submitWithProviderFallback({ submit: async () => { throw new Error('offline'); }, confirmFallback: async () => assert.fail('not a provider error') }), /offline/);
-});
-
-test('navigation during fallback cannot react to a different page', async () => {
-  let current = true;
-  let calls = 0;
-  assert.equal(await submitWithProviderFallback({
-    submit: async () => { calls += 1; throw providerError; },
-    confirmFallback: async () => { current = false; return 'browser-download'; },
-    isCurrent: () => current,
-  }), null);
-  assert.equal(calls, 1);
+  await assert.rejects(submitReaction({
+    submit: async (fallback) => { calls.push(fallback); throw providerError; },
+    onFailure: (error) => assert.equal(error, providerError),
+    confirmFallback: async () => assert.fail('must not prompt'),
+  }), { code: 'PROVIDER_RESOLUTION_FAILED' });
+  assert.deepEqual(calls, [false]);
+  assert.deepEqual(await submitReaction({submit: async () => ({saved:true})}), {saved:true});
 });
 
 test('canonical download events update a browser variant only after file identity is known', () => {
