@@ -50,10 +50,12 @@ commit step also requires the signed-in standalone Codex CLI.
 5. Publish Extension to the existing `dist\atlas-extension-stable-validation`
    directory only after a successful build and verified copy. Sibling staging and
    backup directories recover an interrupted replacement. Reload the browser
-   extension afterward. An Extension-only change does not rebuild Desktop.
+   extension afterward. An Extension-only change allocates no Desktop Rust target.
 6. Record each successful repository independently. Remove temporary checkouts and
-   dependencies on success or failure. Keep dedicated Rust target/sccache caches,
-   normal package download caches, logs and build state for future runs.
+   dependencies on success or failure. Desktop's build-storage manager leases the
+   updater target and shared compiler cache, and applies the repository family's
+   60 GiB retention policy. Active scopes protect snapshots and cache resources.
+   Normal package download caches and updater state remain available for future runs.
 
 Commit desired source and version updates to local main before rebuilding. A change
 already committed to main is included even if the larger feature remains unfinished.
@@ -72,8 +74,9 @@ Redirected output uses plain step transitions without animation or ANSI colors;
 `NO_COLOR` disables colors in an interactive terminal too. The detail-log path is
 shown at completion or failure, and the log contains the full outstanding step list.
 Raw compiler, npm, test and installer output goes to
-`%LOCALAPPDATA%\AtlasBuild\build-<timestamp>.log`. The launcher transcript records
-its concise summary. The window still waits for **Press Enter to exit**.
+the Desktop scope's managed diagnostics directory, printed by the updater. Detail
+logs are capped at 16 MiB and share the seven-day/1 GiB retention policy. The latest
+launcher summary is `%LOCALAPPDATA%\AtlasBuild\update-latest.log`. The window still waits for **Press Enter to exit**.
 
 Use `-DryRun` to inspect captured main commits and rebuild decisions without
 building, publishing, changing versions or invoking Codex:
@@ -89,9 +92,14 @@ working-tree release provenance cannot be mistaken for an isolated build. The
 first isolated run builds both repositories once at their committed versions.
 Successful repositories are skipped on retries; failed ones retry without bumps.
 
-`AtlasBuild\update.lock` prevents overlapping unified updates. After an interrupted update, run the launcher with `-RecoverLock`. Recovery refuses a live lock owner, surviving isolated-build or installer processes, or processes it cannot inspect. It checks the lock again before removing it. This is recovery, not permission to run overlapping installers. The next run removes abandoned owned workspaces.
-Cleanup failures are reported and retried on a later build. Dedicated caches are
-not shared with active development checkouts and survive workspace cleanup.
+`AtlasBuild\update.lock` prevents overlapping unified updates. After an interrupted update, run the launcher with `-RecoverLock`. Recovery refuses a live lock owner, surviving isolated-build or installer processes, or processes it cannot inspect. It checks the lock again before removing it. This is recovery, not permission to run overlapping installers. The storage manager removes abandoned registered workspaces after their OS leases end; legacy workspaces require its verified migration.
+Cleanup failures are reported and retried on a later build. The updater obtains its
+storage scope from Desktop's maintained controller before executing commands. Its
+processes are supervised even when a captured revision predates the manager. Nested
+current commands reuse that validated scope; old hard-coded outputs remain within
+the registered disposable snapshot. Retained targets are separate from dev targets
+and are pruned automatically when inactive and over the size/age policy. Both
+repositories need the managed-storage controller change before this updater runs.
 Do not run the low-level rebuild scripts concurrently with the unified updater.
 
 The compile-only **Rebuild Atlas Extension** shortcut and **Atlas Desktop Dev**
@@ -112,8 +120,12 @@ timing out short tests through CPU contention. Codex's input-only review uses
 The installer controller accepts an explicit RepositoryRoot and honors the dedicated
 CARGO_TARGET_DIR. The controller runs from the maintained Desktop launcher scripts;
 all npm/application inputs come from the captured checkout. Importer preparation
-uses its own temporary output directory for compatibility with older main revisions.
-Temporary build workspaces do not use Cargo cache junctions.
+uses the assigned target for current revisions and an owned snapshot output directory
+for compatibility with older main revisions.
+Temporary build workspaces do not use Cargo cache junctions. Installation closes
+only the installed app being replaced, leaving isolated worktree apps running. The
+outer launcher reopens the installed app after releasing the build job, with the
+disposable build environment removed.
 
 Installed-executable verification compares every byte with the built executable,
 allowing only Tauri's single fixed-width bundle marker change from

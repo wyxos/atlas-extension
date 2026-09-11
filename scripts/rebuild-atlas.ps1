@@ -5,8 +5,8 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $logDirectory = Join-Path $env:LOCALAPPDATA 'AtlasBuild'
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-$logPath = Join-Path $logDirectory ('update-{0}.log' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
-Start-Transcript -LiteralPath $logPath | Out-Null
+$logPath = Join-Path $logDirectory 'update-latest.log'
+Start-Transcript -LiteralPath $logPath -Force | Out-Null
 $scriptExitCode = 0
 try {
     if ($RecoverLock -and -not $DryRun) { & (Join-Path $PSScriptRoot 'recover-update-lock.ps1') }

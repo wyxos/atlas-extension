@@ -29,6 +29,7 @@ function fixture(t) {
   });
   const logs = [];
   return { root, repos, logs, stateDirectory: path.join(root, 'state'), log: (line) => logs.push(line),
+    scopeFactory: async () => ({ environment: { CARGO_TARGET_DIR: path.join(root, 'state', 'cache', 'desktop-target') }, close: async () => {} }),
     execute: (name, args, options) => name === 'git' ? command(name, args, options) : Promise.resolve(),
     buildOverride: async (repo, plans) => {
       assert.equal(fs.readFileSync(path.join(repo.snapshot, 'source.txt'), 'utf8'), 'committed');
@@ -65,6 +66,18 @@ test('failed build preserves output, cleans workspace and reports outstanding st
   assert.deepEqual(fs.readdirSync(path.join(f.stateDirectory, 'workspaces')), []);
   assert.equal(fs.existsSync(path.join(f.stateDirectory, 'isolated-state.json')), false);
   assert.ok(f.logs.some((line) => line.startsWith('Outstanding:')));
+});
+
+test('an Extension-only rebuild requests no Rust target or reservation', async (t) => {
+  const f = fixture(t);
+  await runIsolatedUpdate(f);
+  fs.rmSync(f.repos[0].artifact, { recursive: true });
+  let options;
+  await runIsolatedUpdate({ ...f, scopeFactory: async (...args) => {
+    options = args[2];
+    return { environment: {}, close: async () => {} };
+  } });
+  assert.deepEqual(options, { rust: false });
 });
 
 test('dry run does not create state or workspaces', async (t) => {
@@ -131,4 +144,15 @@ test('a main revision without a lockfile uses npm install only inside its snapsh
   } }), /fixture stop/);
   assert.equal(usedFallback, true);
   assert.equal(fs.existsSync(path.join(repo.root, 'package-lock.json')), false);
+});
+
+test('command logs are bounded and declare truncation while status still arrives', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-log-test-'));
+  t.after(() => { assert.equal(path.dirname(root), fs.realpathSync(os.tmpdir())); fs.rmSync(root, {recursive:true, force:true}); });
+  const logFile = path.join(root, 'command.log'), statuses = [];
+  await command(process.execPath, ['-e', 'process.stdout.write("x".repeat(17*1024**2)); console.log("Installing and reopening Atlas silently...")'],
+    {cwd:root,env:process.env,logFile,status:value=>statuses.push(value)});
+  assert.ok(fs.statSync(logFile).size <= 16*1024**2);
+  assert.match(fs.readFileSync(logFile,'utf8'), /Atlas log truncated/);
+  assert.deepEqual(statuses, ['Desktop: installing and reopening']);
 });

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { setInterval, clearInterval } from 'node:timers';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { artifactFingerprint, git, saveState } from './repository.mjs';
 import { verifyInstalledExecutable } from './installed-executable.mjs';
 import { createTerminal } from './terminal.mjs';
@@ -18,16 +19,34 @@ export function removeWorkspace(parent, directory) {
   fs.rmSync(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
 }
 
+function appendLog(descriptor, value) {
+  const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+  const remaining = 16 * 1024 ** 2 - fs.fstatSync(descriptor).size;
+  if (remaining <= 0) return;
+  const marker = Buffer.from('\n[Atlas log truncated at 16 MiB.]\n');
+  const kept = chunk.subarray(0, Math.max(0, remaining - marker.length));
+  fs.writeSync(descriptor, kept);
+  if (kept.length < chunk.length) fs.writeSync(descriptor, marker);
+}
+function appendLogFile(file, value) {
+  const descriptor = fs.openSync(file, 'a');
+  try { appendLog(descriptor, value); } finally { fs.closeSync(descriptor); }
+}
+
 export async function command(name, args, { cwd, env, logFile, status = () => {} }) {
   const descriptor = fs.openSync(logFile, 'a');
-  fs.writeSync(descriptor, `\n> ${name} ${args.join(' ')}\n`);
+  appendLog(descriptor, `\n> ${name} ${args.join(' ')}\n`);
   try {
     await new Promise((resolve, reject) => {
-      const child = spawn(name, args, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const managed = env.ATLAS_BUILD_CONTROLLER;
+      const program = managed ? process.execPath : name;
+      const parameters = managed ? [path.join(managed, 'scripts', 'runtime-launcher.mjs'), 'runtime:external', name, ...args] : args;
+      const child = spawn(program, parameters, { cwd, env: { ...env, ATLAS_COMMAND_CWD: cwd },
+        windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
       let tail = '';
       const reported = new Set();
       const capture = (chunk) => {
-        fs.writeSync(descriptor, chunk);
+        appendLog(descriptor, chunk);
         tail = (tail + chunk.toString()).slice(-8192);
         for (const [marker, message] of [
           ['Preparing importer resources...', 'Desktop: preparing importer resources'],
@@ -72,8 +91,14 @@ export function publishExtension(source, destination) {
   recoverPublication(destination);
 }
 
+export async function openBuildScope(repository, workspace, options) {
+  const module = path.join(repository, 'scripts', 'build-storage', 'update-scope.mjs');
+  if (!fs.existsSync(module)) throw new Error('Update the Desktop controller to the managed build-storage revision before rebuilding.');
+  return (await import(pathToFileURL(module).href)).openUpdateScope(repository, workspace, options);
+}
+
 export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
-  log, execute = command, buildOverride }) {
+  log, execute = command, buildOverride, scopeFactory = openBuildScope }) {
   const display = createTerminal({ log });
   log = display.line;
   const statePath = path.join(stateDirectory, 'isolated-state.json');
@@ -95,18 +120,17 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   if (dryRun) { log('Inspection complete. No source, versions, builds or installations changed.'); return plans; }
   if (!plans.some((repo) => repo.needed)) { log('Complete. Nothing outstanding.'); return plans; }
   fs.mkdirSync(stateDirectory, { recursive: true });
-  const logFile = path.join(stateDirectory, `build-${Date.now()}.log`);
-  fs.writeFileSync(logFile, plans.map((repo) => `${repo.name}: main ${repo.head}`).join('\n') + '\n');
   const workspaceParent = path.join(stateDirectory, 'workspaces');
   fs.mkdirSync(workspaceParent, { recursive: true });
-  // The launcher lock blocks crash recovery until orphaned children are stopped.
-  for (const entry of fs.readdirSync(workspaceParent)) {
-    if (entry.startsWith('run-')) removeWorkspace(workspaceParent, path.join(workspaceParent, entry));
-  }
+  // Only the storage manager can prove that an abandoned workspace has no users.
   const workspace = fs.mkdtempSync(path.join(fs.realpathSync(workspaceParent), 'run-'));
-  const environment = { ...process.env, EXTENSION_SOURCE: path.join(workspace, 'extension'),
-    SCCACHE_DIR: path.join(stateDirectory, 'cache', 'sccache'),
-    CARGO_TARGET_DIR: path.join(stateDirectory, 'cache', 'desktop-target') };
+  let scope;
+  try { scope = await scopeFactory(repos.find(repo => repo.kind === 'desktop').root, workspace,
+    { rust: plans.some(repo => repo.kind === 'desktop' && repo.needed) }); }
+  catch (error) { removeWorkspace(workspaceParent, workspace); throw error; }
+  const environment = { ...process.env, ...scope.environment, EXTENSION_SOURCE: path.join(workspace, 'extension') };
+  const logFile = environment.ATLAS_BUILD_LOG || path.join(stateDirectory, 'build-latest.log');
+  fs.writeFileSync(logFile, plans.map((repo) => `${repo.name}: main ${repo.head}`).join('\n') + '\n');
   const steps = [];
   const run = (name, args, cwd) => execute(name, args, { cwd, env: environment, logFile,
     status: (message) => display.status(message.replace(/^Desktop: /, '')) });
@@ -129,7 +153,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     steps.push({ title: `${repo.name}: install dependencies`, action: async () => {
       const install = fs.existsSync(path.join(repo.snapshot, 'package-lock.json')) ? 'ci' : 'install';
       if (install === 'install') {
-        fs.appendFileSync(logFile, `${repo.name}: resolving dependencies (no committed lockfile)\n`);
+        appendLogFile(logFile, `${repo.name}: resolving dependencies (no committed lockfile)\n`);
         display.status('resolving dependencies');
       }
       await run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd ${install} --no-audit --no-fund; exit $LASTEXITCODE`], repo.snapshot);
@@ -155,8 +179,10 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       const parameters = repo.kind === 'desktop' ? ['-RepositoryRoot', repo.snapshot] : [];
       await run('pwsh.exe', ['-NoProfile', '-File', path.join(scriptRoot, 'scripts', script), ...parameters], repo.snapshot);
       if (repo.kind === 'desktop') {
-        if (!fs.readFileSync(logFile, 'utf8').includes('Atlas was rebuilt, installed, and reopened successfully.')) {
-          throw new Error('Installer did not confirm completion (another installer may be running).');
+        const receipt = environment.ATLAS_BUILD_REOPEN_REQUEST;
+        if (!receipt || !fs.existsSync(receipt) ||
+          fs.realpathSync(JSON.parse(fs.readFileSync(receipt, 'utf8')).executable) !== fs.realpathSync(repo.artifact)) {
+          throw new Error('Installer did not publish a verified completion receipt.');
         }
         verifyInstalledExecutable(path.join(environment.CARGO_TARGET_DIR, 'release', 'atlas-desktop.exe'), repo.artifact);
       }
@@ -174,7 +200,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   try {
     for (const step of steps) {
       display.start(step.title, completed, steps.length);
-      fs.appendFileSync(logFile, `\nStep ${completed + 1}/${steps.length}: ${step.title}\n`);
+      appendLogFile(logFile, `\nStep ${completed + 1}/${steps.length}: ${step.title}\n`);
       const timer = setInterval(display.tick, 1000);
       try { await step.action(); } catch (error) {
         display.fail();
@@ -190,9 +216,10 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       log(`Cleanup pending: ${workspace}`);
       failure ??= error;
     }
+    if (failure) appendLogFile(logFile, `\nStopped: ${failure.message}\nOutstanding: ${steps.slice(completed).map((step) => step.title).join('; ') || 'cleanup'}\n`);
+    try { await scope.close(); } catch (error) { failure ??= error; }
   }
   if (failure) {
-    fs.appendFileSync(logFile, `\nStopped: ${failure.message}\nOutstanding: ${steps.slice(completed).map((step) => step.title).join('; ') || 'cleanup'}\n`);
     log(`Outstanding: ${steps.length - completed} build steps${completed === steps.length ? '; cleanup needs attention' : '. Rerun to retry; completed repositories will be skipped.'}`, 'yellow');
     log(`Details: ${logFile}`);
     throw failure;
