@@ -28,6 +28,11 @@ The repositories must remain siblings named `atlas-extension` and `atlas-desktop
 PowerShell 7, Git, Node/npm and Desktop build tools are required. The optional
 commit step also requires the signed-in standalone Codex CLI.
 
+The launcher first loads Desktop's managed build-storage controller, including in
+dry-run mode. A missing or incompatible controller stops before commit prompts,
+update state or build workspaces are created. Integrate the controller changes into
+Desktop before rerunning the updater.
+
 1. Capture each local `refs/heads/main` commit before starting any build. No fetch
    from a remote, version bump, stash, branch switch or merge is performed.
    Before capture, dirty main checkouts offer Commit via Codex, Skip (default), or

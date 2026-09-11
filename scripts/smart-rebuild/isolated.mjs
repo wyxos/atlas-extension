@@ -91,10 +91,19 @@ export function publishExtension(source, destination) {
   recoverPublication(destination);
 }
 
-export async function openBuildScope(repository, workspace, options) {
+export async function loadBuildController(repository) {
   const module = path.join(repository, 'scripts', 'build-storage', 'update-scope.mjs');
-  if (!fs.existsSync(module)) throw new Error('Update the Desktop controller to the managed build-storage revision before rebuilding.');
-  return (await import(pathToFileURL(module).href)).openUpdateScope(repository, workspace, options);
+  try {
+    const controller = await import(pathToFileURL(module).href);
+    if (typeof controller.openUpdateScope !== 'function') throw new Error('The managed update scope is missing.');
+    return controller;
+  } catch (error) {
+    throw new Error('The Desktop build-storage controller could not load. Finish integrating the managed build-storage changes into Desktop before updating.', { cause: error });
+  }
+}
+
+export async function openBuildScope(repository, workspace, options) {
+  return (await loadBuildController(repository)).openUpdateScope(repository, workspace, options);
 }
 
 export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
