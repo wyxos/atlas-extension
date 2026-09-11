@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -216,33 +217,38 @@ export async function buildExtension({ channel, destination, root }) {
   }
   const buildEnv = loadBuildEnv(root);
   channel ??= ['dev', 'stable'].includes(buildEnv.CHANNEL) ? buildEnv.CHANNEL : 'dev';
-  const buildOutputPath = getBuildOutputPath(root);
-  const backgroundOutputPath = getBackgroundBuildOutputPath(root);
-  const contentOutputPath = getContentBuildOutputPath(root);
-  const locationBridgeOutputPath = getLocationBridgeBuildOutputPath(root);
-  fs.rmSync(buildOutputPath, { force: true, recursive: true });
-  fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
-  fs.rmSync(contentOutputPath, { force: true, recursive: true });
-  fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
-  await runViteBuild({ channel, outDir: buildOutputPath, root, target: 'options' });
-  await runViteBuild({ channel, outDir: backgroundOutputPath, root, target: 'background' });
-  await runViteBuild({ channel, outDir: contentOutputPath, root, target: 'content' });
-  await runViteBuild({ channel, outDir: locationBridgeOutputPath, root, target: 'location-bridge' });
-  copyContentBuild({ buildOutputPath, contentOutputPath: backgroundOutputPath, entryName: 'background' });
-  copyContentBuild({ buildOutputPath, contentOutputPath });
-  copyContentBuild({ buildOutputPath, contentOutputPath: locationBridgeOutputPath, entryName: 'location-bridge' });
-  fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
-  fs.rmSync(contentOutputPath, { force: true, recursive: true });
-  fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
-  fs.copyFileSync(path.join(root, 'manifest.json'), path.join(buildOutputPath, 'manifest.json'));
-  copyStaticAssets({ buildOutputPath, root });
-  writeDesktopCompatibilityMarker({ buildOutputPath, channel });
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-extension-build-'));
+  const buildOutputPath = path.join(staging, 'options');
+  const backgroundOutputPath = path.join(staging, 'background');
+  const contentOutputPath = path.join(staging, 'content');
+  const locationBridgeOutputPath = path.join(staging, 'location-bridge');
+  try {
+    fs.rmSync(buildOutputPath, { force: true, recursive: true });
+    fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
+    fs.rmSync(contentOutputPath, { force: true, recursive: true });
+    fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
+    await runViteBuild({ channel, outDir: buildOutputPath, root, target: 'options' });
+    await runViteBuild({ channel, outDir: backgroundOutputPath, root, target: 'background' });
+    await runViteBuild({ channel, outDir: contentOutputPath, root, target: 'content' });
+    await runViteBuild({ channel, outDir: locationBridgeOutputPath, root, target: 'location-bridge' });
+    copyContentBuild({ buildOutputPath, contentOutputPath: backgroundOutputPath, entryName: 'background' });
+    copyContentBuild({ buildOutputPath, contentOutputPath });
+    copyContentBuild({ buildOutputPath, contentOutputPath: locationBridgeOutputPath, entryName: 'location-bridge' });
+    fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
+    fs.rmSync(contentOutputPath, { force: true, recursive: true });
+    fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
+    fs.copyFileSync(path.join(root, 'manifest.json'), path.join(buildOutputPath, 'manifest.json'));
+    copyStaticAssets({ buildOutputPath, root });
+    writeDesktopCompatibilityMarker({ buildOutputPath, channel });
 
-  const copied = copyDirectory({ destination, source: buildOutputPath });
-  return {
-    copied,
-    destination,
-  };
+    const copied = copyDirectory({ destination, source: buildOutputPath });
+    return {
+      copied,
+      destination,
+    };
+  } finally {
+    fs.rmSync(staging, { force: true, recursive: true });
+  }
 }
 
 export async function runRelease({ argv = [], env = process.env, root = process.cwd() }) {
@@ -395,18 +401,6 @@ export async function runChecked(command, args, { root }) {
 
 export function getBuildOutputPath(root) {
   return path.join(root, 'dist', '.vite-build');
-}
-
-function getBackgroundBuildOutputPath(root) {
-  return path.join(root, 'dist', '.vite-background-build');
-}
-
-function getContentBuildOutputPath(root) {
-  return path.join(root, 'dist', '.vite-content-build');
-}
-
-function getLocationBridgeBuildOutputPath(root) {
-  return path.join(root, 'dist', '.vite-location-bridge-build');
 }
 
 export function resolveExecutable(command, platform = process.platform) {
