@@ -72,9 +72,6 @@ test('uses the highest image srcset candidate when the site profile prefers srcs
                 imageSourcePreference: 'srcset-highest',
               },
               domain: 'reddit.com',
-              referrer: {
-                rules: [],
-              },
             },
           ],
           version: 2,
@@ -156,9 +153,6 @@ test('describes srcset-preferred image resolution from the selected download tar
               imageSourcePreference: 'srcset-highest',
             },
             domain: 'reddit.com',
-            referrer: {
-              rules: [],
-            },
           },
         ],
         version: 2,

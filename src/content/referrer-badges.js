@@ -125,17 +125,18 @@ export function createReferrerBadgeManager({
   }
 
   function updateByDownloadEvent(payload) {
-    const assetUrl = typeof payload?.assetUrl === 'string' ? payload.assetUrl : null;
     const referrerUrl = typeof payload?.referrerUrl === 'string' ? payload.referrerUrl : null;
+    const eventIdentity = referrerUrl === null ? null : decorateAsset({ referrerUrl }).matchIdentity;
     const fileId = Number(payload?.file?.id ?? payload?.download?.file_id);
 
     for (const [id, asset] of assetsById.entries()) {
       const currentFileId = resolveStateFileId(statesById.get(id) ?? {});
       const matchesFile = Number.isInteger(fileId) && fileId > 0 && currentFileId === fileId;
-      const matchesReferrer = referrerUrl !== null && asset.referrerUrl === referrerUrl;
-      const matchesSource = assetUrl !== null && asset.source === assetUrl;
+      const matchesReferrer = referrerUrl !== null && (asset.referrerUrl === referrerUrl
+        || (eventIdentity && asset.matchIdentity?.match_url === eventIdentity.match_url
+          && asset.matchIdentity?.rule_digest === eventIdentity.rule_digest));
 
-      if (matchesFile || matchesReferrer || matchesSource) {
+      if (matchesFile || matchesReferrer) {
         update(id, withoutUndefinedValues({
           download: payload.download,
           file: payload.file,

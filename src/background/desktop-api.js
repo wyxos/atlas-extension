@@ -1,3 +1,5 @@
+import { deriveReferrerMatchIdentity } from '../shared/asset-match-identity.js';
+
 export const reactionPreviewTransport = {
   reaction: (_, body) => previewRequest('/v1/reactions', body),
   reactionBatch: (_, body) => previewRequest('/v1/reactions/batch', body),
@@ -23,11 +25,14 @@ export function postAssetReaction({
   runtimeContext,
   source,
   transport,
+  preferences,
 }) {
+  const referrerIdentity = deriveReferrerMatchIdentity({ referrerUrl, preferences });
   return transport.reaction(credentials, {
     asset_url: asset.source,
     ...(asset.providerIdentity ? { provider_identity: asset.providerIdentity } : {}),
     ...(asset.matchIdentity ? { match_identity: asset.matchIdentity } : {}),
+    ...(referrerIdentity ? { referrer_match_identity: referrerIdentity } : {}),
     ...(downloadAction ? { download_action: downloadAction } : {}),
     metadata: buildAssetMetadata(asset),
     referrer_url: referrerUrl,
@@ -39,6 +44,7 @@ export function postAssetReaction({
 }
 
 export function postAssetReactionBatch({
+  preferences,
   credentials,
   downloadAction,
   items,
@@ -49,7 +55,7 @@ export function postAssetReactionBatch({
 }) {
   return transport.reactionBatch(credentials, {
     ...(downloadAction ? { download_action: downloadAction } : {}),
-    items: normalizeBatchItems(items),
+    items: normalizeBatchItems(items, preferences),
     ...buildRuntimeContextPayload(runtimeContext),
     ...(useBrowserDownload === true ? { use_browser_download: true } : {}),
     type: reactionType,
@@ -105,11 +111,12 @@ function buildAssetMetadata(asset) {
   );
 }
 
-function normalizeBatchItems(items) {
+function normalizeBatchItems(items, preferences) {
   return (items ?? []).map((item) => ({
     asset_url: item.asset?.source,
     ...(item.asset?.providerIdentity ? { provider_identity: item.asset.providerIdentity } : {}),
     ...(item.asset?.matchIdentity ? { match_identity: item.asset.matchIdentity } : {}),
+    ...(item.referrerUrl ? { referrer_match_identity: deriveReferrerMatchIdentity({ referrerUrl: item.referrerUrl, preferences }) } : {}),
     metadata: buildAssetMetadata(item.asset ?? {}),
     referrer_url: item.referrerUrl,
     source: item.source,

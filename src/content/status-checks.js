@@ -21,6 +21,7 @@ export function createStatusCheckQueue({
   const pendingOpenReferrerUrls = new Set();
   const pendingReferrerUrls = new Set();
   let scheduledStatusCheck = null;
+  let generation = 0;
 
   function queueAssetStatusCheck(source, options = {}) {
     const queuedMatchItem = queueMatchItem(options.matchItem, {
@@ -92,6 +93,7 @@ export function createStatusCheckQueue({
   }
 
   function reset() {
+    generation += 1;
     checkedAssetSources.clear();
     cachedAssetStates.clear();
     cachedReferrerStates.clear();
@@ -138,6 +140,7 @@ export function createStatusCheckQueue({
   }
 
   async function flush() {
+    const requestGeneration = generation;
     const assetUrls = [...pendingAssetSources];
     const matchItems = [...pendingMatchItems.values()];
     const openReferrerUrls = [...pendingOpenReferrerUrls];
@@ -160,6 +163,8 @@ export function createStatusCheckQueue({
         : Promise.resolve({ assets: {}, referrers: {} }),
       openReferrerUrls.length > 0 ? fetchOpenCounts({ referrerUrls: openReferrerUrls }) : Promise.resolve({ counts: {} }),
     ]);
+
+    if (requestGeneration !== generation) return;
 
     if (openCountResult.status === 'fulfilled') {
       applyOpenCounts(openReferrerUrls, openCountResult.value.counts ?? {});

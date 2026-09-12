@@ -48,9 +48,6 @@ test('derives cleaned referrer match identity from a profile rule', () => {
             },
           },
           domain: 'facebook.com',
-          referrer: {
-            rules: [],
-          },
         },
       ],
       version: 3,

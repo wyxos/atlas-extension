@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { deriveReferrerMatchIdentity } from '../src/shared/asset-match-identity.js';
 import test from 'node:test';
 
 import {
@@ -89,6 +90,7 @@ test('preserves batch reaction item shapes', async () => {
     asset_url: 'https://cdn.example.test/1.jpg',
     metadata: { asset_type: 'image' },
     referrer_url: 'https://example.test/1',
+    referrer_match_identity: deriveReferrerMatchIdentity({ referrerUrl: 'https://example.test/1' }),
     source: 'example.test',
   }]);
 });

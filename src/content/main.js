@@ -3,7 +3,7 @@ import { matchesReactionFile, submitReaction } from './provider-reaction.js';
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
 import { createBatchProviderState } from './batch-provider-state.js';
 import { deleteAtlasFileViaBackground, fetchAssetStatusesViaBackground, fetchOpenReferrerCountsViaBackground, openAtlasFileViaBackground, openReferrerInTabViaBackground, updateBatchProviderPreferenceViaBackground, updateCloseTabModeViaBackground, updateWidgetPlacementViaBackground } from './background-api.js';
-import { decorateAssetWithMatchIdentity as decorateAssetWithMatchIdentityForRuntime, statusMatchItemForAsset } from './asset-match-runtime.js';
+import { decorateAssetWithMatchIdentity as decorateAssetWithMatchIdentityForRuntime, decorateReferrerWithMatchIdentity, statusMatchItemForAsset } from './asset-match-runtime.js';
 import { handleAssetShortcutEvent } from './asset-shortcuts.js';
 import { findAssetShortcutFallback } from './asset-shortcut-target.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
@@ -69,7 +69,7 @@ const batchProviderState = createBatchProviderState({
   savePreference: updateBatchProviderPreferenceViaBackground,
 });
 const referrerBadges = createReferrerBadgeManager({
-  decorateAsset: decorateAssetWithMatchIdentity,
+  decorateAsset: (asset) => decorateReferrerWithMatchIdentity({ asset, preferences: getCurrentAssetSourcePreferences() }),
   getCurrentPageUrl: () => window.location.href,
   getOverlayController,
   getVisibleRect: getReferrerVisibleRect,
@@ -472,4 +472,4 @@ void batchProviderState.initialize();
 void closeTabMode.initialize();
 void widgetPlacement.initialize();
 globalThis.chrome?.storage?.onChanged?.addListener?.((changes, areaName) => widgetPlacement.applyStorageChange(changes, areaName));
-void initializeAssetSourcePreferences({ onChanged: () => { scheduleScan(); schedulePositionUpdate(); } });
+void initializeAssetSourcePreferences({ onChanged: () => { statusChecks.reset(); scheduleScan(); schedulePositionUpdate(); } });

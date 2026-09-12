@@ -73,12 +73,26 @@ export function applyAssetMatchCleanup(rawUrl, cleanup) {
   return url.href;
 }
 
-export function assetMatchRuleDigest({ matching, siteDomain }) {
+export function deriveReferrerMatchIdentity({ referrerUrl, preferences }) {
+  const rawUrl = normalizeHttpUrl(referrerUrl);
+  if (rawUrl === null) return null;
+  const siteDomain = new URL(rawUrl).hostname;
+  const profile = getAssetSourceProfile(preferences, siteDomain);
+  const matching = { matchBy: 'referrer', ruleId: '', cleanup: profile.referrerCleanup };
+  return {
+    match_by: 'referrer',
+    match_url: applyAssetMatchCleanup(rawUrl, matching.cleanup),
+    rule_digest: assetMatchRuleDigest({ matching, siteDomain, target: 'referrer' }),
+  };
+}
+
+export function assetMatchRuleDigest({ matching, siteDomain, target }) {
   const value = stableStringify({
     cleanup: matching?.cleanup ?? null,
     matchBy: matching?.matchBy ?? assetMatchByValues.source,
     ruleId: matching?.ruleId ?? '',
     siteDomain: normalizeDomain(siteDomain),
+    ...(target === 'referrer' ? { target } : {}),
   });
   let hash = 5381;
 

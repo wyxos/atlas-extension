@@ -22,6 +22,7 @@ import {
   handleTabCounterSnapshotRequest,
 } from './tab-counter.js';
 import { collectReactionRuntimeContext } from './reaction-runtime-context.js';
+import { loadAssetSourcePreferences } from '../shared/asset-source-preferences.js';
 import { loadNextTabsFromActive } from './load-next-tabs.js';
 import { loadNextTabsRequestType } from '../shared/load-next-tabs-messages.js';
 import { tabCounterSnapshotRequestType } from '../shared/tab-counter-messages.js';
@@ -221,8 +222,10 @@ async function handleAtlasApiMessage(message) {
     });
   }
 
+  const preferences = await loadAssetSourcePreferences();
   const payload = message.type === 'atlas-extension.asset-reaction-batch'
     ? await postAssetReactionBatch({
+      preferences,
       credentials,
       downloadAction: message.downloadAction,
       items: message.items,
@@ -232,6 +235,7 @@ async function handleAtlasApiMessage(message) {
       transport,
     })
     : await postAssetReaction({
+      preferences,
       asset: message.asset,
       credentials,
       downloadAction: message.downloadAction,

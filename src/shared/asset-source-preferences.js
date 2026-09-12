@@ -266,9 +266,7 @@ function createAssetSourceProfile(domain) {
       matching: createDefaultAssetMatchingRule(),
     },
     domain,
-    referrer: {
-      rules: [],
-    },
+    referrerCleanup: createDefaultAssetMatchingRule().cleanup,
   };
 }
 
@@ -286,9 +284,7 @@ function normalizeAssetSourceProfile(value) {
       matching: normalizeAssetMatchingRule(value?.asset?.matching),
     },
     domain,
-    referrer: {
-      rules: Array.isArray(value?.referrer?.rules) ? value.referrer.rules : [],
-    },
+    referrerCleanup: normalizeAssetMatchingRule({ cleanup: value?.referrerCleanup }).cleanup,
   };
 }
 

@@ -451,3 +451,25 @@ function waitForFlush() {
     setTimeout(resolve, 10);
   });
 }
+
+test('a policy reset discards in-flight matches from the previous rule', async () => {
+  const referrer = 'https://example.test/post';
+  const applied = [];
+  const pending = [];
+  const queue = createStatusCheckQueue({
+    applyAssetState() {}, applyOpenCounts() {}, clearAssetState() {}, clearReferrerState() {},
+    applyReferrerState: (_, state) => applied.push(state),
+    fetchAssetStatuses: () => new Promise(resolve => pending.push(resolve)),
+    fetchOpenCounts: async () => ({ counts: {} }), delayMs: 0, windowRef: globalThis,
+  });
+  queue.queueReferrerStatusCheck(referrer);
+  await waitForFlush();
+  queue.reset();
+  queue.queueReferrerStatusCheck(referrer);
+  await waitForFlush();
+  pending[1]({ referrers: { [referrer]: { reaction: 'like' } } });
+  await waitForFlush();
+  pending[0]({ referrers: { [referrer]: { reaction: 'love' } } });
+  await waitForFlush();
+  assert.deepEqual(applied, [{ reaction: 'like' }]);
+});

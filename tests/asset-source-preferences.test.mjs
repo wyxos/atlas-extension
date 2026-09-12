@@ -61,20 +61,16 @@ test('adds normalized asset source profile domains without duplicates', async ()
           imageSourcePreference: imageSourcePreferenceValues.highestSrcset,
           matching: defaultMatching,
         },
+        referrerCleanup: defaultMatching.cleanup,
         domain: 'reddit.com',
-        referrer: {
-          rules: [],
-        },
       },
       {
         asset: {
           imageSourcePreference: imageSourcePreferenceValues.src,
           matching: defaultMatching,
         },
+        referrerCleanup: defaultMatching.cleanup,
         domain: 'x.com',
-        referrer: {
-          rules: [],
-        },
       },
     ],
     version: 3,
@@ -99,10 +95,8 @@ test('removes normalized asset source profile domains', async () => {
           imageSourcePreference: imageSourcePreferenceValues.src,
           matching: defaultMatching,
         },
+        referrerCleanup: defaultMatching.cleanup,
         domain: 'x.com',
-        referrer: {
-          rules: [],
-        },
       },
     ],
     version: 3,
@@ -148,10 +142,8 @@ test('normalizes profile-only stored preferences into domains', async () => {
           imageSourcePreference: imageSourcePreferenceValues.highestSrcset,
           matching: defaultMatching,
         },
+        referrerCleanup: defaultMatching.cleanup,
         domain: 'reddit.com',
-        referrer: {
-          rules: [],
-        },
       },
     ],
     version: 3,
@@ -285,9 +277,7 @@ test('stores per-profile matching rules without rewriting raw profile domains', 
       },
     },
     domain: 'facebook.com',
-    referrer: {
-      rules: [],
-    },
+    referrerCleanup: defaultMatching.cleanup,
   });
 });
 
