@@ -97,7 +97,7 @@ async function scanActiveTab() {
 
   const result = await requestActiveTabScan();
 
-  setActionStatus(result.ok ? 'Scan requested' : result.error);
+  setActionStatus(result.ok ? 'Scan complete' : result.error);
   setBusy(false);
 }
 

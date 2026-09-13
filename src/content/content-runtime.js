@@ -33,7 +33,8 @@ export function startContentRuntime({
   listenForDesktopResync({ handleResyncRequired });
   listenForDiagnosticProbes();
   listenForOpenTabCounts({ mergeOpenReferrerCounts });
-  listenForManualScanRequests({ scanAssets: scanAssetsWhenReady, schedulePositionUpdate });
+  // An explicit scan must run even while automatic startup scanning is deferred.
+  listenForManualScanRequests({ scanAssets, schedulePositionUpdate });
   listenForAssetShortcuts({ handleAssetShortcut });
   listenForReferrerOpenAttempts({ referrerOpenGuard });
   listenForPageLocationChanges({
@@ -202,14 +203,13 @@ function listenForManualScanRequests({ scanAssets, schedulePositionUpdate }) {
       return;
     }
 
-    scanAssets();
-    schedulePositionUpdate();
-    sendResponse?.({
-      ok: true,
-      payload: {
-        scanned: true,
-      },
-    });
+    try {
+      scanAssets();
+      schedulePositionUpdate();
+      sendResponse?.({ ok: true, payload: { scanned: true } });
+    } catch {
+      sendResponse?.({ ok: false, error: 'The page scan failed. Try again.' });
+    }
 
     return false;
   });

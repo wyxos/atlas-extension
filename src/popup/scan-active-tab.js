@@ -59,6 +59,12 @@ function sendManualScanMessage({ runtime, tabId, tabsApi }) {
         return;
       }
 
+      if (response?.payload?.scanned !== true) {
+        resolve({ error: 'The page did not confirm the scan. Try again.', ok: false });
+
+        return;
+      }
+
       resolve({
         ok: true,
         scanned: response?.payload?.scanned === true,

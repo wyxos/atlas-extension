@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+test('popup scan rejects missing or incomplete scan acknowledgements', async () => {
+  for (const response of [undefined, {}, { ok: true }, { ok: true, payload: { scanned: false } }]) {
+    const result = await requestActiveTabScan({
+      tabsApi: {
+        query: (_query, callback) => callback([{ id: 42 }]),
+        sendMessage: (_tabId, _message, callback) => callback(response),
+      },
+    });
+    assert.deepEqual(result, { ok: false, error: 'The page did not confirm the scan. Try again.' });
+  }
+});
+
 import { requestActiveTabScan } from '../src/popup/scan-active-tab.js';
 
 test('popup scan sends a manual scan request to the active tab', async () => {
