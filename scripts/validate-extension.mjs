@@ -86,6 +86,7 @@ if (manifest !== null) {
     JSON.stringify(manifest.permissions) === JSON.stringify([
       'storage',
       'tabs',
+      'webNavigation',
       'cookies',
       'scripting',
       'clipboardRead',
@@ -127,6 +128,8 @@ if (manifest !== null) {
   );
   expect(Array.isArray(manifest.content_scripts), 'manifest.json must define content scripts for asset detection');
   expect(manifest.content_scripts?.length === 2, 'manifest.json must define location bridge and badge content scripts');
+  expect(manifest.content_scripts?.every((script) => script.all_frames === true
+    && script.match_origin_as_fallback === true), 'content scripts must reach embedded and origin-related frames');
   expect(
     JSON.stringify(manifest.content_scripts?.[0]?.matches) === JSON.stringify(['<all_urls>']),
     'manifest.json location bridge must run on normal web pages',

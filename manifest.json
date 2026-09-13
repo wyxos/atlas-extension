@@ -7,6 +7,7 @@
   "permissions": [
     "storage",
     "tabs",
+    "webNavigation",
     "cookies",
     "scripting",
     "clipboardRead",
@@ -43,6 +44,8 @@
         "assets/location-bridge.js"
       ],
       "run_at": "document_start",
+      "all_frames": true,
+      "match_origin_as_fallback": true,
       "world": "MAIN"
     },
     {
@@ -52,7 +55,9 @@
       "js": [
         "assets/content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_origin_as_fallback": true
     }
   ],
   "background": {

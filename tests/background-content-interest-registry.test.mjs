@@ -158,3 +158,32 @@ test('compact interests survive a background worker restart through session stor
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
+
+test('iframe interests coexist, survive restart, and retire by document without removing siblings', async () => {
+  const values = {};
+  const storageArea = {
+    async get() { return clone(values); },
+    async set(next) { Object.assign(values, clone(next)); },
+  };
+  const registry = createContentInterestRegistry({ storageArea });
+  await registry.ready;
+  const shared = 'https://example.test/shared.mp4';
+  for (const frameId of [0, 4, 7]) registry.register({
+    tabId: 1, frameId, documentId: `doc-${frameId}`, sequence: 2,
+    sourceUrls: [shared, `https://example.test/${frameId}.mp4`],
+  });
+  registry.register({ tabId: 1, frameId: 4, documentId: 'doc-4', sequence: 1, sourceUrls: [] });
+  assert.deepEqual(registry.matchingTabIds({ assetUrl: 'https://example.test/4.mp4' }), [1]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const restored = createContentInterestRegistry({ storageArea });
+  await restored.ready;
+  assert.equal(restored.snapshot()[0].frames.length, 3);
+  restored.register({ tabId: 1, frameId: 4, documentId: 'replacement', sourceUrls: [] });
+  assert.equal(restored.removeFrame(1, 4, 'doc-4'), false);
+  assert.deepEqual(restored.matchingTabIds({ assetUrl: 'https://example.test/4.mp4' }), []);
+  assert.deepEqual(restored.matchingTabIds({ assetUrl: 'https://example.test/7.mp4' }), [1]);
+  restored.removeFrame(1, 7);
+  assert.deepEqual(restored.matchingTabIds({ assetUrl: shared }), [1]);
+  restored.remove(1);
+  assert.deepEqual(restored.matchingTabIds({ assetUrl: shared }), []);
+});

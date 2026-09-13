@@ -11,6 +11,13 @@ export function createContentInterestReporter({
   let pending = false;
   let sequence = 0;
 
+  windowContext?.addEventListener?.('pagehide', () => {
+    runtime?.sendMessage?.({ type: 'atlas-extension.content-interests-remove', documentId }, () => {
+      void runtime?.lastError;
+    });
+  });
+  windowContext?.addEventListener?.('pageshow', () => schedule({ force: true }));
+
   function schedule({ force = false } = {}) {
     if (pending) {
       return;

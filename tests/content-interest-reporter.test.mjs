@@ -51,3 +51,23 @@ test('restored content performs the requested targeted resync', () => {
   reporter.report();
   assert.equal(resyncs, 1);
 });
+
+test('departing frames retire their document and restored frames force a fresh report', async () => {
+  const listeners = {};
+  const messages = [];
+  const reporter = createContentInterestReporter({
+    getInterests: () => ({ sourceUrls: ['https://example.test/video.mp4'] }),
+    windowContext: { addEventListener: (name, callback) => { listeners[name] = callback; } },
+    runtime: { sendMessage: (message, callback) => { messages.push(message); callback({ ok: true }); } },
+  });
+  reporter.report();
+  listeners.pagehide();
+  listeners.pageshow();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(messages.map((message) => message.type), [
+    'atlas-extension.content-interests', 'atlas-extension.content-interests-remove',
+    'atlas-extension.content-interests',
+  ]);
+  assert.equal(messages[1].documentId, messages[0].documentId);
+  assert.deepEqual(messages[2].sourceUrls, messages[0].sourceUrls);
+});

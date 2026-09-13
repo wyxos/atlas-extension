@@ -37,6 +37,7 @@ test('declares scripting permission for post-reload loaded-tab prompts', () => {
   assert.deepEqual(manifest.permissions, [
     'storage',
     'tabs',
+    'webNavigation',
     'cookies',
     'scripting',
     'clipboardRead',
@@ -52,12 +53,16 @@ test('loads a main-world location bridge before the isolated content script', ()
       matches: ['<all_urls>'],
       js: ['assets/location-bridge.js'],
       run_at: 'document_start',
+      all_frames: true,
+      match_origin_as_fallback: true,
       world: 'MAIN',
     },
     {
       matches: ['<all_urls>'],
       js: ['assets/content.js'],
       run_at: 'document_idle',
+      all_frames: true,
+      match_origin_as_fallback: true,
     },
   ]);
 });

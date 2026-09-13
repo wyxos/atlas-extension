@@ -17,13 +17,15 @@ export function createContentInterestRegistry({
     }
   });
 
-  function register({ documentId, pageUrl, referrerUrls, sequence, sourceUrls, tabId }) {
+  function register({ documentId, frameId = 0, pageUrl, referrerUrls, sequence, sourceUrls, tabId }) {
     const normalizedTabId = normalizeTabId(tabId);
     if (normalizedTabId === null) {
       return { accepted: false, resyncRequired: false };
     }
 
-    const previous = records.get(normalizedTabId);
+    const previousTab = records.get(normalizedTabId);
+    const frames = previousTab?.frames ?? [];
+    const previous = frames.find((frame) => frame.frameId === frameId);
     const normalizedDocumentId = normalizeDocumentId(documentId);
     const normalizedSequence = normalizeSequence(sequence);
 
@@ -32,15 +34,16 @@ export function createContentInterestRegistry({
       && previous.documentId === normalizedDocumentId
       && normalizedSequence < previous.sequence
     ) {
-      return { accepted: false, resyncRequired: previous.needsResync };
+      return { accepted: false, resyncRequired: previousTab.needsResync };
     }
 
     const next = {
       discarded: false,
       documentId: normalizedDocumentId,
+      frameId,
       frozen: false,
       loading: false,
-      needsResync: previous?.needsResync === true
+      needsResync: previousTab?.needsResync === true
         || (previous !== undefined && previous.documentId !== normalizedDocumentId),
       pageUrl: normalizeUrl(pageUrl),
       referrerUrls: normalizeUrls(referrerUrls),
@@ -50,7 +53,9 @@ export function createContentInterestRegistry({
       updatedAt: clock(),
     };
 
-    storeRecord(next);
+    const nextFrames = frames.filter((frame) => frame.frameId !== frameId);
+    nextFrames.push(next);
+    storeRecord(withFrames(next, nextFrames));
     schedulePersist();
 
     return {
@@ -136,6 +141,18 @@ export function createContentInterestRegistry({
     return true;
   }
 
+  function removeFrame(tabId, frameId, documentId) {
+    const record = records.get(normalizeTabId(tabId));
+    if (!record) return false;
+    const frames = record.frames.filter((frame) => frame.frameId !== frameId
+      || (documentId !== undefined && frame.documentId !== documentId));
+    if (frames.length === record.frames.length) return false;
+    if (frames.length === 0) return remove(tabId);
+    storeRecord(withFrames(record, frames));
+    schedulePersist();
+    return true;
+  }
+
   function retainTabIds(tabIds) {
     const retained = new Set((Array.isArray(tabIds) ? tabIds : [])
       .map(normalizeTabId)
@@ -214,6 +231,7 @@ export function createContentInterestRegistry({
     reconcileTabs,
     register,
     remove,
+    removeFrame,
     retainTabIds,
     snapshot,
     targetState,
@@ -249,6 +267,15 @@ function copyRecord(record) {
     ...record,
     referrerUrls: [...record.referrerUrls],
     sourceUrls: [...record.sourceUrls],
+    frames: record.frames.map((frame) => ({ ...frame,
+      referrerUrls: [...frame.referrerUrls], sourceUrls: [...frame.sourceUrls] })),
+  };
+}
+
+function withFrames(record, frames) {
+  return { ...record, frames,
+    sourceUrls: normalizeUrls(frames.flatMap((frame) => frame.sourceUrls)),
+    referrerUrls: normalizeUrls(frames.flatMap((frame) => frame.referrerUrls)),
   };
 }
 
@@ -285,21 +312,22 @@ async function readStoredRecords(storageArea) {
   try {
     const values = await storageArea.get(contentInterestStorageKey);
     const records = values?.[contentInterestStorageKey];
-    return Array.isArray(records) ? records.map(normalizeStoredRecord).filter(Boolean) : [];
+    return Array.isArray(records) ? records.map((record) => normalizeStoredRecord(record)).filter(Boolean) : [];
   } catch {
     return [];
   }
 }
 
-function normalizeStoredRecord(record) {
+function normalizeStoredRecord(record, includeFrames = true) {
   const tabId = normalizeTabId(record?.tabId);
   if (tabId === null) {
     return null;
   }
 
-  return {
+  const normalized = {
     discarded: record?.discarded === true,
     documentId: normalizeDocumentId(record?.documentId),
+    frameId: normalizeTabId(record?.frameId) ?? 0,
     frozen: record?.frozen === true,
     loading: record?.loading === true,
     needsResync: record?.needsResync === true,
@@ -310,6 +338,11 @@ function normalizeStoredRecord(record) {
     tabId,
     updatedAt: Number(record?.updatedAt) || 0,
   };
+  if (!includeFrames) return normalized;
+  const frames = Array.isArray(record?.frames)
+    ? record.frames.map((frame) => normalizeStoredRecord({ ...frame, tabId }, false)).filter(Boolean)
+    : [normalized];
+  return withFrames(normalized, frames);
 }
 
 async function writeStoredRecords(storageArea, records) {

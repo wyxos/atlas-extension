@@ -13,6 +13,16 @@ import {
 } from '../src/shared/tab-counter-messages.js';
 
 const root = path.resolve(import.meta.dirname, '..');
+
+test('embedded players do not create a duplicate tab counter or request a tab snapshot', async () => {
+  const documentContext = createFakeDocument();
+  const badge = await initializeTabCounterBadge({
+    documentContext, windowContext: { top: {} },
+    runtime: { sendMessage: () => assert.fail('iframe requested a tab counter') },
+  });
+  assert.equal(badge, null);
+  assert.equal(documentContext.body.children.length, 0);
+});
 const optionsCss = fs.readFileSync(path.join(root, 'src/options/style.css'), 'utf8');
 const optionsInterFontImport = "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');";
 

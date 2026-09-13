@@ -11,6 +11,10 @@ export async function initializeTabCounterBadge({
   runtime = globalThis.chrome?.runtime,
   windowContext = globalThis.window,
 } = {}) {
+  if (windowContext?.top && windowContext.top !== windowContext) {
+    return null;
+  }
+
   if (typeof runtime?.sendMessage !== 'function' || !documentContext?.createElement) {
     return null;
   }

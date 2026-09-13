@@ -61,10 +61,18 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     return true;
   }
 
+  if (message?.type === 'atlas-extension.content-interests-remove') {
+    void contentInterests.ready.then(() => contentInterests.removeFrame(
+      sender?.tab?.id, sender?.frameId ?? 0, sender?.documentId ?? message.documentId,
+    ));
+    return false;
+  }
+
   if (message?.type === 'atlas-extension.content-interests') {
     void contentInterests.ready.then(() => {
       const payload = contentInterests.register({
         documentId: sender?.documentId ?? message.documentId,
+        frameId: sender?.frameId ?? 0,
         pageUrl: message.pageUrl,
         referrerUrls: message.referrerUrls,
         sequence: message.sequence,
@@ -184,6 +192,12 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
 });
 
 bindOpenTabTracking();
+globalThis.chrome?.webNavigation?.onCommitted?.addListener?.(({ tabId, frameId }) => {
+  void contentInterests.ready.then(() => {
+    if (frameId === 0) contentInterests.remove(tabId);
+    else contentInterests.removeFrame(tabId, frameId);
+  });
+});
 bindPendingExtensionReloadNoticeDelivery();
 void desktopRuntime.initialize();
 void deliverPendingExtensionReloadNotice();
