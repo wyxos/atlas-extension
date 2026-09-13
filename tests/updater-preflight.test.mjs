@@ -75,3 +75,18 @@ test('compatible controller allows dry-run inspection without opening a scope or
   assert.equal(fs.existsSync(path.join(f.root, 'local')), false);
   assert.deepEqual(f.snapshot(), before);
 });
+
+test('an existing update lock returns the recovery result without changing repositories or the lock', (t) => {
+  const f = fixture(t, 'export function openUpdateScope() { throw new Error("Build must not start"); }');
+  const directory = path.join(f.root, 'local', 'AtlasBuild');
+  fs.mkdirSync(directory, { recursive: true });
+  const lock = path.join(directory, 'update.lock');
+  fs.writeFileSync(lock, '123456');
+  const before = f.snapshot();
+  const result = f.run([]);
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 73, result.stdout + result.stderr);
+  assert.match(result.stdout, /RecoverLock/);
+  assert.equal(fs.readFileSync(lock, 'utf8'), '123456');
+  assert.deepEqual(f.snapshot(), before);
+});

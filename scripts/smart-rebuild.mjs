@@ -18,6 +18,8 @@ try {
     try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); }
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
+      // The PowerShell launcher uses this distinct result to offer checked recovery.
+      process.exitCode = 73;
       throw new Error('An update is running or was interrupted. To recover an interrupted update, run rebuild-atlas.ps1 -RecoverLock; it checks for active build processes before unlocking.', { cause: error });
     }
     locked = true;
@@ -32,5 +34,5 @@ try {
   await runIsolatedUpdate({ stateDirectory, dryRun: args.includes('--dry-run'), repos });
 } catch (error) {
   terminal.line(`Stopped: ${error.message}`, 'red');
-  process.exitCode = 1;
+  process.exitCode ??= 1;
 } finally { if (locked) fs.unlinkSync(lock); }

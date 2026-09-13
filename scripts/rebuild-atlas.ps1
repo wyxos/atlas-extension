@@ -9,6 +9,7 @@ $logPath = Join-Path $logDirectory 'update-latest.log'
 Start-Transcript -LiteralPath $logPath -Force | Out-Null
 $scriptExitCode = 0
 try {
+    . (Join-Path $PSScriptRoot 'update-lock-prompt.ps1')
     if ($RecoverLock -and -not $DryRun) { & (Join-Path $PSScriptRoot 'recover-update-lock.ps1') }
     $arguments = @((Join-Path $PSScriptRoot 'smart-rebuild.mjs'))
     if ($DryRun) { $arguments += '--dry-run' }
@@ -16,6 +17,9 @@ try {
     Push-Location $repositoryRoot
     try {
         & node.exe @arguments
+        if (Confirm-UpdateLockRecovery -UpdateExitCode $LASTEXITCODE -DryRun:$DryRun -AlreadyRecovered:$RecoverLock) {
+            & node.exe @arguments
+        }
         if ($LASTEXITCODE -ne 0) { $scriptExitCode = $LASTEXITCODE }
     }
     finally { Pop-Location }
