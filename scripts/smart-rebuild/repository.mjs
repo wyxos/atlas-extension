@@ -75,7 +75,7 @@ export function bumpVersion(version, bump) {
   return numbers.join('.');
 }
 
-function replaceVersionFile(target, text) {
+export function replaceVersionFile(target, text) {
   const temporary = `${target}.${randomUUID()}.tmp`;
   try {
     fs.writeFileSync(temporary, text, { flag: 'wx', mode: fs.statSync(target).mode });
@@ -97,14 +97,17 @@ function replaceVersionFile(target, text) {
   }
 }
 
-export function updateVersions(repo, version) {
+export function versionUpdates(repo, version, read = (file) => {
+  const target = path.join(repo.root, file);
+  return fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
+}) {
   const jsonFiles = ['package.json', 'package-lock.json',
     repo.kind === 'desktop' ? 'src-tauri/tauri.conf.json' : 'manifest.json'];
   const updates = [];
   for (const file of jsonFiles) {
     const target = path.join(repo.root, file);
-    if (!fs.existsSync(target) && file === 'package-lock.json') continue;
-    const text = fs.readFileSync(target, 'utf8');
+    const text = read(file);
+    if (text === null && file === 'package-lock.json') continue;
     const data = JSON.parse(text);
     data.version = version;
     if (file === 'package-lock.json' && data.packages?.['']) data.packages[''].version = version;
@@ -114,12 +117,17 @@ export function updateVersions(repo, version) {
   if (repo.kind === 'desktop') {
     for (const file of ['src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']) {
       const target = path.join(repo.root, file);
-      const text = fs.readFileSync(target, 'utf8');
+      const text = read(file);
       const pattern = /(\[\[?package\]?\][\s\S]*?\bname = "atlas-desktop"\r?\nversion = ")[^"]+("\r?\n)/;
       if (!pattern.test(text)) throw new Error(`Cannot locate Atlas package version in ${file}.`);
       updates.push([target, text.replace(pattern, (_, before, after) => `${before}${version}${after}`)]);
     }
   }
+  return updates.map(([target, text]) => ({ file: path.relative(repo.root, target).replaceAll('\\', '/'), text }));
+}
+
+export function updateVersions(repo, version) {
+  const updates = versionUpdates(repo, version).map(({ file, text }) => [path.join(repo.root, file), text]);
   const originals = new Map(updates.map(([target]) => [target, fs.readFileSync(target)]));
   const replaced = [];
   try {

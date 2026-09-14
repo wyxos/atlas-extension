@@ -1,29 +1,28 @@
 # Atlas desktop updater
 
 The Windows **Update Atlas (Desktop + Extension)** shortcut runs `rebuild-atlas.ps1`,
-which invokes `smart-rebuild.mjs`. The desktop repository's installer script only
-builds and installs; release planning lives here.
+which invokes `smart-rebuild.mjs`. See [the workflow contract](../SMART_REBUILD.md).
 
-Before release preparation, the updater captures immutable Git changes and reads
-recent active and archived tasks for each checkout from the local Codex database.
-Task requests and final answers are context, not instructions. The diff determines
-which changes actually exist. Task excerpts are bounded to 40 active and 40 archived
-tasks and 4,000 characters per request/final answer; older task context may be absent.
-Missing or incompatible task storage stops the update for inspection.
+The active controller runs these steps before building:
 
-Codex returns ordered feature/fix commits using captured change IDs. Independent
-changes in shared files can belong to separate commits. Added/deleted files, binary
-changes and mode changes stay atomic. Every change must appear exactly once; unknown,
-duplicate or missing IDs stop preparation. The script reconstructs cumulative trees
-from the original base and verifies the final tree equals the reviewed source.
+1. Recover any journaled version commit.
+2. Offer to commit or exclude uncommitted main changes through `main-changes.mjs`.
+3. Review committed changes independently through `version-review.mjs`. Codex selects
+   none, patch, minor or major from immutable Git evidence since the latest version
+   commit. Source commits are already finished; Codex does not plan or edit them here.
+4. Create a separate version-only commit when needed through `version-commit.mjs`.
+   Save the plan before publishing, preserve unrelated edits/staging, and recover
+   interrupted version writes without another review or bump.
+5. Pass the exact reviewed commits to `isolated.mjs` for checks, builds and publication.
+   Moving main afterward affects the next run, not the current build.
 
-Version updates form a separate release commit. Checks run before the complete
-series is published with one compare-and-swap branch update. The worktree is never
-reset. Desktop validation uses the development build. The subsequent explicit
-release build/install still produces the stable application.
+`codex-review.mjs` supplies the shared stdin/structured-output CLI transport. A failed,
+refused or malformed review stops preparation. There is no heuristic version fallback.
+`version-state.json` tracks reviews and publication independently of successful builds
+in `isolated-state.json`; neither reuses legacy release state. Dry runs do not invoke
+Codex, commit, recover publication, create state, or build.
 
-Preparation and installation retries reuse the stored version and commit plan.
-Old `preparing` entries with only a single commit message are rejected: inspect the
-already-applied version before clearing that entry. Successful or pending releases
-are matched by content tree, so splitting history without changing content does not
-force a rebuild. `--dry-run` performs no model review, commits, builds or installations.
+`workflow.mjs`, `review-input.mjs`, and task-context/semantic-commit helpers belong to
+the legacy working-tree release workflow and are not invoked by the shortcut. Shared
+version transforms and Git tree helpers remain in use. Their legacy tests do not
+replace the committed-source and isolated-build regression tests.

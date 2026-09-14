@@ -115,7 +115,9 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   if (state.schema !== 1 || !state.repos) throw new Error('Unknown isolated build state format.');
   // Capture both refs before building; never inspect or modify the live index.
   const plans = repos.map((repo) => {
-    const head = git(repo.root, ['rev-parse', '--verify', 'refs/heads/main^{commit}']);
+    // The entry point supplies reviewed/versioned commits. Never recapture main
+    // after review: ongoing commits belong to the next update.
+    const head = git(repo.root, ['rev-parse', '--verify', `${repo.head ?? 'refs/heads/main'}^{commit}`]);
     const tree = git(repo.root, ['rev-parse', `${head}^{tree}`]);
     const key = path.resolve(repo.root).toLowerCase();
     const previous = state.repos[key];

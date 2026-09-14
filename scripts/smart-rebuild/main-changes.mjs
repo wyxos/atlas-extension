@@ -1,9 +1,9 @@
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { git, snapshot, assertReady } from './repository.mjs';
 import { terminal } from './terminal.mjs';
+import { codexReview } from './codex-review.mjs';
 
 export function mainCheckout(root) {
   const records = git(root, ['worktree', 'list', '--porcelain', '-z']).split('\0\0');
@@ -28,15 +28,10 @@ export async function chooseChanges(repo, count) {
 }
 
 export function codexMessage(repo, initial, stateDirectory) {
-  fs.mkdirSync(stateDirectory, { recursive: true });
-  const schema = path.join(stateDirectory, 'commit-schema.json');
-  const output = path.join(stateDirectory, `commit-${repo.kind}.json`);
-  const logFile = path.join(stateDirectory, `commit-${repo.kind}.log`);
-  fs.writeFileSync(schema, JSON.stringify({ type: 'object', additionalProperties: false,
+  const schema = { type: 'object', additionalProperties: false,
     required: ['proceed', 'message', 'reason'], properties: {
       proceed: { type: 'boolean' }, message: { type: 'string' }, reason: { type: 'string' },
-    } }));
-  fs.rmSync(output, { force: true });
+    } };
   const patch = git(repo.root, ['diff', '--no-ext-diff', '--no-textconv', '--no-color', initial.head, initial.tree]);
   if (patch.length > 750000) throw new Error('Changes exceed the Codex review limit; commit smaller groups separately.');
   const prompt = ['Write a conventional Git commit message for the supplied changes. Return the requested JSON.',
@@ -45,20 +40,8 @@ export function codexMessage(repo, initial, stateDirectory) {
     'Set proceed=false if the diff contains apparent secrets, conflicts or cannot be described safely.',
     'The user explicitly chose to commit this captured set of changes before an Atlas build.',
     `Repository: ${repo.name}`, 'BEGIN DIFF', patch, 'END DIFF'].join('\n');
-  const configured = process.env.CODEX_EXECUTABLE;
-  const vendor = path.join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@openai', 'codex',
-    'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
-  const executable = configured || (fs.existsSync(vendor) ? vendor : 'codex.exe');
   terminal.line(`  Reviewing ${repo.name} changes via Codex…`, 'blue');
-  const descriptor = fs.openSync(logFile, 'w');
-  try {
-    const result = spawnSync(executable, ['exec', '--ephemeral', '--sandbox', 'read-only', '-C', repo.root,
-      '--output-schema', schema, '--output-last-message', output, '--color', 'never', '-'], {
-      input: prompt, encoding: 'utf8', windowsHide: true, stdio: ['pipe', descriptor, descriptor], timeout: 15 * 60 * 1000,
-    });
-    if (result.error || result.status !== 0) throw new Error(`Codex review failed. See ${logFile}`, { cause: result.error });
-  } finally { fs.closeSync(descriptor); }
-  const result = JSON.parse(fs.readFileSync(output, 'utf8'));
+  const result = codexReview({ repo, stateDirectory, name: 'commit', schema, prompt });
   if (result.proceed !== true || !result.message?.trim() || !result.reason?.trim()) throw new Error(`Codex did not approve committing: ${result.reason || 'no reason returned'}`);
   return result.message.trim();
 }

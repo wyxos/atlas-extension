@@ -25,44 +25,50 @@ suitable for unattended workflows.
 
 Use **Update Atlas (Desktop + Extension)**. It launches `scripts/rebuild-atlas.ps1`.
 The repositories must remain siblings named `atlas-extension` and `atlas-desktop`.
-PowerShell 7, Git, Node/npm and Desktop build tools are required. The optional
-commit step also requires the signed-in standalone Codex CLI.
+PowerShell 7, Git, Node/npm, Desktop build tools and the signed-in standalone
+Codex CLI are required. Codex reviews committed changes for versioning.
 
 The launcher first loads Desktop's managed build-storage controller, including in
 dry-run mode. A missing or incompatible controller stops before commit prompts,
 update state or build workspaces are created. Integrate the controller changes into
 Desktop before rerunning the updater.
 
-1. Capture each local `refs/heads/main` commit before starting any build. No fetch
-   from a remote, version bump, stash, branch switch or merge is performed.
-   Before capture, dirty main checkouts offer Commit via Codex, Skip (default), or
+1. Finish source commits first. Dirty main checkouts offer Commit via Codex, Skip (default), or
    Cancel. Skip excludes staged, unstaged and untracked edits. Commit asks Codex
    for a message based on an immutable diff, verifies no edits/staging changed,
-   and commits exactly that snapshot. Version files are not automatically changed.
+   and commits exactly that snapshot. Versioning is a separate step afterward.
    The main checkout is found even when the launcher runs from another branch.
-2. Skip repositories whose committed source tree and published output fingerprint
+2. Capture both local `main` commits. For each repository with unreviewed source
+   changes, ask Codex whether a version bump is needed: none, patch, minor or major.
+   The evidence covers committed changes since its latest version commit, including
+   changes built previously without a bump. A refused or invalid review stops the run.
+   When needed, create one more local commit containing only that repository's version
+   updates. No pushes, tags, merges, stashes or branch switches are performed.
+   Save the decision and use these exact reviewed/versioned commits for the build.
+3. Skip repositories whose committed source tree and published output fingerprint
    match the last successful isolated build. Missing or altered output is rebuilt.
-3. Fetch each captured commit into a temporary independent Git repository under
+4. Fetch each captured commit into a temporary independent Git repository under
    `%LOCALAPPDATA%\AtlasBuild\workspaces`. Each build uses its own dependencies
    installed with `npm ci` when a committed lockfile exists, otherwise `npm install`
    inside the temporary checkout. The Extension currently ignores its lockfile;
    transitive dependencies may resolve differently between builds. Ignored local `.env`
    files and local dependency links are not copied.
-4. Run repository checks there. Desktop uses development frontend validation in
+5. Run repository checks there. Desktop uses development frontend validation in
    place of the production frontend check. Build Extension stable output; build
    Desktop with the existing NSIS installer, graceful shutdown and silent install.
    Desktop's `EXTENSION_SOURCE` always points to the captured Extension snapshot.
-5. Publish Extension to the existing `dist\atlas-extension-stable-validation`
+6. Publish Extension to the existing `dist\atlas-extension-stable-validation`
    directory only after a successful build and verified copy. Sibling staging and
    backup directories recover an interrupted replacement. Reload the browser
    extension afterward. An Extension-only change allocates no Desktop Rust target.
-6. Record each successful repository independently. Remove temporary checkouts and
+7. Record each successful repository independently. Remove temporary checkouts and
    dependencies on success or failure. Desktop's build-storage manager leases the
    updater target and shared compiler cache, and applies the repository family's
    60 GiB retention policy. Active scopes protect snapshots and cache resources.
    Normal package download caches and updater state remain available for future runs.
 
-Commit desired source and version updates to local main before rebuilding. A change
+Commit desired source updates to local main before rebuilding, or use the commit
+choice in the launcher. Codex determines versioning after those commits. A change
 already committed to main is included even if the larger feature remains unfinished.
 Moving main after snapshot capture affects only the next run. The two captured
 commits are fixed for the run, but cross-repository compatibility remains the
@@ -92,10 +98,25 @@ pwsh -NoProfile -File D:\code\wyxos\js\atlas-extension\scripts\rebuild-atlas.ps1
 
 ## State and recovery
 
-`AtlasBuild\isolated-state.json` is separate from the legacy `state.json` so old
-working-tree release provenance cannot be mistaken for an isolated build. The
-first isolated run builds both repositories once at their committed versions.
-Successful repositories are skipped on retries; failed ones retry without bumps.
+`AtlasBuild\isolated-state.json` records successful builds separately from the
+legacy `state.json`. `AtlasBuild\version-state.json` records completed reviews,
+including no-bump decisions, and any version commit being published. The first
+version review uses the latest committed version declaration as its baseline;
+the last successful build is not a substitute for version review. Unchanged
+source reuses its decision. Missing output or failed checks/builds/installations
+reuse the prepared version; successful repositories are skipped on retries.
+
+Desktop's version commit updates `package.json`, a tracked root lockfile and its
+root package entry, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and the Atlas
+package entry in `src-tauri/Cargo.lock`. Extension updates `package.json`,
+`manifest.json` and its root lockfile only when tracked. Dependencies keep their versions.
+
+Version publication holds Git's index lock, verifies the captured main commit,
+and changes only version-file entries. Skipped source edits and staging remain
+untouched; conflicting edits to a version file stop before publication. A saved
+plan recovers interrupted file/ref updates before offering source commit choices.
+Only original or planned version contents are accepted during recovery. A leftover
+Git index lock is never forcibly removed by version recovery.
 
 `AtlasBuild\update.lock` prevents overlapping unified updates. When the interactive launcher finds an existing lock, it asks **Recover interrupted update and retry? [y/N]** before the final Enter-to-exit prompt. Enter or No leaves the lock in place. Yes runs the checked recovery and retries the update once. Recovery refuses a live lock owner, surviving isolated-build or installer processes, or processes it cannot inspect, and checks the lock again before removing it. There is no unconditional force-unlock option. Redirected/unattended runs do not prompt; use `-RecoverLock` explicitly after an interruption. Dry runs do not recover locks. The storage manager removes abandoned registered workspaces after their OS leases end; legacy workspaces require its verified migration.
 Cleanup failures are reported and retried on a later build. The updater obtains its
@@ -114,9 +135,10 @@ continue to use current development sources. This isolated workflow applies to
 For an unattended build of committed main, pass `-SkipUncommitted` to the PowerShell
 launcher or `--skip-uncommitted` to the Node entry point. Without this flag, a
 noninteractive run with dirty main stops instead of silently choosing to commit.
-Codex review logs use `AtlasBuild\commit-<repository>.log`. A failed/refused review
-or a concurrent edit stops before the commit. Git's index lock protects staging
-while the captured tree is committed; newer working files are never reset.
+Codex source review logs use `AtlasBuild\commit-<repository>.log`; version reviews
+use `AtlasBuild\version-<repository>.log`. A failed/refused review or a concurrent
+main commit stops preparation. Git's index lock protects staging while commits
+are published; newer working files are never reset.
 
 Desktop frontend tests run with four workers to keep cold module transforms from
 timing out short tests through CPU contention. Codex's input-only review uses

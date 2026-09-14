@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadBuildController, runIsolatedUpdate } from './smart-rebuild/isolated.mjs';
-import { prepareMainChanges } from './smart-rebuild/main-changes.mjs';
+import { prepareBuildSources } from './smart-rebuild/version-review.mjs';
 import { terminal } from './smart-rebuild/terminal.mjs';
 const extensionRoot = path.resolve(import.meta.dirname, '..');
 const stateDirectory = path.join(process.env.LOCALAPPDATA, 'AtlasBuild');
@@ -30,8 +30,9 @@ try {
     { kind: 'desktop', name: 'Desktop', root: desktopRoot,
       artifact: path.join(process.env.LOCALAPPDATA, 'Atlas', 'atlas-desktop.exe') },
   ];
-  await prepareMainChanges({ repos, stateDirectory, dryRun: args.includes('--dry-run'), skip: args.includes('--skip-uncommitted') });
-  await runIsolatedUpdate({ stateDirectory, dryRun: args.includes('--dry-run'), repos });
+  const dryRun = args.includes('--dry-run');
+  const prepared = await prepareBuildSources({ repos, stateDirectory, dryRun, skip: args.includes('--skip-uncommitted') });
+  await runIsolatedUpdate({ stateDirectory, dryRun, repos: prepared });
 } catch (error) {
   terminal.line(`Stopped: ${error.message}`, 'red');
   process.exitCode ??= 1;

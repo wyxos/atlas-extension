@@ -15,6 +15,9 @@ function fixture(t, controller) {
     git(directory, ['init', '-b', 'main']);
     git(directory, ['config', 'user.email', 'test@example.invalid']);
     git(directory, ['config', 'user.name', 'Test']);
+    const versionFile = name === 'atlas-extension' ? 'manifest.json' : 'src-tauri/tauri.conf.json';
+    fs.mkdirSync(path.dirname(path.join(directory, versionFile)), { recursive: true });
+    fs.writeFileSync(path.join(directory, versionFile), '{"version":"1.0.0"}\n');
     fs.writeFileSync(path.join(directory, 'source.txt'), 'committed');
     git(directory, ['add', '.']);
     git(directory, ['commit', '-m', 'initial']);
