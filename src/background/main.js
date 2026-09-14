@@ -22,6 +22,7 @@ import {
   handleTabCounterSnapshotRequest,
 } from './tab-counter.js';
 import { collectReactionRuntimeContext } from './reaction-runtime-context.js';
+import { withReactionPageContext } from './reaction-page-context.js';
 import { loadAssetSourcePreferences } from '../shared/asset-source-preferences.js';
 import { loadNextTabsFromActive } from './load-next-tabs.js';
 import { loadNextTabsRequestType } from '../shared/load-next-tabs-messages.js';
@@ -181,7 +182,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     return false;
   }
 
-  void handleAtlasApiMessage(message)
+  void handleAtlasApiMessage(withReactionPageContext(message, sender))
     .then((payload) => sendResponse({ ok: true, payload }))
     .catch((error) => sendResponse({
       error: serializeDesktopError(error),

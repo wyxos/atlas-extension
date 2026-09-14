@@ -45,12 +45,14 @@ function reactionCookieUrls(message) {
     return (message.items ?? []).flatMap((item) => [
       item?.asset?.source,
       item?.referrerUrl,
+      item?.asset?.topPageUrl,
     ]);
   }
 
   return [
     message?.asset?.source,
     message?.referrerUrl,
+    message?.asset?.topPageUrl,
   ];
 }
 

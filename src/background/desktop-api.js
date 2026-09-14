@@ -105,6 +105,7 @@ function buildAssetMetadata(asset) {
   return Object.fromEntries(
     Object.entries({
       asset_type: asset.type,
+      top_page_url: asset.topPageUrl,
       resolution: asset.resolution,
       ...(validDimensions ? { width, height } : {}),
     }).filter(([, value]) => value !== null && value !== undefined && value !== ''),
