@@ -1,23 +1,14 @@
-import { civitaiPage } from './civitai-page.js';
+import { browserProviders } from '../provider-plugins/registry.js';
 
-const pageIdentities = [civitaiPage, deviantArtPage];
-
-// This key only routes events to interested tabs. Asset/file identity still
-// decides which widget may consume the event, including on multi-image pages.
+// Event routing only. Asset/file identity determines which widget consumes it.
 export function canonicalProviderPage(value) {
-  for (const identify of pageIdentities) {
-    const identity = identify(value);
+  for (const provider of browserProviders) {
+    const identity = provider.canonicalPage?.(value);
     if (identity) return identity;
   }
   return value;
 }
 
-function deviantArtPage(value) {
-  try {
-    const url = new URL(value);
-    if (!['http:', 'https:'].includes(url.protocol) || url.port || url.username || url.password
-      || !['deviantart.com', 'www.deviantart.com'].includes(url.hostname)) return null;
-    const match = /^\/[^/]+\/art\/(?:[^/]*-)?([1-9]\d*)\/?$/.exec(url.pathname);
-    return match ? `deviantart:${match[1]}` : null;
-  } catch { return null; }
+export function shouldPreserveProviderReferrer(value) {
+  return browserProviders.some(provider => provider.preserveReferrer?.(value) === true);
 }
