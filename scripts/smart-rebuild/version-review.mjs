@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { git, bumpVersion, compareVersions, saveState } from './repository.mjs';
-import { codexReview } from './codex-review.mjs';
+import { cliReview } from './codex-review.mjs';
 import { committedVersion, versionBaseline, planVersionCommit, publishVersionCommit } from './version-commit.mjs';
 import { terminal } from './terminal.mjs';
 import { prepareMainChanges } from './main-changes.mjs';
@@ -42,8 +42,8 @@ export function versionReviewInput({ repo, base, head, currentVersion }) {
   ].join('\n');
 }
 
-export function reviewVersion(context, stateDirectory) {
-  return codexReview({ repo: context.repo, stateDirectory, name: 'version', prompt: versionReviewInput(context),
+export function reviewVersion(context, stateDirectory, log) {
+  return cliReview({ repo: context.repo, stateDirectory, name: 'version', prompt: versionReviewInput(context), log,
     schema: { type: 'object', additionalProperties: false, required: ['proceed', 'bump', 'reason'], properties: {
       proceed: { type: 'boolean' }, bump: { enum: ['none', 'patch', 'minor', 'major'] }, reason: { type: 'string' },
     } } });
@@ -82,15 +82,15 @@ export async function prepareVersions({ repos, stateDirectory, dryRun = false, r
     // Do not use the last successful build: older updater runs built changed
     // source without versioning. Review all changes since the version declaration.
     const base = versionBaseline(repo, repo.head);
-    if (dryRun) { log(`${repo.name}: ${git(repo.root, ['rev-parse', `${base}^{tree}`]) === tree ? 'no changes since version commit' : 'Codex version review pending'} · ${currentVersion}`); continue; }
+    if (dryRun) { log(`${repo.name}: ${git(repo.root, ['rev-parse', `${base}^{tree}`]) === tree ? 'no changes since version commit' : 'version review pending'} · ${currentVersion}`); continue; }
     let decision = { proceed: true, bump: 'none', reason: 'No source changes since the version commit.' };
     if (git(repo.root, ['rev-parse', `${base}^{tree}`]) !== tree) {
       log(`${repo.name}: reviewing committed changes for versioning via Codex…`, 'blue');
-      decision = await review({ repo, base, head: repo.head, currentVersion }, stateDirectory);
+      decision = await review({ repo, base, head: repo.head, currentVersion }, stateDirectory, log);
     }
     if (decision?.proceed !== true || !['none', 'patch', 'minor', 'major'].includes(decision.bump)
       || typeof decision.reason !== 'string' || !decision.reason.trim()) {
-      throw new Error(`${repo.name}: Codex did not approve version preparation. ${decision?.reason ?? ''}`);
+      throw new Error(`${repo.name}: version review did not approve preparation. ${decision?.reason ?? ''}`);
     }
     assertHeads();
     if (decision.bump === 'none') {

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { git, snapshot, assertReady } from './repository.mjs';
 import { terminal } from './terminal.mjs';
-import { codexReview } from './codex-review.mjs';
+import { cliReview } from './codex-review.mjs';
 
 export function mainCheckout(root) {
   const records = git(root, ['worktree', 'list', '--porcelain', '-z']).split('\0\0');
@@ -41,8 +41,8 @@ export function codexMessage(repo, initial, stateDirectory) {
     'The user explicitly chose to commit this captured set of changes before an Atlas build.',
     `Repository: ${repo.name}`, 'BEGIN DIFF', patch, 'END DIFF'].join('\n');
   terminal.line(`  Reviewing ${repo.name} changes via Codex…`, 'blue');
-  const result = codexReview({ repo, stateDirectory, name: 'commit', schema, prompt });
-  if (result.proceed !== true || !result.message?.trim() || !result.reason?.trim()) throw new Error(`Codex did not approve committing: ${result.reason || 'no reason returned'}`);
+  const result = cliReview({ repo, stateDirectory, name: 'commit', schema, prompt, log: terminal.line });
+  if (result.proceed !== true || !result.message?.trim() || !result.reason?.trim()) throw new Error(`Version review did not approve committing: ${result.reason || 'no reason returned'}`);
   return result.message.trim();
 }
 

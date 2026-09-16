@@ -25,8 +25,8 @@ suitable for unattended workflows.
 
 Use **Update Atlas (Desktop + Extension)**. It launches `scripts/rebuild-atlas.ps1`.
 The repositories must remain siblings named `atlas-extension` and `atlas-desktop`.
-PowerShell 7, Git, Node/npm, Desktop build tools and the signed-in standalone
-Codex CLI are required. Codex reviews committed changes for versioning.
+PowerShell 7, Git, Node/npm, Desktop build tools and a signed-in Codex or Cursor
+Agent CLI are required. Codex reviews committed changes for versioning first.
 
 The launcher first loads Desktop's managed build-storage controller, including in
 dry-run mode. A missing or incompatible controller stops before commit prompts,
@@ -40,11 +40,13 @@ Desktop before rerunning the updater.
    The main checkout is found even when the launcher runs from another branch.
 2. Capture both local `main` commits. For each repository with unreviewed source
    changes, ask Codex whether a version bump is needed: none, patch, minor or major.
-   The evidence covers committed changes since its latest version commit, including
-   changes built previously without a bump. A refused or invalid review stops the run.
-   When needed, create one more local commit containing only that repository's version
-   updates. No pushes, tags, merges, stashes or branch switches are performed.
-   Save the decision and use these exact reviewed/versioned commits for the build.
+   If Codex fails or has no quota, the same review is retried through the signed-in
+   Cursor Agent CLI. The evidence covers committed changes since its latest version
+   commit, including changes built previously without a bump. A refused or invalid
+   review stops the run. When needed, create one more local commit containing only
+   that repository's version updates. No pushes, tags, merges, stashes or branch
+   switches are performed. Save the decision and use these exact reviewed/versioned
+   commits for the build.
 3. Skip repositories whose committed source tree and published output fingerprint
    match the last successful isolated build. Missing or altered output is rebuilt.
 4. Fetch each captured commit into a temporary independent Git repository under
@@ -68,8 +70,9 @@ Desktop before rerunning the updater.
    Normal package download caches and updater state remain available for future runs.
 
 Commit desired source updates to local main before rebuilding, or use the commit
-choice in the launcher. Codex determines versioning after those commits. A change
-already committed to main is included even if the larger feature remains unfinished.
+choice in the launcher. Codex determines versioning after those commits, with Cursor
+used when Codex is unavailable. A change already committed to main is included even
+if the larger feature remains unfinished.
 Moving main after snapshot capture affects only the next run. The two captured
 commits are fixed for the run, but cross-repository compatibility remains the
 responsibility of the committed changes.
@@ -136,9 +139,10 @@ For an unattended build of committed main, pass `-SkipUncommitted` to the PowerS
 launcher or `--skip-uncommitted` to the Node entry point. Without this flag, a
 noninteractive run with dirty main stops instead of silently choosing to commit.
 Codex source review logs use `AtlasBuild\commit-<repository>.log`; version reviews
-use `AtlasBuild\version-<repository>.log`. A failed/refused review or a concurrent
-main commit stops preparation. Git's index lock protects staging while commits
-are published; newer working files are never reset.
+use `AtlasBuild\version-<repository>.log`. Cursor retries use the matching
+`*-cursor.log`. A failed/refused review or a concurrent main commit stops
+preparation. Git's index lock protects staging while commits are published; newer
+working files are never reset.
 
 Desktop frontend tests run with four workers to keep cold module transforms from
 timing out short tests through CPU contention. Codex's input-only review uses
