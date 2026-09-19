@@ -1,5 +1,5 @@
 * text=auto eol=lf
 
 # Provider source hashes cover exact bytes; Git must preserve the snapshots.
-src/provider-plugins/packages/** -text
+src/provider-plugins/packages/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 src/provider-plugins/registry.js -text
