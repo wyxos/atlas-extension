@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "registrySha256": "dd1a5fc499d109a670f17a00a493234454fe7eedb7acb4c6ef753a27831321dd",
+  "providers": [
+    {
+      "id": "civitai",
+      "files": {
+        "browser-provider.json": "40dd7ad1bc1261cfc5917438a8f887680f2126cd305580737e50cc7633406473",
+        "index.js": "366607654e6ea6dede018ae41dd9767dd4dc5d5680f70ee2ba5a0c75bc502bef",
+        "package.json": "5eed247b7081c034c4b245434cb13a395eb3cb0e74848c0be71e7c56f7cf078d",
+        "page.js": "c364c3d5bfc168a0fb012b188e3db150f995f74976aaab84877c1eeb9bb8a0d4"
+      }
+    },
+    {
+      "id": "deviantart",
+      "files": {
+        "batch.js": "c3d7519a92eb5b19943dc5b5a7ff2704563044a84d41cfee733c66a7d695e227",
+        "browser-provider.json": "3d7a7b5b35ee7761a386196322baccf4bd82fe5965bff036fb8489626c3f5104",
+        "identity.js": "6fca144ad1226de6e5c12c3156bb92dc258db59cb2e1fee4e7b1bd6f5252dd72",
+        "index.js": "838e0d15fc9d1308214e3552bea9635009ae9170a2982ee4db2723def9e98b71",
+        "package.json": "afa5d5824f2cde226f6bacca2059081a36875ab37b78c6188fbaf6e26018fd6b",
+        "page.js": "67de35105bcdb64095def53eefee9eda1bcd93050577c68b2b19926cf2053aba"
+      }
+    },
+    {
+      "id": "wallhaven",
+      "files": {
+        "browser-provider.json": "ed6ea92ab9262aa12a501b89171587b91dc96adb6a360d1b7ef089877c789da7",
+        "index.js": "230d0d567bd19c0c7d60489b4f5ecb2124f08fde848fbf4ea2f5a738dde68512",
+        "package.json": "3f502c88b4e3147bd707d2f86a7e46faa04fb5cbe4af244792e1cf41b6963448"
+      }
+    }
+  ]
+}

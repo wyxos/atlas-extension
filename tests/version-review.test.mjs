@@ -370,7 +370,7 @@ test('Windows Agent CLI .cmd reviews run through cmd.exe without shell', { skip:
   assert.equal(decision.message, 'fix: x');
 });
 
-test('live Cursor Agent CLI returns a JSON commit decision', (t) => {
+test('live Cursor Agent CLI returns a JSON commit decision', { skip: process.env.ATLAS_TEST_LIVE_CURSOR !== '1' }, (t) => {
   const invocation = resolveCursorAgent();
   if (invocation.executable === 'agent' || !fs.existsSync(invocation.executable)) {
     t.skip('Cursor Agent CLI is not installed');

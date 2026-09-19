@@ -1,5 +1,5 @@
 import { deriveAssetMatchIdentity, deriveReferrerMatchIdentity } from '../shared/asset-match-identity.js';
-import { civitaiPage } from '../shared/civitai-page.js';
+import { shouldPreserveProviderReferrer } from '../shared/provider-page.js';
 import { captureProviderIdentity } from './provider-identities.js';
 
 export function decorateAssetWithMatchIdentity({
@@ -25,7 +25,7 @@ export function decorateAssetWithMatchIdentity({
     : {
         ...asset,
         matchIdentity: result.matchIdentity,
-        ...(civitaiPage(result.rawReferrerUrl) ? { providerReferrerUrl: result.rawReferrerUrl } : {}),
+        ...(shouldPreserveProviderReferrer(result.rawReferrerUrl) ? { providerReferrerUrl: result.rawReferrerUrl } : {}),
       };
 }
 

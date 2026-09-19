@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# Provider source hashes cover exact bytes; Git must preserve the snapshots.
+src/provider-plugins/packages/** -text
+src/provider-plugins/registry.js -text

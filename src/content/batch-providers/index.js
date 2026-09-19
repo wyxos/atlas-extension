@@ -1,15 +1,9 @@
-import {
-  collectDeviantArtBatchItems,
-  resolveDeviantArtBatchContext,
-} from './deviantart.js';
+import { browserProviders } from '../../provider-plugins/registry.js';
 import { collectRedditBatchItems, resolveRedditBatchContext } from './reddit.js';
 
 const providers = new Map([
   ['reddit', { collect: collectRedditBatchItems, resolve: resolveRedditBatchContext }],
-  ['deviantart', {
-    collect: collectDeviantArtBatchItems,
-    resolve: resolveDeviantArtBatchContext,
-  }],
+  ...browserProviders.filter(provider => provider.batch).map(provider => [provider.id, provider.batch]),
 ]);
 
 export function resolveAssetBatchContext(options = {}) {
