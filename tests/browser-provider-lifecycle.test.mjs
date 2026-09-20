@@ -2,6 +2,69 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { browserPageContext, createBrowserPageContext, readPageMetadata } from '../src/content/browser-page-context.js';
 import { collectAssetBatchItems } from '../src/content/batch-providers/index.js';
+import { createContentInterestRegistry } from '../src/background/content-interest-registry.js';
+
+for (const lifecycle of ['url-only', 'loading-complete', 'hard-change']) {
+test(`managed gallery distinguishes ${lifecycle} invalidation during collection`, async t => {
+  const originalChrome = globalThis.chrome;
+  t.after(() => { globalThis.chrome = originalChrome; browserPageContext.invalidate(); });
+  const url = 'https://gallery.example.test/art/sample?image=2';
+  const locationContext = new URL(url);
+  const gallery = { kind: 'thumbnails', imageSelector: '.image', thumbnailSelector: '.thumb',
+    thumbnailButtonSelector: '.button', thumbnailContainerSelector: '.strip', thumbnailContainerText: 'Images',
+    navigationSelector: 'button', previousLabel: 'Prev', nextLabel: 'Next', indexParameter: 'image', sourceMode: 'src' };
+  const profile = { url, provider: 'community', profileVersion: '1@digest', gallery };
+  const registry = createContentInterestRegistry({ storageArea: null });
+  await registry.ready;
+  let sequence = 0;
+  function report() {
+    const result = registry.register({ tabId: 1, documentId: 'same-document', sequence: ++sequence,
+      pageUrl: locationContext.href, referrerUrls: [locationContext.href], sourceUrls: [] });
+    if (result.resyncRequired) { browserPageContext.invalidate({ providerChanged: result.providerChanged === true }); registry.markResynced(1); }
+  }
+  report();
+  let selected = 2;
+  const clicks = [];
+  const rect = () => ({ width: 600, height: 400 });
+  const images = [1, 2].map(index => ({ tagName: 'IMG', src: `https://cdn.example.test/${index}.jpg`,
+    complete: true, naturalWidth: 600, naturalHeight: 400, getBoundingClientRect: rect,
+    getAttribute(name) { return name === 'src' ? this.src : null; }, querySelector: () => null, closest: () => null }));
+  const buttons = images.map((_, index) => ({ getBoundingClientRect: rect, click() {
+    selected = index + 1; clicks.push(selected);
+    locationContext.searchParams.set('image', String(selected));
+    if (lifecycle === 'url-only') registry.updateLifecycle(1, { url: locationContext.href });
+    else {
+      registry.updateLifecycle(1, { url: locationContext.href, status: 'loading' });
+      if (lifecycle === 'hard-change') registry.markNeedsResync(1, true);
+      const result = registry.updateLifecycle(1, { status: 'complete' });
+      if (result.shouldResync) browserPageContext.invalidate({ providerChanged: registry.targetState(1)?.providerChanged === true });
+    }
+    report();
+  } }));
+  const thumbs = images.map((image, index) => ({ ...image,
+    closest: selector => selector === '.button' ? buttons[index] : { textContent: 'Images' } }));
+  const documentContext = { querySelectorAll: selector => selector === '.image' ? [images[selected - 1]] : selector === '.thumb' ? thumbs : [] };
+  let validations = 0;
+  globalThis.chrome = { runtime: { sendMessage(message, callback) {
+    validations++;
+    callback({ ok: true, payload: { pages: [{ ...profile, url: message.pages[0].url }] } });
+  } } };
+  const collecting = collectAssetBatchItems({ managed: true, epoch: browserPageContext.token(), profile },
+    { documentContext, locationContext, waitForChange: async () => true });
+  if (lifecycle === 'hard-change') {
+    await assert.rejects(collecting, { code: 'BATCH_PROVIDER_CHANGED' });
+    assert.deepEqual(clicks, [1], 'hard invalidation stops further collection and restoration clicks');
+    assert.equal(validations, 1);
+    return;
+  }
+  const items = await collecting;
+  assert.equal(items.length, 2);
+  assert.deepEqual(items.map(item => new URL(item.referrerUrl).searchParams.get('image')), ['1', '2']);
+  assert.deepEqual(clicks, [1, 2]);
+  assert.equal(locationContext.href, url);
+  assert.equal(validations, 2, 'the provider is still verified before and after collection');
+});
+}
 
 test('metadata respects native UTF-8 byte bounds and ignores invalid names without expanding the DOM list', () => {
   const element = (name, content) => ({ getAttribute: key => ({ name, content })[key] });

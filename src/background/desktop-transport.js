@@ -304,6 +304,7 @@ function errorFromEnvelope(envelope, status) {
     typeof error?.message === 'string' ? error.message : 'Atlas Desktop request failed.',
     error?.retryable === true,
     error?.details,
+    envelope?.request_id,
   );
 }
 

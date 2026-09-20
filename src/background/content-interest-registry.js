@@ -44,6 +44,8 @@ export function createContentInterestRegistry({
       loading: false,
       needsResync: previousTab?.needsResync === true
         || (previous !== undefined && previous.documentId !== normalizedDocumentId),
+      providerChanged: previousTab?.providerChanged === true,
+      resyncVersion: previousTab?.resyncVersion ?? 0,
       pageUrl: normalizeUrl(pageUrl),
       referrerUrls: normalizeUrls(referrerUrls),
       referrerKeys: normalizeUrls(referrerKeys ?? normalizeUrls(referrerUrls).map(canonicalProviderPage)),
@@ -61,6 +63,7 @@ export function createContentInterestRegistry({
     return {
       accepted: true,
       resyncRequired: next.needsResync,
+      ...(next.providerChanged ? { providerChanged: true } : {}),
     };
   }
 
@@ -106,15 +109,22 @@ export function createContentInterestRegistry({
       frozen: record.frozen,
       loading: record.loading,
       needsResync: record.needsResync,
+      ...(record.providerChanged ? { providerChanged: true } : {}),
     };
   }
 
-  function markNeedsResync(tabId) {
-    return updateRecord(tabId, (record) => ({ ...record, needsResync: true }));
+  function markNeedsResync(tabId, providerChanged = false) {
+    return updateRecord(tabId, (record) => ({ ...record, needsResync: true,
+      providerChanged: record.providerChanged === true || providerChanged,
+      resyncVersion: (record.resyncVersion ?? 0) + (providerChanged ? 1 : 0),
+    }));
   }
 
-  function markResynced(tabId) {
-    return updateRecord(tabId, (record) => ({ ...record, needsResync: false }));
+  function resyncToken(tabId) { return records.get(normalizeTabId(tabId))?.resyncVersion ?? 0; }
+
+  function markResynced(tabId, expectedVersion = resyncToken(tabId)) {
+    if (expectedVersion !== resyncToken(tabId)) return false;
+    return updateRecord(tabId, (record) => ({ ...record, needsResync: false, providerChanged: false }));
   }
 
   function updateLifecycle(tabId, changeInfo = {}, tab = {}) {
@@ -253,6 +263,7 @@ export function createContentInterestRegistry({
     reconcileTabs,
     reindexReferrers,
     resolveReferrerKeys,
+    resyncToken,
     register,
     remove,
     removeFrame,
@@ -358,6 +369,8 @@ function normalizeStoredRecord(record, includeFrames = true) {
     frozen: record?.frozen === true,
     loading: record?.loading === true,
     needsResync: record?.needsResync === true,
+    providerChanged: record?.providerChanged === true,
+    resyncVersion: normalizeSequence(record?.resyncVersion),
     pageUrl: normalizeUrl(record?.pageUrl),
     referrerUrls: normalizeUrls(record?.referrerUrls),
     // A restarted worker must revalidate provider keys with its current Desktop.

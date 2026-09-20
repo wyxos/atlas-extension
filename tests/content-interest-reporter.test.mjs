@@ -52,6 +52,18 @@ test('restored content performs the requested targeted resync', () => {
   assert.equal(resyncs, 1);
 });
 
+test('interest reports forward deferred provider invalidation but keep routine resync soft', () => {
+  const flags = [];
+  for (const providerChanged of [undefined, false, true]) {
+    createContentInterestReporter({
+      getInterests: () => ({}),
+      onResyncRequired: flag => flags.push(flag),
+      runtime: { sendMessage(_message, callback) { callback({ ok: true, payload: { resyncRequired: true, providerChanged } }); } },
+    }).report();
+  }
+  assert.deepEqual(flags, [false, false, true]);
+});
+
 test('departing frames retire their document and restored frames force a fresh report', async () => {
   const listeners = {};
   const messages = [];

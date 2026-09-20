@@ -413,8 +413,10 @@ function scanAssets(root = document) {
   contentInterests.schedule();
   performanceDiagnostics.finish('scan-duration', scanStartedAt, { scannedElements });
 }
-function handleResyncRequired() {
-  browserPageContext.invalidate();
+function handleResyncRequired(providerChanged = true) {
+  // A gallery changes the page while collecting. Refresh its status without
+  // treating routine document activity as a plugin/account lifecycle change.
+  browserPageContext.invalidate({ providerChanged });
   void browserPageContext.refresh({ url: window.location.href, documentContext: document });
   statusChecks.reset();
   referrerBadges.refreshKnownReferrers?.({ refreshOpenCounts: true, refreshStatus: true });

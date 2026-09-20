@@ -8,6 +8,7 @@ import {
 } from './desktop-api.js';
 import { createCloseTabIntentManager } from './close-tab-intents.js';
 import { createContentInterestRegistry } from './content-interest-registry.js';
+import { deliverContentResync } from './content-resync.js';
 import {
   bindPendingExtensionReloadNoticeDelivery,
   deliverPendingExtensionReloadNotice,
@@ -84,9 +85,15 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
         tabId: sender?.tab?.id,
       });
 
+      const pending = contentInterests.targetState(sender?.tab?.id);
+      if (pending?.providerChanged) {
+        payload.providerChanged = true;
+        payload.resyncRequired = true;
+      }
+      const resyncToken = contentInterests.resyncToken(sender?.tab?.id);
       sendResponse({ ok: true, payload });
       if (payload.accepted && payload.resyncRequired) {
-        contentInterests.markResynced(sender?.tab?.id);
+        contentInterests.markResynced(sender?.tab?.id, resyncToken);
       }
     });
 
@@ -339,23 +346,8 @@ function relayDesktopResyncRequired() {
   ));
 }
 
-async function deliverTargetedResync(tabId) {
-  const state = contentInterests.targetState(tabId);
-  if (state?.discarded || state?.frozen || state?.loading) {
-    contentInterests.markNeedsResync(tabId);
-    return false;
-  }
-
-  try {
-    await sendTabMessage(tabId, {
-      type: 'atlas-extension.desktop.resync-required',
-    });
-    contentInterests.markResynced(tabId);
-    return true;
-  } catch {
-    contentInterests.markNeedsResync(tabId);
-    return false;
-  }
+function deliverTargetedResync(tabId, providerChanged = true) {
+  return deliverContentResync({ registry: contentInterests, sendMessage: sendTabMessage, tabId, providerChanged });
 }
 
 function bindOpenTabTracking() {
@@ -382,7 +374,7 @@ function bindOpenTabTracking() {
   tabsApi.onUpdated?.addListener?.((tabId, changeInfo, tab) => {
     void contentInterests.ready.then(() => {
       const { shouldResync } = contentInterests.updateLifecycle(tabId, changeInfo, tab);
-      if (shouldResync) void deliverTargetedResync(tabId);
+      if (shouldResync) void deliverTargetedResync(tabId, false);
     });
 
     const url = typeof changeInfo?.url === 'string' ? changeInfo.url : tab?.url;

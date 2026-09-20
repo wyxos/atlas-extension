@@ -61,7 +61,7 @@ export function createContentInterestReporter({
         return;
       }
       if (response?.payload?.resyncRequired === true) {
-        onResyncRequired();
+        onResyncRequired(response.payload.providerChanged === true);
       }
     });
   }

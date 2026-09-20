@@ -78,7 +78,7 @@ function listenForDiagnosticProbes() {
 function listenForDesktopResync({ handleResyncRequired }) {
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message) => {
     if (message?.type === 'atlas-extension.desktop.resync-required') {
-      handleResyncRequired?.();
+      handleResyncRequired?.(message.providerChanged !== false);
     }
   });
 }

@@ -58,7 +58,7 @@ export function assertDesktopProtocol(data) {
   }
 }
 
-export function createDesktopContractError(code, message, retryable = false, details = undefined) {
+export function createDesktopContractError(code, message, retryable = false, details = undefined, requestId = undefined) {
   const error = new Error(message);
   error.code = code;
   error.retryable = retryable;
@@ -66,6 +66,8 @@ export function createDesktopContractError(code, message, retryable = false, det
   if (details !== undefined) {
     error.details = details;
   }
+  const reference = normalizeDesktopRequestId(requestId);
+  if (reference !== null) error.requestId = reference;
 
   return error;
 }
@@ -75,12 +77,20 @@ export function isDesktopPairingRequiredError(error) {
 }
 
 export function serializeDesktopError(error, fallbackMessage = 'Atlas Desktop request failed.') {
+  const requestId = normalizeDesktopRequestId(error?.requestId ?? error?.request_id);
   return {
     code: typeof error?.code === 'string' ? error.code : 'DESKTOP_REQUEST_FAILED',
     details: error?.details && typeof error.details === 'object' ? error.details : undefined,
     message: error?.message ?? fallbackMessage,
     retryable: error?.retryable === true,
+    ...(requestId === null ? {} : { requestId }),
   };
+}
+
+export function normalizeDesktopRequestId(value) {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+    ? value.toLowerCase()
+    : null;
 }
 
 function injectedExtensionChannel() {

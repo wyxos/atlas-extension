@@ -8,7 +8,10 @@ export function createBrowserPageContext({ resolve = resolveBrowserPagesViaBackg
   let pending = null;
   let generation = 0;
   let epoch = 0;
-  function invalidate() { epoch += 1; generation += 1; current = null; observed = null; pending = null; }
+  function invalidate({ providerChanged = true } = {}) {
+    if (providerChanged) epoch += 1;
+    generation += 1; current = null; observed = null; pending = null;
+  }
   function get(url) { return current?.url === url ? current : null; }
   async function refresh({ url, documentContext } = {}) {
     if (typeof url !== 'string' || !url || url.length > 4096 || new globalThis.TextEncoder().encode(url).length > 4096 || containsControl(url)) { invalidate(); return; }

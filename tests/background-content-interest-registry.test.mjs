@@ -3,6 +3,27 @@ import test from 'node:test';
 
 import { createContentInterestRegistry } from '../src/background/content-interest-registry.js';
 
+test('deferred hard resync survives routine navigation, registration, and stale delivery acknowledgements', async () => {
+  const registry = createContentInterestRegistry({ storageArea: null });
+  await registry.ready;
+  registry.register({ tabId: 1, documentId: 'document', sequence: 1 });
+  registry.updateLifecycle(1, { status: 'loading' });
+  registry.markNeedsResync(1, true);
+  const earlierDelivery = registry.resyncToken(1);
+  registry.markNeedsResync(1);
+  assert.equal(registry.targetState(1).providerChanged, true);
+  assert.equal(registry.updateLifecycle(1, { status: 'complete' }).shouldResync, true);
+  const report = registry.register({ tabId: 1, documentId: 'document', sequence: 2 });
+  assert.equal(report.providerChanged, true);
+  assert.equal(report.resyncRequired, true);
+  registry.markNeedsResync(1, true);
+  assert.equal(registry.markResynced(1, earlierDelivery), false);
+  assert.equal(registry.targetState(1).providerChanged, true);
+  registry.markResynced(1, registry.resyncToken(1));
+  assert.equal(registry.targetState(1).needsResync, false);
+  assert.equal(registry.targetState(1).providerChanged, undefined);
+});
+
 for (const tabCount of [1, 100, 300, 700]) {
   test(`routes a download only to exact interested content across ${tabCount} tabs`, async () => {
     const registry = createContentInterestRegistry({ storageArea: null });

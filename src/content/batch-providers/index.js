@@ -3,6 +3,7 @@ import { resolveBrowserPagesViaBackground } from '../background-api.js';
 import { browserPageContext } from '../browser-page-context.js';
 import { createThumbnailGallery } from '../gallery/thumbnails.js';
 import { createSlotGallery } from '../gallery/slots.js';
+const batchFailure = (code, message) => Object.assign(new Error(message), { code, retryable: true });
 function adapter(profile) {
   if (profile?.gallery?.kind === 'thumbnails') return createThumbnailGallery(profile);
   if (profile?.gallery?.kind === 'slots') return createSlotGallery(profile);
@@ -16,9 +17,9 @@ export function resolveAssetBatchContext(options = {}) {
 }
 export async function collectAssetBatchItems(context, options = {}) {
   const collector = adapter(context?.profile);
-  if (!collector) throw new Error('This gallery provider is unavailable. Refresh the page and retry.');
+  if (!collector) throw batchFailure('BATCH_PROVIDER_UNAVAILABLE', 'This gallery provider is unavailable. Refresh the page and retry.');
   const assertActive = () => {
-    if (context.managed && context.epoch !== browserPageContext.token()) throw new Error('The browser provider changed. Refresh the page and retry.');
+    if (context.managed && context.epoch !== browserPageContext.token()) throw batchFailure('BATCH_PROVIDER_CHANGED', 'The browser provider changed. Refresh the page and retry.');
   };
   assertActive();
   async function validateCurrentProfile() {
@@ -32,7 +33,7 @@ export async function collectAssetBatchItems(context, options = {}) {
       || JSON.stringify(fresh.identity ?? null) !== JSON.stringify(context.profile.identity ?? null)
       || fresh.galleryKey !== context.profile.galleryKey
       || JSON.stringify(fresh.gallery) !== JSON.stringify(context.profile.gallery)) {
-      throw new Error('The browser provider changed. Refresh the page and retry.');
+      throw batchFailure('BATCH_PROVIDER_CHANGED', 'The browser provider changed. Refresh the page and retry.');
     }
   }
   await validateCurrentProfile();
