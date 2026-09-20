@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { submitReaction, matchesReactionFile } from '../src/content/provider-reaction.js';
-import { canonicalCivitaiPage } from '../src/shared/civitai-page.js';
+import { createBrowserResolutionCache } from '../src/shared/browser-resolution-cache.js';
 import { createContentInterestRegistry } from '../src/background/content-interest-registry.js';
 import { postAssetReaction, fetchAssetStatuses } from '../src/background/desktop-api.js';
 import { decorateAssetWithMatchIdentity, statusMatchItemForAsset } from '../src/content/asset-match-runtime.js';
@@ -27,13 +27,13 @@ test('canonical download events update a browser variant only after file identit
 });
 
 test('CivitAI events reach matching red and com page interests without cross-site matches', async () => {
-  const registry = createContentInterestRegistry({ storageArea: null });
+  const cache = createBrowserResolutionCache({ resolve: async ({pages}) => ({pages: pages.map(({url}) => ({url, canonicalPage: url === 'https://civitai.red/images/42?view=1' ? 'https://civitai.com/images/42' : url}))}) });
+  await cache.prepare(['https://civitai.red/images/42?view=1']);
+  const registry = createContentInterestRegistry({ storageArea: null, canonicalProviderPage: cache.canonical });
   await registry.ready;
   registry.register({ tabId: 1, documentId: 'red', sequence: 1, sourceUrls: [], referrerUrls: ['https://civitai.red/images/42?view=1'] });
   registry.register({ tabId: 2, documentId: 'other', sequence: 1, sourceUrls: [], referrerUrls: ['https://civitai.com.evil.test/images/42'] });
   assert.deepEqual(registry.matchingTabIds({ referrerUrl: 'https://civitai.com/images/42', assetUrl: 'https://cdn.test/api.mp4' }), [1]);
-  assert.equal(canonicalCivitaiPage('https://www.civitai.red/images/42/'), 'https://civitai.com/images/42');
-  assert.equal(canonicalCivitaiPage('https://civitai.red/posts/42'), 'https://civitai.red/posts/42');
 });
 
 test('only an explicit browser fallback opts out of Desktop provider lookup', async () => {
@@ -49,7 +49,7 @@ test('CivitAI media status carries the referrer and actual media URL through tra
   for (const host of ['civitai.com', 'civitai.red']) {
     const pageUrl = `https://${host}/images/42?view=1`;
     const source = 'https://image.civitai.com/token/key/transcode=true/browser.webm';
-    const asset = decorateAssetWithMatchIdentity({ asset: { source }, pageUrl, siteDomain: host });
+    const asset = decorateAssetWithMatchIdentity({ asset: { source }, pageUrl, siteDomain: host, pageContext: { preserveReferrer: true } });
     const item = statusMatchItemForAsset(asset, 'asset');
     let body;
     await fetchAssetStatuses({ matchItems: [item], transport: { assetStatuses: async (_, payload) => { body = payload; } } });

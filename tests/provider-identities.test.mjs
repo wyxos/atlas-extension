@@ -4,7 +4,7 @@ import { captureProviderIdentity } from '../src/content/provider-identities.js';
 import { decorateAssetWithMatchIdentity, statusMatchItemForAsset } from '../src/content/asset-match-runtime.js';
 import { postAssetReaction, postAssetReactionBatch, fetchAssetStatuses } from '../src/background/desktop-api.js';
 import { createContentInterestRegistry } from '../src/background/content-interest-registry.js';
-import { canonicalProviderPage } from '../src/shared/provider-page.js';
+import { createBrowserResolutionCache } from '../src/shared/browser-resolution-cache.js';
 
 const id = 'B7C73535-DDEA-08F9-A423-69BB9C4D44AE';
 const pageUrl = 'https://www.deviantart.com/fixture/art/Example-1377966303';
@@ -12,26 +12,25 @@ const documentContext = { querySelector: () => ({ getAttribute: () => `DeviantAr
 const identity = { provider: 'deviantart', item_id: id.toLowerCase() };
 
 test('provider event routing normalizes DA pages while preserving artwork boundaries', async () => {
-  const registry = createContentInterestRegistry({ storageArea: null });
+  const responses = new Map([[pageUrl, 'deviantart:1377966303'], [pageUrl + '?file=2&utm_source=test', 'deviantart:1377966303']]);
+  const cache = createBrowserResolutionCache({ resolve: async ({pages}) => ({pages: pages.map(({url}) => ({url, canonicalPage: responses.get(url) ?? url}))}) });
+  await cache.prepare([...responses.keys()]);
+  const registry = createContentInterestRegistry({ storageArea: null, canonicalProviderPage: cache.canonical });
   await registry.ready;
   registry.register({ tabId: 1, documentId: 'da', sequence: 1, sourceUrls: [], referrerUrls: [`${pageUrl}?file=2&utm_source=test`] });
   registry.register({ tabId: 2, documentId: 'other', sequence: 1, sourceUrls: [], referrerUrls: [pageUrl.replace('1377966303', '1377966304')] });
   assert.deepEqual(registry.matchingTabIds({ referrerUrl: pageUrl, assetUrl: 'https://cdn.test/original.png' }), [1]);
-  assert.equal(canonicalProviderPage('https://civitai.red/images/42'), 'https://civitai.com/images/42');
-  assert.notEqual(canonicalProviderPage(pageUrl), canonicalProviderPage(pageUrl.replace('deviantart.com', 'deviantart.com.evil.test')));
+
+  assert.notEqual(cache.canonical(pageUrl), cache.canonical(pageUrl.replace('deviantart.com', 'deviantart.com.evil.test')));
 });
 
-test('DA identity extraction validates host, artwork path and UUID', () => {
-  assert.deepEqual(captureProviderIdentity({ documentContext, pageUrl }), identity);
-  for (const pageUrl of ['https://deviantart.com.evil.test/u/art/E-1', 'https://deviantart.com/u/gallery', 'https://user@deviantart.com/u/art/E-1', 'https://deviantart.com:99/u/art/E-1']) {
-    assert.equal(captureProviderIdentity({ documentContext, pageUrl }), null);
-  }
-  assert.equal(captureProviderIdentity({ pageUrl, documentContext: {} }), null);
-  assert.equal(captureProviderIdentity({ pageUrl, documentContext: { querySelector: () => ({ getAttribute: () => 'DeviantArt://deviation/123' }) } }), null);
+test('identity hints require a resolved Desktop page context', () => {
+  assert.equal(captureProviderIdentity({ documentContext, pageUrl }), null);
+  assert.deepEqual(captureProviderIdentity({ pageUrl, pageContext: {identity} }), identity);
 });
 
 test('identity hints survive single, batch and status transport without changing selected assets', async () => {
-  const asset = decorateAssetWithMatchIdentity({ asset: { source: 'https://cdn.test/primary.png', type: 'image' }, pageUrl, siteDomain: 'deviantart.com', documentContext });
+  const asset = decorateAssetWithMatchIdentity({ asset: { source: 'https://cdn.test/primary.png', type: 'image' }, pageUrl, siteDomain: 'deviantart.com', documentContext, pageContext: {identity} });
   assert.deepEqual(asset.providerIdentity, identity);
   let body;
   await postAssetReaction({ asset, referrerUrl: pageUrl, reactionType: 'like', transport: { reaction: (_, value) => { body = value; } } });

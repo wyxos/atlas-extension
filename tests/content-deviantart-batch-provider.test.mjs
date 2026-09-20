@@ -1,3 +1,4 @@
+import { thumbnailProfile } from './fixtures/gallery-adapters.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { postAssetOrBatchReaction } from '../src/content/batch-reactions.js';
@@ -293,7 +294,7 @@ async function verifyNavigationBatchRequest(t, startFile) {
   } } };
   await postAssetOrBatchReaction({
     asset: { source: files[startFile - 1].src },
-    batchContext: { provider: 'deviantart' },
+    batchContext: { provider: 'deviantart', profile: { ...thumbnailProfile('https://www.deviantart.com/artist/art/title-123'), identity: { provider: 'deviantart', item_id: 'b7c73535-ddea-08f9-a423-69bb9c4d44ae' } } },
     currentState: { batch: { checked: true } },
     event: { type: 'like' },
     documentContext,

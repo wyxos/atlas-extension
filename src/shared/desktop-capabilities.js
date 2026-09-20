@@ -3,11 +3,13 @@ export const desktopConnectionStorageKey = 'atlasDesktopConnection';
 export const desktopCapabilities = Object.freeze({
   batchProviderPreference: 'batch-provider-preference',
   closeTabMode: 'close-tab-mode',
+  browserProviders: 'browser-provider-resolution-v1',
 });
 
 export const requiredDesktopCapabilities = Object.freeze([
   desktopCapabilities.batchProviderPreference,
   desktopCapabilities.closeTabMode,
+  desktopCapabilities.browserProviders,
 ]);
 
 export function hasDesktopCapability(value, capability) {

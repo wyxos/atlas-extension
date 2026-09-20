@@ -1,9 +1,8 @@
-import { canonicalProviderPage } from '../shared/provider-page.js';
-
 const contentInterestStorageKey = 'atlasContentInterestsV1';
 
 export function createContentInterestRegistry({
   clock = () => Date.now(),
+  canonicalProviderPage = value => value,
   storageArea = globalThis.chrome?.storage?.session,
 } = {}) {
   const records = new Map();
@@ -17,7 +16,7 @@ export function createContentInterestRegistry({
     }
   });
 
-  function register({ documentId, frameId = 0, pageUrl, referrerUrls, sequence, sourceUrls, tabId }) {
+  function register({ documentId, frameId = 0, pageUrl, referrerUrls, referrerKeys, sequence, sourceUrls, tabId }) {
     const normalizedTabId = normalizeTabId(tabId);
     if (normalizedTabId === null) {
       return { accepted: false, resyncRequired: false };
@@ -47,6 +46,7 @@ export function createContentInterestRegistry({
         || (previous !== undefined && previous.documentId !== normalizedDocumentId),
       pageUrl: normalizeUrl(pageUrl),
       referrerUrls: normalizeUrls(referrerUrls),
+      referrerKeys: normalizeUrls(referrerKeys ?? normalizeUrls(referrerUrls).map(canonicalProviderPage)),
       sequence: normalizedSequence,
       sourceUrls: normalizeUrls(sourceUrls),
       tabId: normalizedTabId,
@@ -64,9 +64,31 @@ export function createContentInterestRegistry({
     };
   }
 
-  function matchingTabIds(payload) {
+  function reindexReferrers() {
+    referrerTabIds.clear();
+    for (const record of records.values()) {
+      const frames = record.frames.map(frame => ({ ...frame, referrerKeys: frame.referrerUrls.map(canonicalProviderPage) }));
+      const next = withFrames(record, frames);
+      records.set(record.tabId, next);
+      addToIndex(referrerTabIds, next.referrerKeys, record.tabId);
+    }
+    schedulePersist();
+  }
+
+  function resolveReferrerKeys({ tabId, frameId = 0, documentId, sequence, canonical }) {
+    const record = records.get(normalizeTabId(tabId));
+    const frame = record?.frames.find(frame => frame.frameId === frameId);
+    if (!frame || frame.documentId !== normalizeDocumentId(documentId) || frame.sequence !== normalizeSequence(sequence)) return false;
+    const frames = record.frames.map(current => current === frame
+      ? { ...current, referrerKeys: current.referrerUrls.map(canonical) } : current);
+    storeRecord(withFrames(record, frames));
+    schedulePersist();
+    return true;
+  }
+
+  function matchingTabIds(payload, resolvedReferrer = canonicalProviderPage(normalizeUrl(payload?.referrerUrl))) {
     const sourceUrl = normalizeUrl(payload?.assetUrl);
-    const referrerUrl = canonicalProviderPage(normalizeUrl(payload?.referrerUrl));
+    const referrerUrl = normalizeUrl(resolvedReferrer);
     return [...new Set([
       ...(sourceUrl === null ? [] : sourceTabIds.get(sourceUrl) ?? []),
       ...(referrerUrl === null ? [] : referrerTabIds.get(referrerUrl) ?? []),
@@ -199,14 +221,14 @@ export function createContentInterestRegistry({
     deleteRecord(record.tabId);
     records.set(record.tabId, record);
     addToIndex(sourceTabIds, record.sourceUrls, record.tabId);
-    addToIndex(referrerTabIds, record.referrerUrls.map(canonicalProviderPage), record.tabId);
+    addToIndex(referrerTabIds, record.referrerKeys, record.tabId);
   }
 
   function deleteRecord(tabId) {
     const record = records.get(tabId);
     if (!record) return false;
     removeFromIndex(sourceTabIds, record.sourceUrls, tabId);
-    removeFromIndex(referrerTabIds, record.referrerUrls.map(canonicalProviderPage), tabId);
+    removeFromIndex(referrerTabIds, record.referrerKeys, tabId);
     records.delete(tabId);
     return true;
   }
@@ -229,11 +251,14 @@ export function createContentInterestRegistry({
     matchingTabIds,
     ready,
     reconcileTabs,
+    reindexReferrers,
+    resolveReferrerKeys,
     register,
     remove,
     removeFrame,
     retainTabIds,
     snapshot,
+    size: () => records.size,
     targetState,
     updateLifecycle,
   };
@@ -266,9 +291,10 @@ function copyRecord(record) {
   return {
     ...record,
     referrerUrls: [...record.referrerUrls],
+    referrerKeys: [...record.referrerKeys],
     sourceUrls: [...record.sourceUrls],
     frames: record.frames.map((frame) => ({ ...frame,
-      referrerUrls: [...frame.referrerUrls], sourceUrls: [...frame.sourceUrls] })),
+      referrerUrls: [...frame.referrerUrls], referrerKeys: [...frame.referrerKeys], sourceUrls: [...frame.sourceUrls] })),
   };
 }
 
@@ -276,6 +302,7 @@ function withFrames(record, frames) {
   return { ...record, frames,
     sourceUrls: normalizeUrls(frames.flatMap((frame) => frame.sourceUrls)),
     referrerUrls: normalizeUrls(frames.flatMap((frame) => frame.referrerUrls)),
+    referrerKeys: normalizeUrls(frames.flatMap((frame) => frame.referrerKeys ?? frame.referrerUrls)),
   };
 }
 
@@ -333,6 +360,8 @@ function normalizeStoredRecord(record, includeFrames = true) {
     needsResync: record?.needsResync === true,
     pageUrl: normalizeUrl(record?.pageUrl),
     referrerUrls: normalizeUrls(record?.referrerUrls),
+    // A restarted worker must revalidate provider keys with its current Desktop.
+    referrerKeys: normalizeUrls(record?.referrerUrls),
     sequence: normalizeSequence(record?.sequence),
     sourceUrls: normalizeUrls(record?.sourceUrls),
     tabId,

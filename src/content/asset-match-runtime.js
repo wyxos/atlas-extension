@@ -1,5 +1,5 @@
 import { deriveAssetMatchIdentity, deriveReferrerMatchIdentity } from '../shared/asset-match-identity.js';
-import { shouldPreserveProviderReferrer } from '../shared/provider-page.js';
+import { browserPageContext } from './browser-page-context.js';
 import { captureProviderIdentity } from './provider-identities.js';
 
 export function decorateAssetWithMatchIdentity({
@@ -9,8 +9,9 @@ export function decorateAssetWithMatchIdentity({
   referrerUrl,
   siteDomain,
   documentContext = globalThis.document,
+  pageContext = browserPageContext.get(pageUrl),
 }) {
-  const providerIdentity = captureProviderIdentity({ documentContext, pageUrl });
+  const providerIdentity = captureProviderIdentity({ documentContext, pageUrl, pageContext });
   if (providerIdentity) asset = { ...asset, providerIdentity, providerReferrerUrl: pageUrl };
   const result = deriveAssetMatchIdentity({
     asset,
@@ -25,7 +26,7 @@ export function decorateAssetWithMatchIdentity({
     : {
         ...asset,
         matchIdentity: result.matchIdentity,
-        ...(shouldPreserveProviderReferrer(result.rawReferrerUrl) ? { providerReferrerUrl: result.rawReferrerUrl } : {}),
+        ...(pageContext?.preserveReferrer === true ? { providerReferrerUrl: result.rawReferrerUrl } : {}),
       };
 }
 

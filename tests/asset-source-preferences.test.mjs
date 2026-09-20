@@ -58,7 +58,7 @@ test('adds normalized asset source profile domains without duplicates', async ()
     profiles: [
       {
         asset: {
-          imageSourcePreference: imageSourcePreferenceValues.highestSrcset,
+          imageSourcePreference: imageSourcePreferenceValues.src,
           matching: defaultMatching,
         },
         referrerCleanup: defaultMatching.cleanup,
@@ -109,7 +109,7 @@ test('stores per-profile image source preferences', async () => {
   await addAssetSourceDomain('reddit.com', storage);
   assert.equal(
     resolveAssetImageSourcePreference(await loadAssetSourcePreferences(storage), 'https://www.reddit.com/r/art'),
-    imageSourcePreferenceValues.highestSrcset,
+    imageSourcePreferenceValues.src,
   );
 
   await setAssetImageSourcePreference('reddit.com', imageSourcePreferenceValues.src, storage);

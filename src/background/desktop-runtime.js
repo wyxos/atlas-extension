@@ -34,6 +34,7 @@ export function createDesktopRuntime(options = {}) {
   let eventClient = null;
   let pairingController = null;
   let reconnectPromise = null;
+  let eventGeneration = 0;
 
   async function initialize() {
     try {
@@ -87,6 +88,7 @@ export function createDesktopRuntime(options = {}) {
         lastError: null,
       }, storage);
       await startEventClient(state);
+      options.onResyncRequired?.();
       return publicDesktopDiagnostics(await loadDesktopConnectionState(storage), runtime);
     } catch (error) {
       if (isDesktopPairingRequiredError(error)) {
@@ -166,6 +168,7 @@ export function createDesktopRuntime(options = {}) {
 
     stopEventClient();
     const nextState = await clearDesktopClientCredentials(storage);
+    options.onResyncRequired?.();
     return publicDesktopDiagnostics(nextState, runtime);
   }
 
@@ -181,6 +184,26 @@ export function createDesktopRuntime(options = {}) {
     }
 
     return { credentials, transport };
+  }
+
+  async function resolveBrowserPages(body) {
+    const { credentials } = await requestContext();
+    if (!hasDesktopCapability(credentials, 'browser-provider-resolution-v1')) {
+      throw createDesktopContractError('DESKTOP_CAPABILITY_REQUIRED', 'Update Atlas Desktop to use browser provider plugins.', false);
+    }
+    try {
+      return await transport.resolveBrowserPages(credentials, body);
+    } catch (error) {
+      if (isDesktopPairingRequiredError(error)) {
+        const current = await loadDesktopConnectionState(storage);
+        if (current.clientId === credentials.clientId && current.clientToken === credentials.clientToken && current.channel === credentials.channel) {
+          stopEventClient();
+          await clearDesktopClientCredentials(storage);
+          options.onResyncRequired?.();
+        }
+      }
+      throw error;
+    }
   }
 
   async function openFile(fileId) {
@@ -241,6 +264,7 @@ export function createDesktopRuntime(options = {}) {
 
   function handleMessage(message, sendResponse) {
     const handlers = {
+      'atlas-extension.browser-resolve': () => resolveBrowserPages({ pages: message.pages }),
       [desktopMessageTypes.cancelPairing]: cancelPairing,
       [desktopMessageTypes.diagnostics]: diagnostics,
       [desktopMessageTypes.openFile]: () => openFile(message.fileId),
@@ -273,6 +297,8 @@ export function createDesktopRuntime(options = {}) {
   }
 
   async function startEventClient(credentials) {
+    const generation = ++eventGeneration;
+    let wasConnected = null;
     eventClient = createEventClient({
       credentials,
       getSequence: async () => (await loadDesktopConnectionState(storage)).eventSequence,
@@ -296,9 +322,14 @@ export function createDesktopRuntime(options = {}) {
         void patchDesktopConnectionState({ reconnectAttempt }, storage);
       },
       onStatus: async (eventStatus, error) => {
+        if (generation !== eventGeneration) return;
+        const connected = eventStatus === 'connected';
+        const changed = eventStatus !== 'connecting' && connected !== wasConnected;
+        if (eventStatus !== 'connecting') wasConnected = connected;
         if (isDesktopPairingRequiredError(error)) {
           await clearDesktopClientCredentials(storage);
           await patchDesktopConnectionState({ lastError: serializeDesktopError(error) }, storage);
+          if (generation === eventGeneration && changed) options.onResyncRequired?.();
           return;
         }
         await patchDesktopConnectionState({
@@ -310,6 +341,7 @@ export function createDesktopRuntime(options = {}) {
           } : {}),
           ...(error ? { lastError: serializeDesktopError(error) } : {}),
         }, storage);
+        if (generation === eventGeneration && changed) options.onResyncRequired?.();
       },
       transport,
       WebSocketImpl: options.WebSocketImpl,
@@ -318,8 +350,11 @@ export function createDesktopRuntime(options = {}) {
   }
 
   function stopEventClient() {
-    eventClient?.stop();
+    eventGeneration += 1;
+    const previous = eventClient;
     eventClient = null;
+    previous?.stop();
+    if (previous) options.onResyncRequired?.();
   }
 
   return {
@@ -331,6 +366,7 @@ export function createDesktopRuntime(options = {}) {
     pair,
     reconnect,
     requestContext,
+    resolveBrowserPages,
     unpair,
     updateBatchProviderPreference,
     updateCloseTabMode,

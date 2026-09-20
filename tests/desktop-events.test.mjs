@@ -282,3 +282,33 @@ test('records a single atomic checkpoint when a Desktop event frame reaches the 
   }]);
   client.stop();
 });
+test('plugin inventory changes invalidate browser contexts without relaying a download or reconnecting', async () => {
+  const sockets = [];
+  const downloads = [];
+  const policies = [];
+  const client = createDesktopEventClient({
+    credentials: {},
+    getSequence: async () => 0,
+    onEvent: (event) => downloads.push(event),
+    onResyncRequired: () => policies.push(true),
+    transport: {
+      baseUrl: 'http://127.0.0.1:17420',
+      eventTicket: async () => ({ websocket_url: 'ws://127.0.0.1:17420/v1/events?ticket=abc' }),
+    },
+    WebSocketImpl: class FakeSocket {
+      constructor() { this.listeners = new Map(); sockets.push(this); }
+      addEventListener(type, callback) { this.listeners.set(type, callback); }
+      close() {}
+      emit(type, payload) { this.listeners.get(type)?.(payload); }
+    },
+  });
+
+  await client.start();
+  sockets[0].emit('message', {
+    data: JSON.stringify({ data: { revision: 3 }, sequence: 7, type: 'browser.providers.changed' }),
+  });
+
+  assert.deepEqual(policies, [true]);
+  assert.deepEqual(downloads, []);
+  client.stop();
+});

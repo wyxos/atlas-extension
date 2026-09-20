@@ -11,7 +11,6 @@ import {
 } from './build-config.mjs';
 import { copyStaticAssets } from './static-assets.mjs';
 import { writeDesktopCompatibilityMarker } from './desktop-compatibility.mjs';
-import { prepareBrowserProviders } from './browser-provider-build.mjs';
 const execFileAsync = promisify(execFile);
 
 export const extensionFiles = [
@@ -213,7 +212,6 @@ export function copyContentBuild({ buildOutputPath, contentOutputPath, entryName
 }
 
 export async function buildExtension({ channel, destination, root }) {
-  prepareBrowserProviders(root);
   if (channel !== undefined && !['dev', 'stable'].includes(channel)) {
     throw new Error(`Unsupported Atlas Desktop channel: ${channel}`);
   }

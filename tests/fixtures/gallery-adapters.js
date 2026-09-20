@@ -27,7 +27,9 @@ export const resolveDeviantArtBatchContext = options => new URL(options.location
 export const resolveRedditBatchContext = options => {
  const url = options.locationContext?.href;
  if (!url || !(new URL(url).hostname === 'reddit.com' || new URL(url).hostname.endsWith('.reddit.com'))) return null;
- return createSlotGallery(slotProfile(url)).resolve(options);
+ const profile = slotProfile(url);
+ const context = createSlotGallery(profile).resolve(options);
+ return context ? { ...context, profile } : null;
 };
 export const collectRedditBatchItems = options => createSlotGallery(slotProfile(options.locationContext.href)).collect(options);
 

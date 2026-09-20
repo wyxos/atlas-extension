@@ -1,28 +1,69 @@
-# Browser provider packages
+# Browser capture from installed plugins
 
-CivitAI, DeviantArt and Wallhaven browser rules are maintained in each provider repository's `browser/` directory. The Extension owns common media capture, settings, reactions, identity transport, downloads and tab events. Reddit remains built in.
+The extension contains generic media capture, gallery collection, settings,
+reactions, downloads and tab events. Site rules belong to independently installed
+Desktop plugin packages. Building the extension does not read provider repositories
+or bundle their source.
 
-`browser-provider.json` declares `{ "schemaVersion": 1, "id": "example", "entry": "index.js" }`. The entry exports a default adapter with a unique `id` and optional capabilities:
+## Package contract
 
-- `canonicalPage(value)` returns a stable page event key, or null for an unsupported URL.
-- `captureIdentity(documentContext, pageUrl)` returns an untrusted `{ provider, item_id }` hint, or null.
-- `preserveReferrer(value)` requests the original page context on asset status messages.
-- `batch.resolve(options)` and `batch.collect(options)` provide site-specific collection using the existing common batch interface.
+A provider manifest can declare `"browser": { "schema": "browser/capture.json" }`.
+The descriptor must be included in the sealed package files. Desktop validates it
+during installation and activation. Packages without a descriptor still work as
+Desktop providers and receive generic browser capture.
 
-DeviantArt owns its UUID extraction, artwork page rules and complete carousel collector. CivitAI owns its domain aliases, image page normalization and preserved referrer decision. Wallhaven uses shared media capture and supplies page event normalization. No provider adapter performs API enrichment, account operations or media downloads in the Extension.
+The descriptor uses schemaVersion 1 and a bounded list of rules. Rules match host
+names and a pathname pattern. They can supply a canonical page key, a metadata UUID
+identity, referrer preservation, an image-source preference and one of two fixed
+gallery layouts: thumbnails or slots. The authoritative typed schema and limits
+are in Desktop's provider_host/browser.rs. Descriptors contain data only: no
+JavaScript, action sequences, expressions or arbitrary browser commands.
 
-To replace the complete provider selection with reviewed local sources:
+Desktop resolves matching rules; the extension receives only the resulting page
+description. A provider can use any ID. Extension dispatch uses the declared
+gallery kind, never a provider-name switch. New site configurations supported by
+these existing capabilities need only a plugin update. A genuinely new browser
+capability requires an extension update.
 
-```text
-node scripts/sync-browser-providers.mjs <civitai-repo>/browser <deviantart-repo>/browser <wallhaven-repo>/browser
-npm run check
-npm run build -- --channel dev
-```
+## Desktop bridge
 
-Alternatively, set `ATLAS_BROWSER_PROVIDER_SOURCES` to a JSON array of those absolute directory paths when invoking the build. The normal build verifies the vendored snapshot using `src/provider-plugins/sources.lock.json`. Source edits require resync; never edit the generated snapshot directly. Git preserves exact snapshot and registry bytes so Windows line-ending conversion cannot invalidate the source lock. Snapshots let the Extension repository build independently without a neighboring Desktop checkout. Review the resulting source and lock diff before committing an update.
+The paired local transport advertises browser-provider-resolution-v1 and accepts
+POST /v1/browser/resolve with up to 100 pages. Each page supplies its URL and
+optionally up to 64 bounded name/content metadata pairs. The request does not send
+the document HTML, form values or cookies. Existing authenticated capture and
+download flows retain their own contracts.
 
-The registry is generated from the selected sources and imports the actual adapter implementation. It does not contain provider-name dispatch. Adding an adapter therefore does not require changing shared registries. Compatibility re-export modules preserve existing consumers and tests.
+A result contains the original URL, canonicalPage, provider, profileVersion,
+identity, gallery, galleryKey, imageSource and preserveReferrer. Unmatched pages
+receive generic capture. Disabled or missing dependencies suppress the provider.
+Overlapping installed providers fail resolution instead of selecting an arbitrary
+provider. Desktop uses only descriptors from verified active packages.
 
-Browser executable code is bundled into the Extension at build time. Installing a Desktop `.atlas-provider` does not add browser JavaScript to an already installed Extension; rebuild and reload the development Extension, or distribute a new signed store build. This preserves Manifest V3's local executable-code boundary and existing CSP. Provider source selection is a developer trust decision; a source lock detects accidental drift and is not a publisher signature.
+Plugin install, update, rollback, enable, disable and removal publish
+browser.providers.changed. The extension invalidates cached descriptions and
+refreshes open pages. Disconnect, re-pair and reconnect also invalidate descriptions.
+Background event matching retains bounded per-frame canonical interests, without
+rediscovering every tab on each download progress event.
 
-Captured signed URLs, optional identity hints, bounded carousel navigation, restoration and generic Reddit batching retain their existing behavior. Source preferences and dimension hints retain the limitations documented in Desktop's `EXTENSION_DOWNLOAD_METADATA.md`; extraction does not establish original-file quality.
+## Collection and cancellation
+
+The user must initiate gallery collection. Bundled collectors enforce a maximum
+of 50 items and bounded navigation, wait and restoration times. They honor explicit
+user image-source preferences, validate the current page and do not evaluate
+provider-supplied code. Before and after collection, the extension asks Desktop to confirm
+the provider version, page identity and gallery configuration. Lifecycle changes cancel in-flight collection; cancellation
+does not click controls to restore a page belonging to another provider state.
+Failure returns an error rather than silently downloading a truncated gallery.
+
+Offline or incompatible Desktop retains generic capture; provider-specific
+features require a connected Desktop with the relevant plugin enabled. This
+does not install a provider implicitly.
+
+## Regression coverage
+
+Browser characterization tests retain the original URL/identity cases. Generic
+collector tests retain the existing page fixtures and add unknown-provider,
+cancellation, malformed-selector, size and timeout cases. Desktop native tests
+install real sealed packages and verify matching, dependency availability,
+disable/remove/update/rollback and malformed descriptors. Bridge tests cover
+bounded metadata, stale responses, event routing and pairing isolation.

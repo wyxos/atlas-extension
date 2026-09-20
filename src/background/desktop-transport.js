@@ -56,6 +56,10 @@ export function createDesktopTransport(options = {}) {
     });
   }
 
+  function resolveBrowserPages(credentials, body, requestOptions = {}) {
+    return request('/v1/browser/resolve', { ...requestOptions, credentials, body, method: 'POST' });
+  }
+
   function runtimePolicy(credentials, requestOptions = {}) {
     return request('/v1/runtime-policy', {
       ...requestOptions,
@@ -251,6 +255,7 @@ export function createDesktopTransport(options = {}) {
     reactionBatch,
     request,
     runtimePolicy,
+    resolveBrowserPages,
     unpair,
     updateBatchProviderPreference,
     updateCloseTabMode,

@@ -144,6 +144,12 @@ export function createDesktopEventClient({
       return;
     }
 
+    if (frame.type === 'browser.providers.changed') {
+      onCheckpoint?.({ eventSequence: sequence, lastEventAt: receivedAt });
+      onResyncRequired?.();
+      return;
+    }
+
     if (frame.type === 'runtime.policy.changed') {
       onCheckpoint?.({ eventSequence: sequence, lastEventAt: receivedAt });
       onPolicyChanged?.(frame.data);

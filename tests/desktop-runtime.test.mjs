@@ -405,3 +405,54 @@ function deferred() {
   const promise = new Promise((next) => { resolve = next; });
   return { promise, resolve };
 }
+
+
+test('event availability transitions invalidate provider caches once and stale clients cannot restore status', async () => {
+  let callbacks; let resyncs = 0;
+  const storage = pairedStorage();
+  const runtime = createDesktopRuntime({
+    storage, onResyncRequired: () => { resyncs++; },
+    createEventClient: options => { callbacks = options; return { async start() {}, stop() {} }; },
+    transport: {
+      channel: 'dev', async hello() { return { app: { channel: 'dev' }, protocol_version: 1 }; },
+      async runtimePolicy() { return { revision: 9, settings: { schemaVersion: 1, settings: {} } }; },
+      async unpair() {},
+    },
+  });
+  await runtime.reconnect(); const initial = resyncs;
+  await callbacks.onStatus('connected'); await callbacks.onStatus('connected'); assert.equal(resyncs, initial + 1);
+  await callbacks.onStatus('disconnected'); await callbacks.onStatus('error'); assert.equal(resyncs, initial + 2);
+  await callbacks.onStatus('connecting'); assert.equal(resyncs, initial + 2);
+  await callbacks.onStatus('connected'); assert.equal(resyncs, initial + 3);
+  await runtime.unpair(); const afterUnpair = resyncs;
+  await callbacks.onStatus('connected'); assert.equal(resyncs, afterUnpair);
+  assert.equal((await runtime.diagnostics()).eventStatus, 'disconnected');
+});
+
+test('revoked browser resolution credentials clear provider routing even before the event socket notices', async () => {
+  let invalidations = 0;
+  const storage = createStorage({ [desktopConnectionStorageKey]: {
+    ...createDefaultDesktopConnectionState('dev'), channel: 'dev', clientId: 'client', clientToken: 'token',
+    capabilities: ['browser-provider-resolution-v1'],
+  } });
+  const runtime = createDesktopRuntime({ storage, onResyncRequired: () => { invalidations++; },
+    transport: { async resolveBrowserPages() { throw createDesktopContractError('PAIRING_REQUIRED', 'Revoked.'); } },
+  });
+  await assert.rejects(runtime.resolveBrowserPages({ pages: [{ url: 'https://example.test/' }] }), { code: 'PAIRING_REQUIRED' });
+  assert.equal((await runtime.diagnostics()).paired, false); assert.equal(invalidations, 1);
+});
+
+test('an old browser authorization failure cannot disconnect a newly paired client', async () => {
+  const gate = deferred(); let invalidations = 0;
+  const state = { ...createDefaultDesktopConnectionState('dev'), channel: 'dev', clientId: 'old', clientToken: 'old-token', capabilities: ['browser-provider-resolution-v1'] };
+  const storage = createStorage({ [desktopConnectionStorageKey]: state });
+  const runtime = createDesktopRuntime({ storage, onResyncRequired: () => { invalidations++; },
+    transport: { async resolveBrowserPages() { await gate.promise; throw createDesktopContractError('PAIRING_REQUIRED', 'Revoked.'); } },
+  });
+  const request = runtime.resolveBrowserPages({ pages: [{ url: 'https://example.test/' }] });
+  const failure = assert.rejects(request, { code: 'PAIRING_REQUIRED' });
+  await new Promise(done => globalThis.setImmediate(done));
+  await storage.set({ [desktopConnectionStorageKey]: { ...state, clientId: 'new', clientToken: 'new-token' } });
+  gate.resolve(); await failure;
+  assert.equal((await runtime.diagnostics()).clientId, 'new'); assert.equal(invalidations, 0);
+});

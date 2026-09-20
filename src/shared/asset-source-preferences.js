@@ -20,9 +20,7 @@ export const assetMatchQueryCleanupModes = {
 };
 
 const fallbackAssetImageSourcePreference = imageSourcePreferenceValues.src;
-const domainAssetImageSourcePreferenceDefaults = new Map([
-  ['reddit.com', imageSourcePreferenceValues.highestSrcset],
-]);
+const domainAssetImageSourcePreferenceDefaults = new Map();
 
 export function createDefaultAssetSourcePreferences() {
   return {

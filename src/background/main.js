@@ -1,3 +1,4 @@
+import { createBrowserReferrers, createCoalescedDownloadRelay } from './browser-referrers.js';
 import {
   deleteAtlasFile,
   fetchAssetStatuses,
@@ -36,8 +37,10 @@ import { fanoutTabMessage } from './message-fanout.js';
 
 const openTabs = createOpenTabRegistry();
 const performanceDiagnostics = createPerformanceDiagnosticStore();
-const contentInterests = createContentInterestRegistry();
+const browserPages = createBrowserReferrers(body => desktopRuntime.resolveBrowserPages(body), () => contentInterests);
+const contentInterests = createContentInterestRegistry({ canonicalProviderPage: browserPages.canonical });
 const downloadEvents = createDownloadEventState();
+const downloadRelays = createCoalescedDownloadRelay({ deliver: relayTargetedDownloadEvent });
 const closeTabIntents = createCloseTabIntentManager({
   onMetric: (metric) => performanceDiagnostics.record(metric),
 });
@@ -70,8 +73,8 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
   }
 
   if (message?.type === 'atlas-extension.content-interests') {
-    void contentInterests.ready.then(() => {
-      const payload = contentInterests.register({
+    void contentInterests.ready.then(async () => {
+      const payload = await browserPages.register({
         documentId: sender?.documentId ?? message.documentId,
         frameId: sender?.frameId ?? 0,
         pageUrl: message.pageUrl,
@@ -82,7 +85,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
       });
 
       sendResponse({ ok: true, payload });
-      if (payload.resyncRequired) {
+      if (payload.accepted && payload.resyncRequired) {
         contentInterests.markResynced(sender?.tab?.id);
       }
     });
@@ -268,26 +271,26 @@ async function handleAtlasApiMessage(message) {
 function isAtlasApiMessage(message) {
   return [
     'atlas-extension.asset-reaction-batch',
-    'atlas-extension.asset-reaction',
-    'atlas-extension.asset-statuses',
-    'atlas-extension.file-delete',
+    'atlas-extension.asset-reaction', 'atlas-extension.asset-statuses', 'atlas-extension.file-delete',
   ].includes(message?.type);
 }
 
 function relayDownloadEvent(payload) {
   const acceptedPayload = downloadEvents.accept(payload);
 
-  if (acceptedPayload === null) {
-    return;
-  }
+  if (acceptedPayload === null) return;
 
   closeTabIntents.handleDownloadEvent(acceptedPayload);
-  void relayTargetedDownloadEvent(acceptedPayload);
+  if (!downloadRelays.submit(acceptedPayload)) {
+    for (const tabId of contentInterests.matchingTabIds(acceptedPayload)) contentInterests.markNeedsResync(tabId);
+  }
 }
 
 async function relayTargetedDownloadEvent(payload) {
   await contentInterests.ready;
-  const tabIds = contentInterests.matchingTabIds(payload);
+  const mapping = await browserPages.prepare([payload.referrerUrl]);
+  if (!mapping.isCurrent()) return;
+  const tabIds = contentInterests.matchingTabIds(payload, mapping.canonical(payload.referrerUrl));
   let deferred = 0;
   const deliverableTabIds = tabIds.filter((tabId) => {
     const state = contentInterests.targetState(tabId);
@@ -302,7 +305,7 @@ async function relayTargetedDownloadEvent(payload) {
     message: { payload, type: 'atlas-extension.download-event' },
     metricDetails: {
       deferred,
-      registeredTabs: contentInterests.snapshot().length,
+      registeredTabs: contentInterests.size(),
     },
     onMetric: (metric) => performanceDiagnostics.record(metric),
     sendMessage: sendTabMessage,
@@ -330,6 +333,7 @@ function sendTabMessage(tabId, message) {
 }
 
 function relayDesktopResyncRequired() {
+  downloadRelays.clear(); browserPages.clear();
   void contentInterests.ready.then(() => Promise.all(
     contentInterests.snapshot().map(({ tabId }) => deliverTargetedResync(tabId)),
   ));

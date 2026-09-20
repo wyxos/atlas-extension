@@ -164,7 +164,7 @@ test('packages the required Desktop capabilities in the compatibility marker', (
     channel: 'stable',
     desktopBaseUrl: 'http://127.0.0.1:37420',
     protocolVersion: 1,
-    requiredCapabilities: ['batch-provider-preference', 'close-tab-mode'],
+    requiredCapabilities: ['batch-provider-preference', 'close-tab-mode', 'browser-provider-resolution-v1'],
   });
   assert.throws(
     () => validateDesktopCompatibilityMarker({ ...marker, requiredCapabilities: [] }),

@@ -1,3 +1,4 @@
+import { browserPageContext } from './browser-page-context.js';
 import {
   assetSourcePreferencesKey,
   createDefaultAssetSourcePreferences,
@@ -193,7 +194,10 @@ function normalizeDeclaredSource(element) {
 }
 
 function shouldUseHighestSrcsetCandidate(element, options) {
-  const sourcePreference = options?.imageSourcePreference
+  const site = options?.siteDomain ?? element?.ownerDocument?.location?.hostname ?? globalThis.location?.hostname;
+  const explicit = (options?.assetSourcePreferences ?? assetSourcePreferences).profiles.some(profile => profile.domain === String(site ?? '').replace(/^www\./, ''));
+  const pluginPreference = explicit ? undefined : browserPageContext.get(element?.ownerDocument?.location?.href ?? globalThis.location?.href)?.imageSource;
+  const sourcePreference = options?.imageSourcePreference ?? pluginPreference
     ?? resolveAssetImageSourcePreference(
       options?.assetSourcePreferences ?? assetSourcePreferences,
       options?.siteDomain ?? element?.ownerDocument?.location?.hostname ?? globalThis.location?.hostname,

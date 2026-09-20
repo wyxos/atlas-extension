@@ -1,7 +1,0 @@
-{
-  "name": "@wyxos/atlas-deviantart-browser",
-  "version": "1.0.0",
-  "type": "module",
-  "exports": "./index.js",
-  "private": true
-}

@@ -156,6 +156,9 @@ test('observes visibility-related media attributes for rescan', async () => {
     'src',
     'srcset',
     'style',
+    'name',
+    'property',
+    'content',
   ]);
   assert.equal(observedOptions.attributes, true);
   assert.equal(observedOptions.subtree, true);

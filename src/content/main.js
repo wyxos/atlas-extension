@@ -1,3 +1,4 @@
+import { browserPageContext } from './browser-page-context.js';
 import { mergeReferrerCounts } from './referrer-counts.js';
 import { matchesReactionFile, submitReaction } from './provider-reaction.js';
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
@@ -399,6 +400,7 @@ function handleAssetShortcut(event) {
 function getVisibleRect(element) { return resolveVisibleRect(element, viewportPadding); }
 function getReferrerVisibleRect(element) { return resolveVisibleRect(element, viewportPadding, { minVisibleWidth: referrerMinVisibleWidth }); }
 function scanAssets(root = document) {
+  void browserPageContext.refresh({ url: window.location.href, documentContext: document });
   const scanStartedAt = performanceDiagnostics.start();
   let scannedElements = 0;
   for (const element of listAssetElements(root, assetSelector)) {
@@ -412,9 +414,12 @@ function scanAssets(root = document) {
   performanceDiagnostics.finish('scan-duration', scanStartedAt, { scannedElements });
 }
 function handleResyncRequired() {
+  browserPageContext.invalidate();
+  void browserPageContext.refresh({ url: window.location.href, documentContext: document });
   statusChecks.reset();
   referrerBadges.refreshKnownReferrers?.({ refreshOpenCounts: true, refreshStatus: true });
   scanAssets();
+  contentInterests.report({ force: true });
 }
 function positionKnownBadges() {
   for (const element of assetIds.keys()) {
@@ -451,6 +456,7 @@ function updateAllAssetBadgePresentations() {
   }
 }
 function updateAllBadgeStates(patch) { for (const id of badgeStatesById.keys()) updateBadgeState(id, patch); }
+window.addEventListener('atlas-browser-provider-changed', () => { statusChecks.reset(); scheduleScan(); });
 startContentRuntime({
   getOpenReferrerCounts: () => openReferrerCounts,
   handleAssetShortcut,

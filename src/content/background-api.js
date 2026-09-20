@@ -234,3 +234,7 @@ function withoutUndefinedValues(value) {
     Object.entries(value).filter(([, item]) => item !== undefined),
   );
 }
+
+export function resolveBrowserPagesViaBackground({ pages, runtime = globalThis.chrome?.runtime }) {
+  return sendBackgroundRequest({ type: 'atlas-extension.browser-resolve', pages }, { runtime, timeoutMs: defaultTimeoutMs });
+}

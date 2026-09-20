@@ -1,3 +1,4 @@
+import { slotProfile } from './fixtures/gallery-adapters.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectAssetBatchItems, resolveAssetBatchContext } from '../src/content/batch-providers/index.js';
@@ -11,7 +12,7 @@ const locationContext = new URL('https://www.reddit.com/r/ImaginaryWomen/comment
 
 test('only offers Reddit batch for the selected post gallery image', () => {
   const fixture = gallery();
-  assert.equal(resolveAssetBatchContext({ element: fixture.images[0], locationContext }).provider, 'reddit');
+  assert.equal(resolveAssetBatchContext({ element: fixture.images[0], locationContext, pageContext: slotProfile(locationContext.href) }).provider, 'reddit');
   for (const href of ['https://www.reddit.com/r/ImaginaryWomen/', 'https://notreddit.com/comments/1w3gag0/',
     'https://www.reddit.com/comments/other/']) {
     assert.equal(resolveRedditBatchContext({ element: fixture.images[0], locationContext: new URL(href) }), null);
@@ -172,11 +173,12 @@ function gallery({ count = 3, current = 1, order = null, missing = [], loadOnCli
     querySelectorAll: () => (order ?? [...slots.keys()]).map((page) => slots.get(page)),
     querySelector: (selector) => slots.get(Number(selector.match(/page-(\d+)/)?.[1])) ?? null,
     shadowRoot: {
+      querySelectorAll(selector) { return selector === 'button' ? ['Next page', 'Previous page'].map(label => this.querySelector('button[aria-label=' + label + ']')) : []; },
       querySelector(selector) {
         if (selector === 'faceplate-carousel') return { getAttribute: () => `Item ${current} of ${total}` };
         const next = selector.includes('Next page');
         return {
-          getAttribute: () => (next ? current >= total : current <= 1) ? 'true' : 'false',
+          getAttribute: (name) => name === 'aria-label' ? (next ? 'Next page' : 'Previous page') : name === 'aria-disabled' ? ((next ? current >= total : current <= 1) ? 'true' : 'false') : null,
           click() {
             current += next ? 1 : -1;
             clicks.push(current);

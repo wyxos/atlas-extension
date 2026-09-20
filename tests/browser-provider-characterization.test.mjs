@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canonicalProviderPage, shouldPreserveProviderReferrer } from '../src/shared/provider-page.js';
-import { captureProviderIdentity } from '../src/content/provider-identities.js';
+import { createBrowserResolutionCache } from '../src/shared/browser-resolution-cache.js';
+import { createBrowserPageContext } from '../src/content/browser-page-context.js';
 
 // Fixed expectations shared by the replacement bridge tests. No provider source
 // is used to calculate an expected result.
@@ -20,22 +20,19 @@ export const pageCases = [
   ['https://example.test/images/42?file=2', 'https://example.test/images/42?file=2', false],
 ];
 
-test('browser provider characterization: exact page aliases, boundaries and original-referrer policy', () => {
-  for (const [input, canonical, preserve] of pageCases) {
-    assert.equal(canonicalProviderPage(input), canonical, input);
-    assert.equal(shouldPreserveProviderReferrer(input), preserve, input);
-  }
+test('browser provider characterization: Desktop page aliases pass through unchanged', async () => {
+  const cache = createBrowserResolutionCache({ resolve: async ({ pages }) => ({ pages: pages.map(({url}) => ({url, canonicalPage: pageCases.find(row => row[0] === url)[1]})) }) });
+  await cache.prepare(pageCases.map(row => row[0]));
+  for (const [url, canonical] of pageCases) assert.equal(cache.canonical(url), canonical);
 });
-
-test('browser provider characterization: identity follows live page metadata without retaining a prior artwork', () => {
-  const pageUrl = 'https://www.deviantart.com/fixture/art/Example-123';
-  let content = 'DeviantArt://deviation/B7C73535-DDEA-08F9-A423-69BB9C4D44AE';
-  const documentContext = { querySelector: () => content === null ? null : ({ getAttribute: () => content }) };
-  assert.deepEqual(captureProviderIdentity({ documentContext, pageUrl }), {
-    provider: 'deviantart', item_id: 'b7c73535-ddea-08f9-a423-69bb9c4d44ae',
-  });
-  content = null;
-  assert.equal(captureProviderIdentity({ documentContext, pageUrl }), null);
-  content = 'DeviantArt://deviation/not-an-id';
-  assert.equal(captureProviderIdentity({ documentContext, pageUrl }), null);
+test('browser provider characterization: refreshed Desktop identity never retains a prior artwork', async () => {
+  let identity = {provider:'deviantart',item_id:'b7c73535-ddea-08f9-a423-69bb9c4d44ae'};
+  const context = createBrowserPageContext({resolve: async ({pages}) => ({pages: pages.map(page => ({url:page.url,identity}))})});
+  const url = 'https://www.deviantart.com/fixture/art/Example-123';
+  await context.refresh({url});
+  assert.deepEqual(context.get(url).identity, identity);
+  identity = null; context.invalidate();
+  assert.equal(context.get(url),null);
+  await context.refresh({url});
+  assert.equal(context.get(url).identity,null);
 });

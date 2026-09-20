@@ -84,7 +84,7 @@ function listenForDesktopResync({ handleResyncRequired }) {
 }
 
 const initialObserverOptions = {
-  attributeFilter: ['class', 'hidden', 'href', 'poster', 'src', 'srcset', 'style'],
+  attributeFilter: ['class', 'hidden', 'href', 'poster', 'src', 'srcset', 'style', 'name', 'property', 'content'],
   attributes: true,
   childList: true,
   subtree: true,
