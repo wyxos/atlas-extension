@@ -156,3 +156,41 @@ test('command logs are bounded and declare truncation while status still arrives
   assert.match(fs.readFileSync(logFile,'utf8'), /Atlas log truncated/);
   assert.deepEqual(statuses, ['Desktop: installing and reopening']);
 });
+
+test('Desktop Rust tests receive committed provider snapshots inside the update workspace', async t => {
+  const f = fixture(t);
+  const provider = path.join(f.root, 'atlas-civitai');
+  fs.mkdirSync(provider);
+  git(provider, ['init', '-b', 'main']);
+  git(provider, ['config', 'user.email', 'test@example.invalid']);
+  git(provider, ['config', 'user.name', 'Test']);
+  fs.writeFileSync(path.join(provider, 'manifest.json'), '{"id":"civitai"}');
+  fs.writeFileSync(path.join(provider, 'Cargo.toml'), '# committed provider');
+  git(provider, ['add', '.']);
+  git(provider, ['commit', '-m', 'provider fixture']);
+  fs.writeFileSync(path.join(provider, 'Cargo.toml'), '# unfinished provider');
+  const desktop = f.repos.find(repo => repo.kind === 'desktop');
+  fs.mkdirSync(path.join(desktop.root, 'scripts'));
+  fs.writeFileSync(path.join(desktop.root, 'scripts', 'provider-test-sources.mjs'),
+    `export function providerTestSources(root) {
+      if (root !== ${JSON.stringify(desktop.root)}) throw new Error("Wrong source root");
+      return [{id:"civitai", source:${JSON.stringify(provider)}}];
+    }`);
+  git(desktop.root, ['add', 'scripts/provider-test-sources.mjs']);
+  git(desktop.root, ['commit', '--only', 'scripts/provider-test-sources.mjs', '-m', 'declare external test fixture']);
+  git(desktop.root, ['update-ref', 'refs/heads/main', 'HEAD']);
+  let checked = false;
+  await runIsolatedUpdate({ ...f, execute: async (name, args, options) => {
+    if (name === 'pwsh.exe' && args.join(' ').includes('npm.cmd run test:rust')) {
+      const sources = JSON.parse(options.env.ATLAS_TEST_PROVIDER_SOURCES);
+      assert.equal(path.dirname(path.dirname(sources.civitai)), path.dirname(options.cwd));
+      assert.notEqual(sources.civitai, provider);
+      assert.equal(fs.readFileSync(path.join(sources.civitai, 'Cargo.toml'), 'utf8'), '# committed provider');
+      checked = true;
+    }
+    return f.execute(name, args, options);
+  } });
+  assert.equal(checked, true);
+  assert.equal(fs.readFileSync(path.join(provider, 'Cargo.toml'), 'utf8'), '# unfinished provider');
+  assert.deepEqual(fs.readdirSync(path.join(f.stateDirectory, 'workspaces')), []);
+});

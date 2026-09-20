@@ -55,7 +55,14 @@ Desktop before rerunning the updater.
    inside the temporary checkout. The Extension currently ignores its lockfile;
    transitive dependencies may resolve differently between builds. Ignored local `.env`
    files and local dependency links are not copied.
-5. Run repository checks there. Desktop uses development frontend validation in
+5. Before Desktop checks, resolve its external provider test sources beside the
+   original Desktop checkout (or through `ATLAS_TEST_PROVIDER_SOURCES`), capture
+   their committed main revisions, and copy them into the managed temporary
+   workspace. Rust tests receive an explicit mapping to these frozen snapshots.
+   Uncommitted provider edits are excluded; missing sources or committed manifests
+   fail before the checks. These are test fixtures only and are never bundled in
+   Desktop. Older Desktop revisions without external test sources and
+   Extension-only updates require no provider snapshots. Run repository checks there. Desktop uses development frontend validation in
    place of the production frontend check. Build Extension stable output; build
    Desktop with the existing NSIS installer, graceful shutdown and silent install.
    Desktop's `EXTENSION_SOURCE` always points to the captured Extension snapshot.

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { artifactFingerprint, git, saveState } from './repository.mjs';
 import { verifyInstalledExecutable } from './installed-executable.mjs';
 import { createTerminal } from './terminal.mjs';
+import { prepareProviderTestSnapshots } from './provider-test-snapshots.mjs';
 
 export function removeWorkspace(parent, directory) {
   const base = fs.realpathSync(parent);
@@ -173,6 +174,11 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       }
     } });
   }
+  const desktop = plans.find((repo) => repo.kind === 'desktop' && repo.needed);
+  if (desktop) steps.push({ title: 'Desktop: prepare provider test snapshots', action: async () => {
+    const sources = await prepareProviderTestSnapshots({ desktop, workspace, run, env: environment });
+    if (sources) environment.ATLAS_TEST_PROVIDER_SOURCES = JSON.stringify(sources);
+  } });
   for (const repo of plans.filter((item) => item.needed)) {
     const checks = repo.kind === 'desktop'
       ? ['lint', 'build:desktop:dev', 'test:unit', 'prepare:media-tools', 'prepare:extension:stable', 'lint:rust', 'test:rust'] : ['check'];
