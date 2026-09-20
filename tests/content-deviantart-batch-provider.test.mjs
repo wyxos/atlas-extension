@@ -8,7 +8,7 @@ import {
   deviantArtReferrerForFileIndex,
   readCurrentDeviantArtBatchItem,
   resolveDeviantArtBatchContext,
-} from '../src/content/batch-providers/deviantart.js';
+} from './fixtures/gallery-adapters.js';
 
 test('detects DeviantArt batch context from deviation navigation controls', () => {
   const documentContext = {

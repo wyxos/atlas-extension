@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectAssetBatchItems, resolveAssetBatchContext } from '../src/content/batch-providers/index.js';
-import { collectRedditBatchItems, resolveRedditBatchContext } from '../src/content/batch-providers/reddit.js';
+import { collectRedditBatchItems, resolveRedditBatchContext } from './fixtures/gallery-adapters.js';
 import { postAssetOrBatchReaction } from '../src/content/batch-reactions.js';
 import { reactionFailureFromError } from '../src/content/reaction-failure-state.js';
 import { armCloseTabForReaction } from '../src/content/close-tab-reactions.js';
