@@ -20,7 +20,12 @@ const destination = resolveBuildDestination({
   root,
 });
 
-const result = await buildExtension({ channel, destination, root });
+const testIndex = argv.indexOf('--test-runtime');
+if (testIndex !== -1 && (!argv[testIndex + 1] || argv[testIndex + 1].startsWith('--'))) {
+  throw new Error('--test-runtime requires a runtime descriptor.');
+}
+const result = await buildExtension({ channel, destination, root,
+  testRuntime: testIndex === -1 ? undefined : argv[testIndex + 1] });
 
 console.log(`Built extension package at ${result.destination}`);
 console.log(`Copied files: ${result.copied.join(', ')}`);

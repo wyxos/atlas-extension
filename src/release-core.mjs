@@ -11,6 +11,7 @@ import {
 } from './build-config.mjs';
 import { copyStaticAssets } from './static-assets.mjs';
 import { writeDesktopCompatibilityMarker } from './desktop-compatibility.mjs';
+import { testConnection } from './test-runtime.mjs';
 const execFileAsync = promisify(execFile);
 
 export const extensionFiles = [
@@ -211,12 +212,13 @@ export function copyContentBuild({ buildOutputPath, contentOutputPath, entryName
   fs.copyFileSync(source, destination);
 }
 
-export async function buildExtension({ channel, destination, root }) {
+export async function buildExtension({ channel, destination, root, testRuntime }) {
   if (channel !== undefined && !['dev', 'stable'].includes(channel)) {
     throw new Error(`Unsupported Atlas Desktop channel: ${channel}`);
   }
   const buildEnv = loadBuildEnv(root);
   channel ??= ['dev', 'stable'].includes(buildEnv.CHANNEL) ? buildEnv.CHANNEL : 'dev';
+  const connection = testConnection(testRuntime, channel, destination);
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-extension-build-'));
   const buildOutputPath = path.join(staging, 'options');
   const backgroundOutputPath = path.join(staging, 'background');
@@ -227,10 +229,10 @@ export async function buildExtension({ channel, destination, root }) {
     fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
     fs.rmSync(contentOutputPath, { force: true, recursive: true });
     fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });
-    await runViteBuild({ channel, outDir: buildOutputPath, root, target: 'options' });
-    await runViteBuild({ channel, outDir: backgroundOutputPath, root, target: 'background' });
-    await runViteBuild({ channel, outDir: contentOutputPath, root, target: 'content' });
-    await runViteBuild({ channel, outDir: locationBridgeOutputPath, root, target: 'location-bridge' });
+    await runViteBuild({ channel, connection, outDir: buildOutputPath, root, target: 'options' });
+    await runViteBuild({ channel, connection, outDir: backgroundOutputPath, root, target: 'background' });
+    await runViteBuild({ channel, connection, outDir: contentOutputPath, root, target: 'content' });
+    await runViteBuild({ channel, connection, outDir: locationBridgeOutputPath, root, target: 'location-bridge' });
     copyContentBuild({ buildOutputPath, contentOutputPath: backgroundOutputPath, entryName: 'background' });
     copyContentBuild({ buildOutputPath, contentOutputPath });
     copyContentBuild({ buildOutputPath, contentOutputPath: locationBridgeOutputPath, entryName: 'location-bridge' });
@@ -441,7 +443,7 @@ async function runGit(args, { root }) {
   };
 }
 
-async function runViteBuild({ channel, outDir, root, target }) {
+async function runViteBuild({ channel, connection, outDir, root, target }) {
   const viteBinPath = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
 
   await execFileAsync(process.execPath, [viteBinPath, 'build', '--outDir', outDir], {
@@ -450,6 +452,7 @@ async function runViteBuild({ channel, outDir, root, target }) {
       ...process.env,
       ATLAS_EXTENSION_BUILD_TARGET: target,
       CHANNEL: channel,
+      ATLAS_EXTENSION_TEST_CONNECTION: JSON.stringify(connection ?? null),
     },
     maxBuffer: 1024 * 1024 * 4,
     windowsHide: true,

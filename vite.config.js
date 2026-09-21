@@ -9,6 +9,12 @@ const rootDirectory = fileURLToPath(new URL('.', import.meta.url));
 const allowedBuildTargets = new Set(['background', 'content', 'location-bridge', 'options']);
 const buildTarget = process.env.ATLAS_EXTENSION_BUILD_TARGET ?? 'options';
 const desktopChannel = process.env.CHANNEL ?? 'dev';
+const testConnection = JSON.parse(process.env.ATLAS_EXTENSION_TEST_CONNECTION ?? 'null');
+if (testConnection && (desktopChannel !== 'dev'
+  || !/^http:\/\/127\.0\.0\.1:\d+$/.test(testConnection.baseUrl)
+  || !/^[a-f0-9]{24}$/.test(testConnection.runtimeId))) {
+  throw new Error('Invalid isolated test connection.');
+}
 const strictModeDirective = "'use strict';";
 
 if (!allowedBuildTargets.has(buildTarget)) {
@@ -81,6 +87,7 @@ export default defineConfig({
   base: './',
   define: {
     'globalThis.__ATLAS_DESKTOP_CHANNEL__': JSON.stringify(desktopChannel),
+    'globalThis.__ATLAS_TEST_CONNECTION__': JSON.stringify(testConnection),
   },
   build: {
     rollupOptions: {

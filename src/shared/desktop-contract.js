@@ -28,10 +28,18 @@ export function resolveExtensionChannel(value = injectedExtensionChannel()) {
 }
 
 export function desktopBaseForChannel(channel = resolveExtensionChannel()) {
+  if (globalThis.__ATLAS_TEST_CONNECTION__) {
+    if (channel !== 'dev') throw createDesktopContractError('TEST_RUNTIME_MISMATCH', 'A test extension requires its isolated runtime.');
+    return globalThis.__ATLAS_TEST_CONNECTION__.baseUrl;
+  }
   return desktopChannelBases[resolveExtensionChannel(channel)];
 }
 
 export function assertDesktopChannel(data, expectedChannel = resolveExtensionChannel()) {
+  if (globalThis.__ATLAS_TEST_CONNECTION__
+    && data?.app?.runtime_id !== globalThis.__ATLAS_TEST_CONNECTION__.runtimeId) {
+    throw createDesktopContractError('TEST_RUNTIME_MISMATCH', 'The dedicated Atlas test runtime is required.');
+  }
   const actualChannel = data?.app?.channel;
 
   if (actualChannel !== expectedChannel) {
