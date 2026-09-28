@@ -27,6 +27,9 @@ Use **Update Atlas (Desktop + Extension)**. It launches `scripts/rebuild-atlas.p
 The repositories must remain siblings named `atlas-extension` and `atlas-desktop`.
 PowerShell 7, Git, Node/npm, Desktop build tools and a signed-in Codex or Cursor
 Agent CLI are required. Codex reviews committed changes for versioning first.
+Reviews use the CLI bundled with the Codex desktop app, so they follow its updates
+and model settings; a global npm `@openai/codex` CLI is the fallback, and
+`CODEX_EXECUTABLE` overrides both. Any Codex failure retries through Cursor.
 
 The launcher first loads Desktop's managed build-storage controller, including in
 dry-run mode. A missing or incompatible controller stops before commit prompts,

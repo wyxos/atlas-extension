@@ -7,7 +7,7 @@ import { git, updateVersions } from '../scripts/smart-rebuild/repository.mjs';
 import { prepareVersions, prepareBuildSources, versionReviewInput, reviewVersion } from '../scripts/smart-rebuild/version-review.mjs';
 import { committedVersion, publishVersionCommit } from '../scripts/smart-rebuild/version-commit.mjs';
 import { runIsolatedUpdate, command } from '../scripts/smart-rebuild/isolated.mjs';
-import { cliReview, codexReview, cursorReview, parseCursorDecision, resolveCursorAgent } from '../scripts/smart-rebuild/codex-review.mjs';
+import { cliReview, codexReview, cursorReview, parseCursorDecision, resolveCodex, resolveCursorAgent } from '../scripts/smart-rebuild/codex-review.mjs';
 
 function fixture(t, kinds = ['extension']) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-version-test-'));
@@ -304,6 +304,21 @@ test('Codex CLI failure, including usage limits, retries the same review through
   }, cursorExecute: () => assert.fail('Cursor must not run after a successful Codex review') });
   assert.equal(called, 1);
   assert.throws(() => cliReview({ ...options, execute: () => ({ status: 1 }), cursorExecute: () => ({ status: 1 }) }), /Cursor review failed/);
+});
+
+test('Codex reviews prefer the desktop app CLI over a global npm CLI', () => {
+  const app = path.join('C:', 'Program Files', 'WindowsApps', 'OpenAI.Codex_fixture');
+  const bundled = path.join(app, 'app', 'resources', 'codex.exe');
+  const vendor = path.join('C:', 'Roaming', 'npm', 'node_modules', '@openai', 'codex', 'node_modules', '@openai',
+    'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
+  const env = { APPDATA: path.join('C:', 'Roaming') };
+  const present = (...files) => (file) => files.includes(file);
+  assert.equal(resolveCodex({ env, locate: () => app, exists: present(bundled, vendor) }), bundled);
+  assert.equal(resolveCodex({ env: { ...env, CODEX_EXECUTABLE: 'C:\\override\\codex.exe' }, locate: () => app,
+    exists: present(bundled) }), 'C:\\override\\codex.exe');
+  assert.equal(resolveCodex({ env, locate: () => null, exists: present(vendor) }), vendor);
+  assert.equal(resolveCodex({ env, locate: () => app, exists: present(vendor) }), vendor);
+  assert.equal(resolveCodex({ env, locate: () => null, exists: present() }), 'codex.exe');
 });
 
 test('Cursor envelope text and fenced JSON still yield a structured decision', () => {

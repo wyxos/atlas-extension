@@ -60,6 +60,31 @@ export function resolveCursorAgent({ env = process.env, exists = fs.existsSync }
   return { executable: candidates.find((candidate) => exists(candidate)) ?? 'agent' };
 }
 
+let appLocation;
+
+// Windows keeps the Codex desktop app in a versioned package folder.
+function codexAppLocation() {
+  if (process.platform !== 'win32') return null;
+  if (appLocation !== undefined) return appLocation;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    "(Get-AppxPackage -Name 'OpenAI.Codex' | Sort-Object Version -Descending | Select-Object -First 1).InstallLocation"],
+  { encoding: 'utf8', windowsHide: true, timeout: 30 * 1000 });
+  appLocation = result.status === 0 ? result.stdout.trim() || null : null;
+  return appLocation;
+}
+
+// Prefer the CLI bundled with the Codex desktop app: it updates with the app
+// and supports the models the app configures. A global npm CLI can fall behind.
+export function resolveCodex({ env = process.env, exists = fs.existsSync, locate = codexAppLocation } = {}) {
+  if (env.CODEX_EXECUTABLE) return env.CODEX_EXECUTABLE;
+  const location = locate();
+  const bundled = location ? path.join(location, 'app', 'resources', 'codex.exe') : null;
+  if (bundled && exists(bundled)) return bundled;
+  const vendor = path.join(env.APPDATA ?? '', 'npm', 'node_modules', '@openai', 'codex',
+    'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
+  return exists(vendor) ? vendor : 'codex.exe';
+}
+
 function isWindowsCmd(executable) {
   return process.platform === 'win32' && /\.(cmd|bat)$/i.test(executable);
 }
@@ -104,15 +129,12 @@ export function parseCursorDecision(stdout) {
 }
 
 // Shared input-only CLI transport; the controller validates and applies decisions.
-export function codexReview({ repo, stateDirectory, name, schema, prompt, execute = spawnSync }) {
+export function codexReview({ repo, stateDirectory, name, schema, prompt, execute = spawnSync, executable = resolveCodex() }) {
   const schemaFile = path.join(stateDirectory, `${name}-schema.json`);
   const output = outputFile(stateDirectory, name, repo.kind);
   const logFile = writeLog(stateDirectory, name, repo.kind);
   fs.writeFileSync(schemaFile, JSON.stringify(schema));
   fs.rmSync(output, { force: true });
-  const vendor = path.join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@openai', 'codex',
-    'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
-  const executable = process.env.CODEX_EXECUTABLE || (fs.existsSync(vendor) ? vendor : 'codex.exe');
   const ran = runLogged(execute, executable, ['exec', '--ephemeral', '--sandbox', 'read-only', '-C', repo.root,
     '--output-schema', schemaFile, '--output-last-message', output, '--color', 'never', '-'], { prompt, logFile });
   if (!ran.ok) fail('Codex', logFile, ran.result.error);
