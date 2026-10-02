@@ -41,8 +41,9 @@ test(`managed gallery distinguishes ${lifecycle} invalidation during collection`
     }
     report();
   } }));
+  const container = { textContent: 'Images' };
   const thumbs = images.map((image, index) => ({ ...image,
-    closest: selector => selector === '.button' ? buttons[index] : { textContent: 'Images' } }));
+    closest: selector => selector === '.button' ? buttons[index] : container }));
   const documentContext = { querySelectorAll: selector => selector === '.image' ? [images[selected - 1]] : selector === '.thumb' ? thumbs : [] };
   let validations = 0;
   globalThis.chrome = { runtime: { sendMessage(message, callback) {

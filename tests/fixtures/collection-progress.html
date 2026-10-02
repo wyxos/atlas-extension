@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Atlas synthetic collection progress</title>
+    <style>
+      body { background: #001233; color: #f9fafb; font: 14px/1.5 system-ui, sans-serif; margin: 24px; }
+      h1 { font-size: 20px; }
+      .states { display: flex; flex-wrap: wrap; gap: 8px; }
+      button { background: #33415c; border: 0; border-radius: 4px; color: inherit; cursor: pointer; padding: 10px; font: inherit; }
+      button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <h1>Synthetic gallery collection</h1>
+    <p>Fixed fixture states. No provider page or Desktop data is used.</p>
+    <p>Open Assets, then react to the synthetic image. Collection starts and the Assets sheet closes. Use Cancel or Retry in the progress panel.</p>
+    <p>Open Info in Assets to prepare a synthetic payload. It stays pending until Cancel preparation, closing Info, or closing Assets. No request is sent.</p>
+    <div class="states">
+      <button data-reset>Reset</button>
+      <button data-state="collecting">Collecting 84 / 200</button>
+      <button data-state="unknown">Unknown size</button>
+      <button data-state="queueing">Queueing 150 / 200</button>
+      <button data-state="restoring">Restoring</button>
+      <button data-state="paused">Paused after 50 queued</button>
+      <button data-state="cancelled">Cancelled</button>
+      <button data-state="completed">Completed</button>
+    </div>
+    <p id="action" role="status"></p>
+    <script type="module" src="./collection-progress.js"></script>
+  </body>
+</html>

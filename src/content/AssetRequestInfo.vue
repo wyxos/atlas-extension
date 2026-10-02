@@ -1,9 +1,10 @@
 <script setup>
 import { Info } from '@lucide/vue';
-import { ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 
 const props = defineProps({
   asset: { type: Object, required: true },
+  cancelInspection: { type: Function, default: null },
   inspectReaction: { type: Function, required: true },
 });
 const open = ref(false);
@@ -13,10 +14,12 @@ const useBrowserDownload = ref(false);
 const payload = ref('');
 const error = ref('');
 const loading = ref(false);
+const preparationCancelled = ref(false);
 let revision = 0;
 
 async function refresh() {
   const requestRevision = ++revision;
+  preparationCancelled.value = false;
   payload.value = '';
   error.value = '';
   if (!open.value) return;
@@ -36,11 +39,28 @@ async function refresh() {
   }
 }
 
-watch([open, reaction, downloadAction, useBrowserDownload,
-  () => props.asset.source, () => props.asset.batch?.checked], refresh);
+function cancelPreparation(announce = true) {
+  if (!loading.value) return;
+  revision += 1;
+  loading.value = false;
+  payload.value = '';
+  error.value = '';
+  preparationCancelled.value = announce;
+  props.cancelInspection?.({ id: props.asset.id });
+}
+
+watch(open, (isOpen, wasOpen) => {
+  if (isOpen) void refresh();
+  else if (wasOpen) cancelPreparation(false);
+});
+watch([reaction, downloadAction, useBrowserDownload,
+  () => props.asset.source, () => props.asset.batch?.checked], () => {
+  if (!preparationCancelled.value) void refresh();
+});
 watch(() => props.asset.activeReaction, (activeReaction) => {
   downloadAction.value = activeReaction ? 'skip' : 'queue';
 });
+onBeforeUnmount(() => cancelPreparation(false));
 </script>
 
 <template>
@@ -74,6 +94,12 @@ watch(() => props.asset.activeReaction, (activeReaction) => {
       </p>
       <p v-if="loading" role="status">
         Preparing payload…
+      </p>
+      <button v-if="loading && cancelInspection" type="button" class="atlas-asset-sheet-reaction" aria-label="Cancel payload preparation" @click="cancelPreparation()">
+        Cancel preparation
+      </button>
+      <p v-if="preparationCancelled" role="status">
+        Preparation cancelled. Refresh to prepare again.
       </p>
       <p v-if="error" role="alert">
         {{ error }}

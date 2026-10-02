@@ -15,7 +15,7 @@ export function resolveAssetBatchContext(options = {}) {
   try { context = adapter(profile)?.resolve(options); } catch { return null; }
   return context ? { ...context, profile, managed: options.pageContext === undefined, epoch: browserPageContext.token() } : null;
 }
-export async function collectAssetBatchItems(context, options = {}) {
+export async function validateAssetBatchContext(context, options = {}) {
   const collector = adapter(context?.profile);
   if (!collector) throw batchFailure('BATCH_PROVIDER_UNAVAILABLE', 'This gallery provider is unavailable. Refresh the page and retry.');
   const assertActive = () => {
@@ -23,11 +23,13 @@ export async function collectAssetBatchItems(context, options = {}) {
   };
   assertActive();
   async function validateCurrentProfile() {
+    if (options.signal?.aborted) throw batchFailure('BATCH_CANCELLED', 'Gallery collection stopped.');
     if (!context.managed) return;
     const url = options.locationContext?.href ?? globalThis.location?.href;
     const result = await resolveBrowserPagesViaBackground({ pages: [{ url, metadata: readPageMetadata(options.documentContext ?? globalThis.document) }] });
     const fresh = result?.pages?.[0];
     assertActive();
+    if (options.signal?.aborted) throw batchFailure('BATCH_CANCELLED', 'Gallery collection stopped.');
     if (result?.pages?.length !== 1 || fresh?.url !== url || fresh?.provider !== context.profile.provider
       || !fresh.gallery || fresh.profileVersion !== context.profile.profileVersion
       || JSON.stringify(fresh.identity ?? null) !== JSON.stringify(context.profile.identity ?? null)
@@ -37,6 +39,10 @@ export async function collectAssetBatchItems(context, options = {}) {
     }
   }
   await validateCurrentProfile();
+  return { collector, assertActive, validateCurrentProfile };
+}
+export async function collectAssetBatchItems(context, options = {}) {
+  const { collector, assertActive, validateCurrentProfile } = await validateAssetBatchContext(context, options);
   const items = await collector.collect({ ...options, context, assertActive });
   assertActive();
   await validateCurrentProfile();

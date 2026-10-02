@@ -4,6 +4,15 @@ import test from 'node:test';
 import { closeTabModes } from '../src/shared/close-tab-preferences.js';
 import { createCloseTabIntentManager } from '../src/background/close-tab-intents.js';
 
+const nextTask = () => new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+function snapshotManager(resolveAssetStatuses) {
+  const closedTabs = [];
+  const manager = createCloseTabIntentManager({ resolveAssetStatuses,
+    tabsApi: { remove(tabId, callback) { closedTabs.push(tabId); callback(); } } });
+  return { manager, closedTabs };
+}
+
 test('after queue close intents await the browser close result', async () => {
   const closedTabs = [];
   const manager = createCloseTabIntentManager({
@@ -263,4 +272,93 @@ test('records close-intent latency only through the diagnostic hook', async () =
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0].name, 'close-intent-latency');
   assert.equal(metrics[0].durationMs, 5);
+});
+
+test('a whole gallery can close when earlier chunks completed before its intent was armed', async () => {
+  const assetUrls = Array.from({ length: 200 }, (_, index) => `https://fixture.test/${index}.jpg`);
+  const { manager, closedTabs } = snapshotManager(async (urls) => ({
+    assets: Object.fromEntries(urls.map((url) => [url, { download: { status: 'completed' } }])),
+  }));
+  await manager.armCloseIntent({ assetUrls, mode: closeTabModes.onComplete, siteDomain: 'fixture.test', tabId: 11 });
+  await nextTask();
+  assert.deepEqual(closedTabs, [11]);
+});
+
+test('close reconciliation segments local status requests without a gallery count limit', async () => {
+  const assetUrls = Array.from({ length: 901 }, (_, index) => `https://fixture.test/${index}.jpg`);
+  const batches = [];
+  const { manager, closedTabs } = snapshotManager(async (urls) => {
+    batches.push(urls);
+    return { assets: Object.fromEntries(urls.map((url) => [url, { download: { status: 'completed' } }])) };
+  });
+  await manager.armCloseIntent({ assetUrls, mode: closeTabModes.onComplete, siteDomain: 'fixture.test', tabId: 12 });
+  await nextTask();
+  assert.deepEqual(batches.map((batch) => batch.length), [300, 300, 300, 1]);
+  assert.deepEqual(batches.flat(), assetUrls);
+  assert.deepEqual(closedTabs, [12]);
+});
+
+test('an early terminal failure or cancellation keeps the gallery tab open', async () => {
+  for (const status of ['failed', 'canceled']) {
+    const assetUrl = 'https://fixture.test/failed.jpg';
+    const { manager, closedTabs } = snapshotManager(async () => ({ assets: {
+      [assetUrl]: { download: { status } },
+    } }));
+    await manager.armCloseIntent({ assetUrls: [assetUrl], mode: closeTabModes.onComplete, siteDomain: 'fixture.test', tabId: 13 });
+    await nextTask();
+    manager.handleDownloadEvent({ assetUrl, download: { status: 'completed' } });
+    assert.deepEqual(closedTabs, []);
+  }
+});
+
+test('retryable snapshot failures still wait for the tracked transfer to complete', async () => {
+  const assetUrl = 'https://fixture.test/retry.jpg';
+  const { manager, closedTabs } = snapshotManager(async () => ({ assets: {
+    [assetUrl]: { download: { status: 'failed', retry_disposition: 'retryable', transfer_id: 41, generation: 1, attempt: 1 } },
+  } }));
+  await manager.armCloseIntent({ assetUrls: [assetUrl], mode: closeTabModes.onComplete, siteDomain: 'fixture.test', tabId: 14 });
+  await nextTask();
+  assert.deepEqual(closedTabs, []);
+  manager.handleDownloadEvent({ assetUrl, download: { status: 'completed', transfer_id: 41, generation: 1, attempt: 2 } });
+  assert.deepEqual(closedTabs, [14]);
+});
+
+test('events during reconciliation win over stale snapshot attempts', async () => {
+  const assetUrl = 'https://fixture.test/race.jpg';
+  let resolveSnapshot;
+  const { manager, closedTabs } = snapshotManager(() => new Promise((resolve) => { resolveSnapshot = resolve; }));
+  await manager.armCloseIntent({ assetUrls: [assetUrl], mode: closeTabModes.onComplete, siteDomain: 'fixture.test', tabId: 15 });
+  manager.handleDownloadEvent({ assetUrl, download: { status: 'downloading', transfer_id: 42, generation: 2, attempt: 2 } });
+  resolveSnapshot({ assets: { [assetUrl]: { download: { status: 'completed', transfer_id: 42, generation: 1, attempt: 1 } } } });
+  await nextTask();
+  assert.deepEqual(closedTabs, []);
+  manager.handleDownloadEvent({ assetUrl, download: { status: 'completed', transfer_id: 42, generation: 2, attempt: 2 } });
+  assert.deepEqual(closedTabs, [15]);
+});
+
+test('late reconciliation cannot close a removed or replaced tab intent', async () => {
+  let resolveSnapshot;
+  const { manager, closedTabs } = snapshotManager(() => new Promise((resolve) => { resolveSnapshot = resolve; }));
+  const firstUrl = 'https://fixture.test/first.jpg';
+  await manager.armCloseIntent({ assetUrls: [firstUrl], mode: closeTabModes.onComplete, siteDomain: 'fixture.test', tabId: 16 });
+  manager.removeTab(16);
+  resolveSnapshot({ assets: { [firstUrl]: { download: { status: 'completed' } } } });
+  await nextTask();
+  assert.deepEqual(closedTabs, []);
+});
+
+test('a failed status snapshot keeps the tab open and a later Desktop resync reconciles completion', async () => {
+  const assetUrl = 'https://fixture.test/reconnect.jpg';
+  let attempts = 0;
+  const { manager, closedTabs } = snapshotManager(async () => {
+    if (++attempts === 1) throw new Error('Fixture offline');
+    return { assets: { [assetUrl]: { download: { status: 'completed' } } } };
+  });
+  await manager.armCloseIntent({ assetUrls: [assetUrl], mode: closeTabModes.onComplete, siteDomain: 'fixture.test', tabId: 17 });
+  await nextTask();
+  assert.deepEqual(closedTabs, []);
+  manager.reconcile();
+  await nextTask();
+  assert.deepEqual(closedTabs, [17]);
+  assert.equal(attempts, 2);
 });

@@ -1,9 +1,9 @@
 import { galleryMedia } from './media.js';
 import { samePage } from './page-scope.js';
+import { assertNotCancelled, createCollection, createGalleryInventory, galleryError, waitForGalleryCondition } from './collection.js';
 
-const maxGalleryItems = 50;
 const noOp = () => {};
-const batchError = code => Object.assign(new Error(code), { code, retryable: true });
+const navigationTimeoutMs = 2500;
 export function createSlotGallery(profile) {
   const spec = profile.gallery;
   function itemId(value) { return samePage(value, profile.url) ? profile.galleryKey : null; }
@@ -14,67 +14,78 @@ export function createSlotGallery(profile) {
     if (!element.closest(spec.assetAncestor) || gallerySize(carousel) < 2) return null;
     return { available: true, provider: profile.provider, postId, carousel };
   }
-  async function collect({ context, locationContext = globalThis.location, waitFor = waitUntil,
-    timeoutMs = 15000, assertActive = noOp } = {}) {
+  async function collect({ context, locationContext = globalThis.location, waitFor = waitForGalleryCondition,
+    documentContext = context?.carousel?.ownerDocument ?? globalThis.document,
+    timeoutMs = navigationTimeoutMs, assertActive = noOp, signal, onItem, onProgress } = {}) {
     const carousel = context?.carousel;
     const assertCurrent = () => {
       assertActive();
       if (!carousel?.isConnected || itemId(locationContext?.href) !== context.postId
-        || carousel.getAttribute(spec.rootIdentityAttribute) !== `${spec.rootIdentityPrefix}${context.postId}`) throw batchError('BATCH_POST_CHANGED');
+        || carousel.getAttribute(spec.rootIdentityAttribute) !== `${spec.rootIdentityPrefix}${context.postId}`) throw galleryError('BATCH_POST_CHANGED');
     };
     assertCurrent();
-    const count = gallerySize(carousel);
-    if (count < 2) throw batchError('BATCH_INCOMPLETE');
-    if (count > maxGalleryItems) throw batchError('BATCH_TOO_LARGE');
+    assertNotCancelled(signal);
+    const inventory = createGalleryInventory(() => slotInventory(carousel), {
+      roots: [carousel], documentContext, attributes: [spec.slotAttribute],
+      relevant: record => record.type === 'attributes' || [...record.addedNodes, ...record.removedNodes].some(node =>
+        node.matches?.(spec.slotSelector) || node.querySelector?.(spec.slotSelector)),
+    });
+    const currentSize = () => Math.max(position(carousel)?.total ?? 0, inventory.current().size);
+    const count = currentSize();
+    if (!Number.isSafeInteger(count) || count < 2) {
+      inventory.disconnect();
+      throw galleryError('BATCH_INCOMPLETE');
+    }
     const originalPage = position(carousel)?.page ?? null;
-    const duration = Number.isFinite(timeoutMs) ? Math.max(0, Math.min(15000, timeoutMs)) : 15000;
-    const options = { assertCurrent, deadline: Date.now() + duration, waitFor };
-    const items = [];
+    const collection = createCollection({ onItem, onProgress, assertCurrent: () => {
+      assertCurrent();
+      if (currentSize() !== count) throw galleryError('BATCH_INCOMPLETE');
+    }, signal });
+    const options = { assertCurrent: collection.assertUsable, signal, waitFor, documentContext,
+      timeoutMs: Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : navigationTimeoutMs };
     let navigated = false;
     let failure;
     try {
+      await collection.progress('collecting', count);
       for (let page = 1; page <= count; page += 1) {
-        assertUsable(options);
-        let item = readPage(carousel, page, locationContext);
+        collection.assertUsable();
+        let item = readPage(carousel, page, locationContext, inventory.current().slots);
         if (item === null) {
-          if (originalPage === null) throw batchError('BATCH_INCOMPLETE');
+          if (originalPage === null) throw galleryError('BATCH_INCOMPLETE');
           navigated = true;
           await moveToPage(carousel, page, options);
-          assertUsable(options);
-          await waitFor(() => {
-            assertUsable(options);
-            item = readPage(carousel, page, locationContext);
+          const loaded = await waitFor(() => {
+            collection.assertUsable();
+            item = readPage(carousel, page, locationContext, inventory.current().slots);
             return item !== null;
-          }, remaining(options));
-          assertUsable(options);
+          }, options.timeoutMs, waitOptions(carousel, options));
+          collection.assertUsable();
+          if (!loaded) throw galleryError('BATCH_INCOMPLETE');
         }
-        if (item === null) throw batchError('BATCH_INCOMPLETE');
-        items.push(item);
+        await collection.emit(item);
       }
-      assertUsable(options);
-      if (gallerySize(carousel) !== count) throw batchError('BATCH_INCOMPLETE');
+      collection.assertUsable();
+      await collection.progress('collecting', collection.collected);
     } catch (error) { failure = error; }
     if (navigated) {
       try {
         assertCurrent();
-        await moveToPage(carousel, originalPage, { ...options, deadline: Date.now() + 2500 });
+        // Cancellation may restore the original selection only while the same
+        // page/provider is active. Restoration has a fresh budget per step.
+        await onProgress?.({ phase: 'restoring', collected: collection.collected, total: failure ? count : collection.collected });
+        assertCurrent();
+        await moveToPage(carousel, originalPage, { ...options, signal: undefined, assertCurrent });
       } catch (error) { failure ??= error; }
     }
+    inventory.disconnect();
     if (failure) throw failure;
-    assertCurrent();
-    const seen = new Set();
-    return items.filter(item => {
-      const url = new URL(item.asset.source);
-      const key = `${url.origin}${url.pathname}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    collection.assertUsable();
+    return collection.result();
   }
-  function readPage(carousel, page, locationContext) {
-    const slot = findAttribute(carousel, spec.slotSelector, spec.slotAttribute, `${spec.slotPrefix}${page}`);
+  function readPage(carousel, page, locationContext, slots) {
+    const slot = slots.get(page);
     if (!slot) return null;
-    if (slot.querySelector(spec.unsupportedSelector)) throw batchError('BATCH_UNSUPPORTED_MEDIA');
+    if (slot.querySelector(spec.unsupportedSelector)) throw galleryError('BATCH_UNSUPPORTED_MEDIA');
     const image = slot.querySelector(spec.imageSelector);
     if (!image) return null;
     const target = galleryMedia(image, spec, locationContext);
@@ -87,14 +98,21 @@ export function createSlotGallery(profile) {
       referrerUrl: referrer.href, source: new URL(locationContext.href).hostname };
   }
   function gallerySize(carousel) {
-    let size = position(carousel)?.total ?? 0;
+    return Math.max(position(carousel)?.total ?? 0, slotInventory(carousel).size);
+  }
+  function slotInventory(carousel) {
+    let size = 0;
+    const slots = new Map();
     for (const slot of carousel.querySelectorAll(spec.slotSelector)) {
       const value = slot.getAttribute(spec.slotAttribute);
       const suffix = value?.startsWith(spec.slotPrefix) ? value.slice(spec.slotPrefix.length) : '';
-      if (/^\d+$/.test(suffix)) size = Math.max(size, Number(suffix));
-      if (size > maxGalleryItems) return size;
+      if (/^\d+$/.test(suffix)) {
+        const index = Number(suffix);
+        size = Math.max(size, index);
+        slots.set(index, slot);
+      }
     }
-    return size;
+    return { size, slots };
   }
   function position(carousel) {
     const label = carousel.shadowRoot?.querySelector(spec.positionSelector)?.getAttribute(spec.positionAttribute);
@@ -104,40 +122,35 @@ export function createSlotGallery(profile) {
     return Number.isSafeInteger(page) && Number.isSafeInteger(total) && page >= 1 && total >= page ? { page, total } : null;
   }
   async function moveToPage(carousel, target, options) {
-    for (let attempt = 0; attempt < maxGalleryItems; attempt += 1) {
-      assertUsable(options);
+    options.assertCurrent();
+    const start = position(carousel)?.page;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(target)) throw galleryError('BATCH_INCOMPLETE');
+    const steps = Math.abs(start - target);
+    for (let attempt = 0; attempt < steps; attempt += 1) {
+      options.assertCurrent();
       const before = position(carousel)?.page ?? null;
       if (before === target) return;
-      if (before === null) break;
+      if (before === null) throw galleryError('BATCH_INCOMPLETE');
       const direction = before < target ? spec.nextLabel : spec.previousLabel;
       const button = findAttribute(carousel.shadowRoot, spec.navigationSelector, 'aria-label', direction);
-      if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') break;
-      assertUsable(options);
+      if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') throw galleryError('BATCH_INCOMPLETE');
+      options.assertCurrent();
       button.click();
       const changed = await options.waitFor(() => {
-        assertUsable(options);
+        options.assertCurrent();
         return position(carousel)?.page !== before;
-      }, remaining(options));
-      assertUsable(options);
-      if (!changed) break;
+      }, options.timeoutMs, waitOptions(carousel, options));
+      options.assertCurrent();
+      const after = position(carousel)?.page;
+      if (!changed || after !== before + (direction === spec.nextLabel ? 1 : -1)) throw galleryError('BATCH_INCOMPLETE');
     }
-    throw batchError('BATCH_INCOMPLETE');
+    if (position(carousel)?.page !== target) throw galleryError('BATCH_INCOMPLETE');
   }
   return { resolve, collect };
 }
 function findAttribute(root, selector, attribute, value) {
   return [...(root?.querySelectorAll?.(selector) ?? [])].find(element => element.getAttribute(attribute) === value) ?? null;
 }
-function assertUsable(options) {
-  options.assertCurrent();
-  if (Date.now() >= options.deadline) throw batchError('BATCH_INCOMPLETE');
-}
-function remaining(options) { return Math.max(0, Math.min(2500, options.deadline - Date.now())); }
-async function waitUntil(predicate, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  do {
-    if (predicate()) return true;
-    await new Promise(resolve => globalThis.setTimeout(resolve, Math.min(50, Math.max(0, deadline - Date.now()))));
-  } while (Date.now() < deadline);
-  return false;
+function waitOptions(carousel, options) {
+  return { roots: [carousel, carousel.shadowRoot], documentContext: options.documentContext, signal: options.signal };
 }

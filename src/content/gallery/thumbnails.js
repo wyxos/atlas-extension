@@ -1,96 +1,129 @@
 import { galleryMedia } from './media.js';
 import { samePage } from './page-scope.js';
+import { assertNotCancelled, createCollection, createGalleryInventory, galleryError, mediaIdentity, waitForGalleryCondition } from './collection.js';
 
-const maxGalleryItems = 50;
-const batchTimeoutMs = 60000;
 const navigationTimeoutMs = 30000;
 const restoreTimeoutMs = 2500;
 const noOp = () => {};
-const batchError = code => Object.assign(new Error(code), { code, retryable: true });
 
-// Desktop describes a page; all bounded browser mechanics ship in the extension.
+// Desktop describes a page; the extension owns shared browser mechanics.
 export function createThumbnailGallery(profile) {
   const spec = profile.gallery;
-  function assertPage(location, assertActive = noOp) {
+  function assertPage(location, assertActive = noOp, scope) {
     assertActive();
-    if (!samePage(location?.href, profile.url)) throw batchError('BATCH_POST_CHANGED');
+    if (!samePage(location?.href, profile.url) || scope?.root?.isConnected === false
+      || scope?.container?.isConnected === false) throw galleryError('BATCH_POST_CHANGED');
   }
-  function assertUsable(options) {
-    assertPage(options.locationContext, options.assertActive);
-    if (Date.now() >= options.deadline) throw batchError('BATCH_INCOMPLETE');
-  }
-  function resolve({ documentContext = globalThis.document, locationContext = globalThis.location } = {}) {
+  function resolve({ element, documentContext = globalThis.document, locationContext = globalThis.location } = {}) {
     if (!samePage(locationContext?.href, profile.url)) return null;
-    if (findThumbnailButtons(documentContext).length < 2
-      && !findNavigationButton(documentContext, spec.previousLabel)
-      && !findNavigationButton(documentContext, spec.nextLabel)) return null;
-    return { available: true, provider: profile.provider };
+    const scope = bindScope(documentContext, element);
+    if (!scope) return null;
+    if (findThumbnailButtons(scope).length < 2
+      && !findNavigationButton(scope.root, spec.previousLabel)
+      && !findNavigationButton(scope.root, spec.nextLabel)) return null;
+    return { available: true, provider: profile.provider, ...scope };
   }
   async function collect({
-    documentContext = globalThis.document, locationContext = globalThis.location,
-    maxItems = maxGalleryItems, waitForChange = waitForChangeDefault,
-    assertActive = noOp, timeoutMs = batchTimeoutMs,
+    context, element, documentContext = globalThis.document, locationContext = globalThis.location,
+    waitForChange = waitForChangeDefault, assertActive = noOp, timeoutMs = navigationTimeoutMs,
+    signal, onItem, onProgress,
   } = {}) {
-    const limit = Number.isFinite(maxItems) ? Math.max(1, Math.min(maxGalleryItems, Math.floor(maxItems))) : maxGalleryItems;
-    const duration = Number.isFinite(timeoutMs) ? Math.max(0, Math.min(batchTimeoutMs, timeoutMs)) : batchTimeoutMs;
-    const originalIndex = fileIndex(locationContext?.href);
-    const options = { documentContext, locationContext, maxItems: limit, waitForChange, assertActive,
-      deadline: Date.now() + duration, currentIndex: originalIndex, navigated: false };
-    assertUsable(options);
-    const buttons = findThumbnailButtons(documentContext);
-    if (buttons.length > limit) throw batchError('BATCH_TOO_LARGE');
-    const items = new Map();
+    assertPage(locationContext, assertActive);
+    assertNotCancelled(signal);
+    const scope = context?.root ? context : bindScope(documentContext, element);
+    if (!scope) throw galleryError('BATCH_INCOMPLETE');
+    const assertCurrent = () => assertPage(locationContext, assertActive, scope);
+    const collection = createCollection({ onItem, onProgress, assertCurrent, signal });
+    const originalSource = readCurrent({ documentContext, locationContext, scope, assertActive })?.asset.source;
+    if (!originalSource) throw galleryError('BATCH_INCOMPLETE');
+    const buttons = findThumbnailButtons(scope);
+    const originalIndex = selectedIndex(buttons) ?? fileIndex(locationContext?.href);
+    const options = { documentContext, locationContext, scope, waitForChange, assertCurrent, signal,
+      timeoutMs: Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : navigationTimeoutMs,
+      currentIndex: originalIndex, navigated: false };
+    let visualState = new WeakMap();
+    const inventory = buttons.length > 1 ? createGalleryInventory(() => {
+      visualState = new WeakMap();
+      return findThumbnailButtons(scope, visualState);
+    }, { roots: [scope.container], documentContext, attributes: ['src', 'srcset', 'class', 'style', 'hidden'],
+      relevant: record => record.type !== 'attributes' || ['src', 'srcset', 'hidden'].includes(record.attributeName)
+        || visualState.get(record.target) !== visible(record.target) }) : null;
+    let restoreTarget = originalIndex;
     let failure;
     try {
+      await collection.progress('collecting', buttons.length > 1 ? buttons.length : null);
       if (buttons.length > 1) {
+        const keys = buttons.map(entry => entry.key);
+        let validatedInventory = buttons;
         for (let index = 0; index < buttons.length; index += 1) {
-          await selectThumbnail(index + 1, options);
-          capture(items, index + 1, options);
-        }
-        assertUsable(options);
-        if (findThumbnailButtons(documentContext).length !== buttons.length) throw batchError('BATCH_INCOMPLETE');
-      } else {
-        capture(items, options.currentIndex, options);
-        for (const direction of [spec.previousLabel, spec.nextLabel]) {
-          let steps = 0;
-          while (await navigate(direction, options)) {
-            steps += 1;
-            capture(items, options.currentIndex, options);
-            if (steps >= limit) {
-              assertUsable(options);
-              if (findNavigationButton(documentContext, direction)) throw batchError('BATCH_TOO_LARGE');
-              break;
-            }
+          await selectThumbnail(index + 1, options, buttons);
+          const current = inventory.current();
+          // The observer keeps the same array until relevant mutations occur.
+          // Validate a refreshed inventory once, not every key on every item.
+          if (current !== validatedInventory) {
+            if (current.length !== keys.length || current.some((entry, position) => entry.key !== keys[position])) throw galleryError('BATCH_INCOMPLETE');
+            validatedInventory = current;
           }
+          const item = readCurrent({ ...options, fileIndex: index + 1 });
+          if (item?.asset.source === originalSource) restoreTarget = index + 1;
+          await collection.emit(item);
         }
+      } else {
+        // Rewind without emitting so a start in the middle produces stable
+        // first-to-last item identities for segmented submission and retry.
+        const rewindSeen = new Set([mediaIdentity(snapshot(options))]);
+        let rewindSteps = 0;
+        while (await navigate(spec.previousLabel, options)) {
+          rewindSteps += 1;
+          const source = mediaIdentity(snapshot(options));
+          if (rewindSeen.has(source)) throw galleryError('BATCH_INCOMPLETE');
+          rewindSeen.add(source);
+        }
+        restoreTarget = rewindSteps + 1;
+        options.currentIndex = 1;
+        const seen = new Set();
+        do {
+          collection.assertUsable();
+          const rawSource = snapshot(options);
+          const source = rawSource ? mediaIdentity(rawSource) : null;
+          if (!source || seen.has(source)) throw galleryError('BATCH_INCOMPLETE');
+          seen.add(source);
+          await collection.emit(readCurrent({ ...options, fileIndex: options.currentIndex }));
+        } while (await navigate(spec.nextLabel, options));
       }
-      assertUsable(options);
+      await collection.progress('collecting', collection.collected);
     } catch (error) { failure = error; }
-    // Restore only the same active document. A cleanup error cannot replace the
-    // reason collection failed; successful collection still requires restoration.
+    // An AbortSignal cancels collection but not safe cleanup on the same page.
+    // Provider/page invalidation prevents every restoration click and callback.
     if (options.navigated) {
       try {
-        assertPage(locationContext, assertActive);
-        const restoration = { ...options, deadline: Date.now() + restoreTimeoutMs };
-        if (buttons.length > 1) await selectThumbnail(originalIndex, restoration);
-        else await restoreIndex(originalIndex, restoration);
+        assertCurrent();
+        await onProgress?.({ phase: 'restoring', collected: collection.collected,
+          total: failure ? (buttons.length > 1 ? buttons.length : null) : collection.collected });
+        assertCurrent();
+        const restoration = { ...options, signal: undefined, timeoutMs: restoreTimeoutMs };
+        if (buttons.length > 1) await selectThumbnail(restoreTarget, restoration, buttons);
+        else await restoreIndex(restoreTarget, restoration);
+        assertCurrent();
+        if (snapshot(restoration) !== originalSource) throw galleryError('BATCH_INCOMPLETE');
       } catch (error) { failure ??= error; }
     }
+    inventory?.disconnect();
     if (failure) throw failure;
-    assertPage(locationContext, assertActive);
-    return [...items.values()].sort((left, right) => fileIndex(left.referrerUrl) - fileIndex(right.referrerUrl));
-  }
-  function capture(items, index, options) {
-    assertUsable(options);
-    const item = readCurrent({ ...options, fileIndex: index });
-    if (!item) throw batchError('BATCH_INCOMPLETE');
-    items.set(item.referrerUrl, item);
-    if (items.size > options.maxItems) throw batchError('BATCH_TOO_LARGE');
+    collection.assertUsable();
+    return collection.result();
   }
   function readCurrent({ documentContext = globalThis.document, locationContext = globalThis.location,
-    fileIndex: index = fileIndex(locationContext?.href), assertActive = noOp } = {}) {
-    assertPage(locationContext, assertActive);
-    const image = findMainImage(documentContext);
+    scope, fileIndex: index = fileIndex(locationContext?.href), assertActive = noOp } = {}) {
+    assertPage(locationContext, assertActive, scope);
+    // Thumbnail providers often declare imageSelector="img". Reuse the bound
+    // main node while valid instead of scanning every thumbnail per capture.
+    const bound = scope?.main;
+    const image = bound && bound.isConnected === true && visible(bound)
+      && (!scope.container || !contains(scope.container, bound))
+      && galleryMedia(bound, spec, new URL(locationContext.href)) ? bound
+      : findMainImage(scope?.root ?? documentContext, scope?.container);
+    if (scope) scope.main = image;
     const media = galleryMedia(image, spec, new URL(locationContext.href));
     if (!media) return null;
     return {
@@ -105,102 +138,152 @@ export function createThumbnailGallery(profile) {
     url.searchParams.set(spec.indexParameter, String(Math.max(1, Number(index) || 1)));
     return url.href;
   }
-  async function selectThumbnail(target, options) {
+  function assertUsable(options) { options.assertCurrent(); assertNotCancelled(options.signal); }
+  async function selectThumbnail(target, options, buttons) {
     assertUsable(options);
     if (options.currentIndex === target) return;
     const before = snapshot(options);
-    const button = findThumbnailButtons(options.documentContext)[target - 1];
-    if (!button) throw batchError('BATCH_INCOMPLETE');
+    const entry = buttons[target - 1];
+    if (!entry || entry.button.isConnected === false) throw galleryError('BATCH_INCOMPLETE');
     assertUsable(options);
     options.navigated = true;
-    activate(button);
+    activate(entry.button);
     options.currentIndex = target;
     await waitForChanged(before, options);
   }
   async function navigate(direction, options) {
     assertUsable(options);
-    const button = findNavigationButton(options.documentContext, direction);
+    const button = findNavigationButton(options.scope.root, direction);
     if (!button) return false;
     const before = snapshot(options);
-    const beforeUrl = options.locationContext?.href;
     assertUsable(options);
     options.navigated = true;
     activate(button);
-    options.currentIndex = options.locationContext?.href !== beforeUrl
-      ? fileIndex(options.locationContext?.href)
-      : Math.max(1, options.currentIndex + (direction === spec.nextLabel ? 1 : -1));
+    options.currentIndex = Math.max(1, options.currentIndex + (direction === spec.nextLabel ? 1 : -1));
     await waitForChanged(before, options);
     return true;
   }
   async function restoreIndex(target, options) {
-    for (let step = 0; step < maxGalleryItems && options.currentIndex !== target; step += 1) {
-      if (!await navigate(options.currentIndex > target ? spec.previousLabel : spec.nextLabel, options)) break;
+    const steps = Math.abs(options.currentIndex - target);
+    const seen = new Set([mediaIdentity(snapshot(options))]);
+    for (let step = 0; step < steps; step += 1) {
+      if (!await navigate(options.currentIndex > target ? spec.previousLabel : spec.nextLabel, options)) throw galleryError('BATCH_INCOMPLETE');
+      const source = mediaIdentity(snapshot(options));
+      if (seen.has(source)) throw galleryError('BATCH_INCOMPLETE');
+      seen.add(source);
     }
-    if (options.currentIndex !== target) throw batchError('BATCH_INCOMPLETE');
+    if (options.currentIndex !== target) throw galleryError('BATCH_INCOMPLETE');
   }
   async function waitForChanged(before, options) {
     assertUsable(options);
     const changed = await options.waitForChange({ before, documentContext: options.documentContext,
-      locationContext: options.locationContext, assertActive: () => assertUsable(options),
-      timeoutMs: Math.min(navigationTimeoutMs, Math.max(0, options.deadline - Date.now())) });
+      locationContext: options.locationContext, scope: options.scope,
+      assertActive: () => assertUsable(options), timeoutMs: options.timeoutMs, signal: options.signal });
     assertUsable(options);
-    if (!changed) throw batchError('BATCH_INCOMPLETE');
+    if (!changed || !snapshot(options) || snapshot(options) === before) throw galleryError('BATCH_INCOMPLETE');
   }
-  async function waitForChangeDefault({ before, documentContext, locationContext, assertActive,
-    timeoutMs = navigationTimeoutMs, pollMs = 50 }) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
+  function waitForChangeDefault({ before, documentContext, locationContext, scope, assertActive,
+    timeoutMs = navigationTimeoutMs, signal }) {
+    return waitForGalleryCondition(() => {
       assertActive();
-      await new Promise(resolve => globalThis.setTimeout(resolve, Math.min(pollMs, deadline - Date.now())));
-      assertActive();
-      const source = snapshot({ documentContext, locationContext, assertActive }); if (source && source !== before) return true;
-    }
-    return false;
+      const source = snapshot({ documentContext, locationContext, scope, assertActive });
+      return Boolean(source && source !== before);
+    }, timeoutMs, { roots: [scope.root], documentContext, signal });
   }
   function snapshot(options) { return readCurrent(options)?.asset?.source ?? ''; }
   function fileIndex(rawUrl) {
-    try { const index = Number(new URL(rawUrl).searchParams.get(spec.indexParameter)); return Number.isInteger(index) && index > 0 ? index : 1; }
+    try { const index = Number(new URL(rawUrl).searchParams.get(spec.indexParameter)); return Number.isSafeInteger(index) && index > 0 ? index : 1; }
     catch { return 1; }
   }
-  function findNavigationButton(documentContext, label) {
-    return queryAll(documentContext, spec.navigationSelector).find(element =>
+  function findNavigationButton(root, label) {
+    return queryAll(root, spec.navigationSelector).find(element =>
       element?.disabled !== true && element?.getAttribute?.('aria-disabled') !== 'true'
       && element?.getAttribute?.('aria-label') === label && visible(element)) ?? null;
   }
-  function findThumbnailButtons(documentContext) {
-    const seen = new Set();
-    const buttons = [];
+  function thumbnailGroups(documentContext, visualState) {
+    const groups = new Map();
     for (const image of queryAll(documentContext, spec.thumbnailSelector)) {
       const button = image?.closest?.(spec.thumbnailButtonSelector);
       const container = image?.closest?.(spec.thumbnailContainerSelector);
-      if (!button || seen.has(button) || !visible(button) || !visible(image)
-        || !galleryMedia(image, spec, new URL(profile.url))
-        || !String(container?.textContent ?? '').toLowerCase().includes(spec.thumbnailContainerText.toLowerCase())) continue;
-      seen.add(button);
-      buttons.push(button);
-      if (buttons.length > maxGalleryItems) break;
+      if (visualState) for (let node = image; node; node = node.parentElement) {
+        visualState.set(node, visible(node));
+        if (node === container) break;
+      }
+      if (visualState && button) visualState.set(button, visible(button));
+      const media = galleryMedia(image, spec, new URL(profile.url));
+      if (!button || !container || !visible(button) || !visible(image) || !media
+        || !String(container.textContent ?? '').toLowerCase().includes(String(spec.thumbnailContainerText ?? '').toLowerCase())) continue;
+      const entries = groups.get(container) ?? [];
+      entries.push({ button, key: mediaIdentity(media.source) });
+      groups.set(container, entries);
     }
-    return buttons;
+    return groups;
   }
-  function findMainImage(documentContext) {
-    const images = spec.imageSelector === 'img' ? documentContext?.images ?? queryAll(documentContext, spec.imageSelector) : queryAll(documentContext, spec.imageSelector);
+  function findThumbnailButtons(scope, visualState) {
+    if (!scope.container) return [];
+    const entries = thumbnailGroups(scope.root, visualState).get(scope.container) ?? [];
+    const seenButtons = new Set();
+    const seenItems = new Set();
+    return entries.filter(entry => {
+      if (seenButtons.has(entry.button) || seenItems.has(entry.key)) return false;
+      seenButtons.add(entry.button); seenItems.add(entry.key); return true;
+    });
+  }
+  function bindScope(documentContext, element) {
+    const groups = thumbnailGroups(documentContext);
+    const main = element ?? findMainImage(documentContext);
+    if (element && (!visible(element) || !galleryMedia(element, spec, new URL(profile.url)))) return null;
+    const explicitRoot = spec.rootSelector ? main?.closest?.(spec.rootSelector) : null;
+    if (spec.rootSelector && !explicitRoot) return null;
+    if (explicitRoot) {
+      const containers = [...groups.keys()].filter(container => contains(explicitRoot, container));
+      if (containers.length > 1) return null;
+      if (element && findMainImage(explicitRoot, containers[0]) !== element) return null;
+      return { root: explicitRoot, container: containers[0] ?? null, main };
+    }
+    for (let root = main?.parentElement; root && root !== documentContext.documentElement; root = root.parentElement) {
+      const containers = [...groups.keys()].filter(container => contains(root, container));
+      if (containers.length > 1) return null;
+      if (containers.length === 1 || (groups.size === 0
+        && (findNavigationButton(root, spec.previousLabel) || findNavigationButton(root, spec.nextLabel)))) {
+        if (element && findMainImage(root, containers[0]) !== element) return null;
+        return { root, container: containers[0] ?? null, main };
+      }
+    }
+    // Legacy profiles need no root selector, but multiple matching containers
+    // are ambiguous. Never combine them into a document-wide gallery.
+    if (groups.size > 1) return null;
+    if (element && findMainImage(documentContext, [...groups.keys()][0]) !== element) return null;
+    return { root: documentContext, container: [...groups.keys()][0] ?? null, main };
+  }
+  function findMainImage(root, container) {
+    const images = spec.imageSelector === 'img' ? root?.images ?? queryAll(root, spec.imageSelector) : queryAll(root, spec.imageSelector);
     let selected = null;
     for (const image of images) {
-      if (visible(image) && galleryMedia(image, spec, new URL(profile.url))
+      if ((!container || !contains(container, image)) && visible(image) && galleryMedia(image, spec, new URL(profile.url))
         && (selected === null || area(image) > area(selected))) selected = image;
     }
     return selected;
   }
   return { resolve, collect, readCurrent, referrer };
 }
-function queryAll(root, selector) { return [...(root?.querySelectorAll?.(selector) ?? [])]; }
+function queryAll(root, selector) { return selector ? [...(root?.querySelectorAll?.(selector) ?? [])] : []; }
+function contains(root, element) {
+  if (root === element || root?.contains?.(element)) return true;
+  for (let parent = element?.parentElement; parent; parent = parent.parentElement) if (parent === root) return true;
+  return false;
+}
+function selectedIndex(buttons) {
+  const index = buttons.findIndex(({ button }) => ['aria-selected', 'aria-pressed'].some(attribute => button.getAttribute?.(attribute) === 'true')
+    || ['true', 'page'].includes(button.getAttribute?.('aria-current')));
+  return index >= 0 ? index + 1 : null;
+}
 function area(element) { const rect = element?.getBoundingClientRect?.(); return Number(rect?.width ?? 0) * Number(rect?.height ?? 0); }
-function visible(element) { const rect = element?.getBoundingClientRect?.(); return Number(rect?.width ?? 0) > 0 && Number(rect?.height ?? 0) > 0; }
+function visible(element) { return area(element) > 0; }
 function activate(element) {
   if (typeof element?.click === 'function') { element.click(); return; }
   const click = element?.ownerDocument?.defaultView?.HTMLElement?.prototype?.click ?? globalThis.HTMLElement?.prototype?.click;
-  if (typeof click !== 'function') throw batchError('BATCH_INCOMPLETE');
+  if (typeof click !== 'function') throw galleryError('BATCH_INCOMPLETE');
   click.call(element);
 }
-
 function naturalResolution(image) { const width = Number(image?.naturalWidth ?? 0); const height = Number(image?.naturalHeight ?? 0); return width > 0 && height > 0 ? `${width}x${height}` : null; }

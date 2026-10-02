@@ -58,13 +58,13 @@ test('deduplicates repeated media only after validating all slots', async () => 
   await assert.rejects(collectRedditBatchItems({ context: fixture.context, locationContext, waitFor: immediateWait }), { code: 'BATCH_INCOMPLETE' });
 });
 
-test('rejects detached posts, changed routes, oversized galleries and unsupported media', async () => {
+test('collects oversized galleries and rejects detached posts, changed routes and unsupported media', async () => {
   const fixture = gallery();
   fixture.carousel.isConnected = false;
   await assert.rejects(collectRedditBatchItems({ context: fixture.context, locationContext }), { code: 'BATCH_POST_CHANGED' });
   fixture.carousel.isConnected = true;
   await assert.rejects(collectRedditBatchItems({ context: fixture.context, locationContext: new URL('https://reddit.com/comments/other/') }), { code: 'BATCH_POST_CHANGED' });
-  await assert.rejects(collectRedditBatchItems({ context: gallery({ count: 51 }).context, locationContext }), { code: 'BATCH_TOO_LARGE' });
+  assert.equal((await collectRedditBatchItems({ context: gallery({ count: 51 }).context, locationContext })).length, 51);
   fixture.slots.get(2).video = true;
   await assert.rejects(collectRedditBatchItems({ context: fixture.context, locationContext }), { code: 'BATCH_UNSUPPORTED_MEDIA' });
 });
@@ -83,7 +83,11 @@ test('enabled Reddit batch sends one ordered batch request; disabled sends only 
   const originalChrome = globalThis.chrome;
   t.after(() => { if (originalChrome === undefined) delete globalThis.chrome; else globalThis.chrome = originalChrome; });
   globalThis.chrome = { runtime: {
-    sendMessage(message, callback) { messages.push(message); callback({ ok: true, payload: { items: [] } }); },
+    sendMessage(message, callback) {
+      if (message.type === 'atlas-extension.gallery-segment-acknowledged') { callback({ ok: true, payload: {} }); return; }
+      messages.push(message);
+      callback({ ok: true, payload: { items: (message.items ?? []).map(item => ({ asset_url: item.asset.source })) } });
+    },
   } };
   const options = {
     asset: { source: mediaUrl(2), type: 'image' }, batchContext: fixture.context,
@@ -99,7 +103,7 @@ test('enabled Reddit batch sends one ordered batch request; disabled sends only 
   fixture.slots.get(2).video = true;
   await assert.rejects(postAssetOrBatchReaction(options), { code: 'BATCH_UNSUPPORTED_MEDIA' });
   assert.equal(messages.length, 2);
-  assert.match(reactionFailureFromError({ code: 'BATCH_INCOMPLETE' }).message, /Nothing was queued/);
+  assert.match(reactionFailureFromError({ code: 'BATCH_INCOMPLETE' }).message, /Already queued items remain saved/);
 });
 
 test('Reddit After queue closes only after the complete batch response, and stays open on rejection', async (t) => {
@@ -115,6 +119,7 @@ test('Reddit After queue closes only after the complete batch response, and stay
   let submitted;
   globalThis.chrome = { runtime: {
     sendMessage(message, callback) {
+      if (message.type === 'atlas-extension.gallery-segment-acknowledged') { callback({ ok: true, payload: {} }); return; }
       assert.equal(message.type, 'atlas-extension.asset-reaction-batch');
       assert.deepEqual(message.items.map((item) => item.asset.source), [1, 2, 3].map(mediaUrl));
       acknowledge = callback;

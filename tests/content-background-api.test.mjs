@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  acknowledgeGallerySegmentViaBackground,
   deleteAtlasFileViaBackground,
   armDownloadCloseIntentViaBackground,
   fetchAssetStatusesViaBackground,
@@ -146,6 +147,31 @@ test('posts batch asset reactions through the background worker', async () => {
     type: 'atlas-extension.asset-reaction-batch',
   }]);
   assert.equal(payload.items.length, 2);
+});
+
+test('forwards a stable batch chunk identity on retries and keeps different chunks separate', async () => {
+  const messages = [];
+  const runtime = { sendMessage(message, callback) {
+    messages.push(message);
+    callback({ ok: true, payload: { items: [] } });
+  } };
+  for (const idempotencyKey of ['operation:0', 'operation:0', 'operation:1']) {
+    await postAssetReactionBatchViaBackground({ items: [], reactionType: 'like', idempotencyKey, runtime });
+  }
+  assert.deepEqual(messages.map((message) => message.idempotencyKey), ['operation:0', 'operation:0', 'operation:1']);
+});
+
+test('acknowledges accepted segments and carries a previous lost acknowledgement on the next chunk', async () => {
+  const messages = [];
+  const runtime = { sendMessage(message, callback) {
+    messages.push(message);
+    callback({ ok: true, payload: { acknowledged: true } });
+  } };
+  await acknowledgeGallerySegmentViaBackground({ idempotencyKey: 'gallery:0', runtime });
+  await postAssetReactionBatchViaBackground({ idempotencyKey: 'gallery:1', acknowledgedIdempotencyKey: 'gallery:0', items: [], runtime });
+  assert.deepEqual(messages[0], { type: 'atlas-extension.gallery-segment-acknowledged', idempotencyKey: 'gallery:0' });
+  assert.equal(messages[1].idempotencyKey, 'gallery:1');
+  assert.equal(messages[1].acknowledgedIdempotencyKey, 'gallery:0');
 });
 
 test('deletes Atlas files through the background worker', async () => {

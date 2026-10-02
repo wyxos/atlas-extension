@@ -3,6 +3,7 @@ import test from 'node:test';
 import { createThumbnailGallery } from '../src/content/gallery/thumbnails.js';
 import { createSlotGallery } from '../src/content/gallery/slots.js';
 import { galleryMedia } from '../src/content/gallery/media.js';
+import { waitForGalleryCondition } from '../src/content/gallery/collection.js';
 
 const pageUrl = 'https://gallery.example.test/view/sample?track=value#section';
 const thumbSpec = { kind:'thumbnails', imageSelector:'.original', navigationSelector:'button,[role="button"]',
@@ -19,50 +20,69 @@ function image(src, extra = {}) {
     getAttribute(name) { return name === 'src' ? this.src : name === 'srcset' ? this.srcset ?? null : null; },
     querySelector:()=>null, closest:()=>null, ...extra };
 }
-function thumbnailFixture({ count=3, start=1, mode='thumbnails', onClick=()=>{}, spec={} } = {}) {
+function thumbnailFixture({ count=3, start=1, mode='thumbnails', onClick=()=>{}, spec={}, unrelated=0, duplicates=0 } = {}) {
   let selected=start;
   const clicks=[];
   const gallerySpec={...thumbSpec,...spec};
-  const location={href:pageUrl};
+  const location={href:`${pageUrl.split('?')[0]}?slide=${start}`};
   const images=Array.from({length:count},(_,i)=>image(`https://media.example.test/${i+1}.jpg`));
   const button=(target,label='')=>({click(){ selected=target; clicks.push(target); onClick(target); },
     getAttribute:name=>name==='aria-label'?label:null,getBoundingClientRect:rect});
   const buttons=images.map((_,i)=>button(i+1));
+  const container={textContent:'Pictures'};
+  const unrelatedContainer={textContent:'Pictures'};
   const thumbnails=images.map((_,i)=>image(`https://media.example.test/thumb-${i+1}.jpg`,{
-    closest:selector=>selector===gallerySpec.thumbnailButtonSelector?buttons[i]:selector===gallerySpec.thumbnailContainerSelector?{textContent:'Pictures'}:null,
+    parentElement:container,
+    closest:selector=>selector===gallerySpec.thumbnailButtonSelector?buttons[i]:selector===gallerySpec.thumbnailContainerSelector?container:null,
   }));
+  for(let index=0;index<duplicates;index++) thumbnails.push(image(`https://media.example.test/thumb-${index%count+1}.jpg`,{
+    parentElement:container,
+    closest:selector=>selector===gallerySpec.thumbnailButtonSelector?button(index%count+1):selector===gallerySpec.thumbnailContainerSelector?container:null,
+  }));
+  const extra=Array.from({length:unrelated},(_,i)=>image(`https://media.example.test/unrelated-${i}.jpg`,{
+    parentElement:unrelatedContainer,
+    closest:selector=>selector===gallerySpec.thumbnailButtonSelector?button(999):selector===gallerySpec.thumbnailContainerSelector?unrelatedContainer:null,
+  }));
+  const root={isConnected:true,querySelectorAll(selector){
+    if(selector===gallerySpec.imageSelector)return [images[selected-1]];
+    if(selector===gallerySpec.thumbnailSelector)return mode==='thumbnails'?thumbnails:[];
+    if(selector===gallerySpec.navigationSelector)return [selected>1?button(selected-1,gallerySpec.previousLabel):null,selected<count?button(selected+1,gallerySpec.nextLabel):null].filter(Boolean);
+    return [];
+  }};
+  container.parentElement=root;
+  images.forEach(value=>{value.parentElement=root;});
   const document={
-    images:[image('https://unrelated.example.test/banner.jpg')],
+    get images(){return [images[selected-1],image('https://unrelated.example.test/banner.jpg')];},
     querySelectorAll(selector){
       if(selector===gallerySpec.imageSelector)return [images[selected-1]];
-      if(selector===gallerySpec.thumbnailSelector)return mode==='thumbnails'?thumbnails:[];
-      if(selector===gallerySpec.navigationSelector)return [selected>1?button(selected-1,gallerySpec.previousLabel):null,selected<count?button(selected+1,gallerySpec.nextLabel):null].filter(Boolean);
-      return [];
+      if(selector===gallerySpec.thumbnailSelector)return mode==='thumbnails'?[...thumbnails,...extra]:[];
+      return root.querySelectorAll(selector);
     },
   };
   const profile={provider:'sampleprovider',url:pageUrl,gallery:gallerySpec};
-  return {profile,documentContext:document,locationContext:location,images,clicks,current:()=>selected,waitForChange:async()=>true};
+  return {profile,documentContext:document,locationContext:location,images,root,container,thumbnails,clicks,current:()=>selected,waitForChange:async()=>true};
 }
-function slotFixture({missing=[],onClick=()=>{}}={}) {
-  let selected=1;
+function slotFixture({missing=[],onClick=()=>{},count=3,start=1}={}) {
+  let selected=start;
   const clicks=[];
-  const images=[1,2,3].map(n=>image(`http://media.example.test/${n}.jpg`));
-  const available=new Set([1,2,3].filter(n=>!missing.includes(n)));
+  const indices=Array.from({length:count},(_,index)=>index+1);
+  const images=indices.map(n=>image(`http://media.example.test/${n}.jpg`));
+  const available=new Set(indices.filter(n=>!missing.includes(n)));
   const buttons=[['Earlier "image"',-1],['Later "image"',1]].map(([label,step])=>({
-    getAttribute:name=>name==='aria-label'?label:name==='aria-disabled'?String(selected+step<1||selected+step>3):null,
+    getAttribute:name=>name==='aria-label'?label:name==='aria-disabled'?String(selected+step<1||selected+step>count):null,
     click(){selected+=step;clicks.push(selected);available.add(selected);onClick(selected);},
   }));
-  const slots=[1,2,3].map(n=>({getAttribute:()=>`image-"${n}`,
+  const slots=indices.map(n=>({getAttribute:()=>`image-"${n}`,
     querySelector:selector=>selector===slotSpec.imageSelector&&available.has(n)?images[n-1]:null}));
   const carousel={isConnected:true,getAttribute:()=> 'entry-sample',querySelectorAll:selector=>{
     assert.equal(selector,slotSpec.slotSelector);return slots;
   },shadowRoot:{
-    querySelector:selector=>{assert.equal(selector,slotSpec.positionSelector);return {getAttribute:()=>`${selected} of 3`};},
+    querySelector:selector=>{assert.equal(selector,slotSpec.positionSelector);return {getAttribute:()=>`${selected} of ${count}`};},
     querySelectorAll:selector=>{assert.equal(selector,slotSpec.navigationSelector);return [
       {getAttribute:()=> 'Unrelated',click(){throw Error('wrong control');}},...buttons];},
   }};
   const profile={provider:'sampleprovider',url:pageUrl,galleryKey:'sample',gallery:slotSpec};
-  return {profile,context:{carousel,postId:'sample'},locationContext:new URL(pageUrl),clicks,current:()=>selected};
+  return {profile,context:{carousel,postId:'sample'},locationContext:new URL(pageUrl),images,clicks,current:()=>selected};
 }
 
 test('unknown thumbnail provider obeys selector, source mode, host scope and clean referrer',()=>{
@@ -81,6 +101,17 @@ test('optional media hosts allow HTTP(S); explicit hosts require HTTPS and exact
   assert.equal(galleryMedia(image('https://media.example.test.evil.test/a.jpg'),{sourceMode:'src',mediaHosts:['media.example.test']},new URL(pageUrl)),null);
 });
 
+test('unknown provider query IDs keep distinct thumbnail, navigation and slot media',async()=>{
+  for(const kind of ['thumbnails','navigation','slots']){
+    const fixture=kind==='slots'?slotFixture():thumbnailFixture({mode:kind});
+    fixture.images.forEach((value,index)=>{value.src=`https://media.example.test/image?id=${index+1}`;});
+    fixture.thumbnails?.forEach((value,index)=>{value.src=`https://media.example.test/thumb?id=${index+1}`;});
+    const collector=kind==='slots'?createSlotGallery(fixture.profile):createThumbnailGallery(fixture.profile);
+    const items=await collector.collect(fixture);
+    assert.deepEqual(items.map(item=>item.asset.source),[1,2,3].map(id=>`https://media.example.test/image?id=${id}`));
+  }
+});
+
 test('unknown slot provider handles compound selectors and quoted labels without interpolated selectors',async()=>{
   const fixture=slotFixture({missing:[2,3]});
   const items=await createSlotGallery(fixture.profile).collect({...fixture,waitFor:async predicate=>predicate()});
@@ -89,14 +120,74 @@ test('unknown slot provider handles compound selectors and quoted labels without
   assert.equal(fixture.current(),1);
 });
 
-test('oversized thumbnail and navigation galleries never return partial batches',async()=>{
-  const thumbnails=thumbnailFixture({count:51});
-  await assert.rejects(createThumbnailGallery(thumbnails.profile).collect(thumbnails),{code:'BATCH_TOO_LARGE'});
-  assert.deepEqual(thumbnails.clicks,[]);
-  const navigation=thumbnailFixture({count:51,mode:'navigation'});
-  await assert.rejects(createThumbnailGallery(navigation.profile).collect(navigation),{code:'BATCH_TOO_LARGE'});
-  assert.equal(navigation.current(),1);
-  assert.equal(navigation.clicks.length,100);
+test('51 and 200 item thumbnail and navigation galleries stream in order and restore their middle selection',async()=>{
+  for(const count of [51,200])for(const mode of ['thumbnails','navigation']){
+    const fixture=thumbnailFixture({count,start:30,mode});
+    const streamed=[];
+    const progress=[];
+    const items=await createThumbnailGallery(fixture.profile).collect({...fixture,
+      onItem:async item=>{streamed.push(item);await Promise.resolve();},onProgress:update=>progress.push(update)});
+    assert.deepEqual(items,[],'streaming avoids retaining a duplicate item array');
+    assert.equal(streamed.length,count);
+    assert.deepEqual(streamed.map(item=>Number(new URL(item.referrerUrl).searchParams.get('slide'))),Array.from({length:count},(_,index)=>index+1));
+    assert.equal(fixture.current(),30);
+    assert.ok(progress.some(update=>update.phase==='restoring'));
+    assert.equal(progress.at(-1).collected,count);
+    assert.equal(progress.at(-1).total,count);
+  }
+});
+
+test('thumbnail collection scopes 30 images away from 60 unrelated and duplicate controls',async()=>{
+  const fixture=thumbnailFixture({count:30,unrelated:60,duplicates:40});
+  const collector=createThumbnailGallery(fixture.profile);
+  const context=collector.resolve({...fixture,element:fixture.images[0]});
+  assert.equal(context.root,fixture.root);
+  assert.equal(context.container,fixture.container);
+  const items=await collector.collect({...fixture,context});
+  assert.equal(items.length,30);
+  assert.ok(!fixture.clicks.includes(999));
+});
+
+test('ambiguous thumbnail containers fail without clicking or emitting',async()=>{
+  const fixture=thumbnailFixture({unrelated:4});
+  fixture.images.forEach(value=>{value.parentElement=null;});
+  const collector=createThumbnailGallery(fixture.profile);
+  assert.equal(collector.resolve({...fixture,element:fixture.images[0]}),null);
+  await assert.rejects(collector.collect(fixture),{code:'BATCH_INCOMPLETE'});
+  assert.deepEqual(fixture.clicks,[]);
+});
+
+test('unrelated clicked media does not inherit the page gallery',()=>{
+  const fixture=thumbnailFixture();
+  const unrelated=image('https://media.example.test/sidebar.jpg');
+  assert.equal(createThumbnailGallery(fixture.profile).resolve({...fixture,element:unrelated}),null);
+});
+
+test('gallery waits observe DOM/media events and clean observers after success and cancellation',async()=>{
+  let changed=false;let callback;let disconnected=0;
+  const root=new globalThis.EventTarget();
+  const documentContext={defaultView:{MutationObserver:class {
+    constructor(check){callback=check;}
+    observe(target,options){assert.equal(target,root);assert.equal(options.subtree,true);}
+    disconnect(){disconnected++;}
+  }}};
+  const pending=waitForGalleryCondition(()=>changed,100,{roots:[root],documentContext});
+  changed=true;callback();
+  assert.equal(await pending,true);
+  assert.equal(disconnected,1);
+  changed=false;
+  const abort=new globalThis.AbortController();
+  const cancelled=waitForGalleryCondition(()=>changed,100,{roots:[root],documentContext,signal:abort.signal});
+  abort.abort();
+  await assert.rejects(cancelled,{code:'BATCH_CANCELLED'});
+  assert.equal(disconnected,2);
+  const eventWait=waitForGalleryCondition(()=>changed,100,{roots:[root],documentContext:{}});
+  changed=true;root.dispatchEvent(new globalThis.Event('load'));
+  assert.equal(await eventWait,true);
+});
+
+test('a single stalled gallery wait fails within its budget',async()=>{
+  assert.equal(await waitForGalleryCondition(()=>false,1),false);
 });
 
 test('thumbnail context cancellation after a wait stops clicks and skips restoration',async()=>{
@@ -119,12 +210,58 @@ test('thumbnail restoration failure preserves the collection error',async()=>{
   assert.deepEqual(fixture.clicks,[2,1]);
 });
 
-test('thumbnail collection has one total deadline and a separate short restoration budget',async t=>{
+test('thumbnail collection gives each navigation a fresh stall budget even past the old total deadline',async t=>{
   let now=0;const allowances=[];t.mock.method(Date,'now',()=>now);
   const fixture=thumbnailFixture({count:4});
-  await assert.rejects(createThumbnailGallery(fixture.profile).collect({...fixture,waitForChange:async({timeoutMs})=>{allowances.push(timeoutMs);now+=31000;return true;}}),{code:'BATCH_INCOMPLETE'});
-  assert.deepEqual(allowances,[30000,29000,2500]);
-  assert.deepEqual(fixture.clicks,[2,3,1]);
+  const items=await createThumbnailGallery(fixture.profile).collect({...fixture,waitForChange:async({timeoutMs})=>{allowances.push(timeoutMs);now+=31000;return true;}});
+  assert.equal(items.length,4);
+  assert.deepEqual(allowances,[30000,30000,30000,2500]);
+  assert.deepEqual(fixture.clicks,[2,3,4,1]);
+});
+
+test('200 slot items stream with bounded navigation and progress past the old deadline',async t=>{
+  let now=0;t.mock.method(Date,'now',()=>now);
+  const fixture=slotFixture({count:200,start:70,missing:Array.from({length:200},(_,index)=>index+1)});
+  const streamed=[];const progress=[];const allowances=[];
+  const items=await createSlotGallery(fixture.profile).collect({...fixture,onItem:async item=>streamed.push(item),
+    onProgress:update=>progress.push(update),waitFor:async(predicate,timeout)=>{allowances.push(timeout);now+=3000;return predicate();}});
+  assert.deepEqual(items,[]);
+  assert.equal(streamed.length,200);
+  assert.equal(fixture.current(),70);
+  assert.ok(allowances.every(value=>value===2500));
+  assert.equal(progress[0].total,200);
+  assert.deepEqual(progress.at(-1),{phase:'restoring',collected:200,total:200});
+});
+
+test('AbortSignal cancellation restores the original thumbnail and slot selection without further item callbacks',async()=>{
+  for(const kind of ['thumbnail','slot']){
+    const abort=new globalThis.AbortController();const streamed=[];const progress=[];
+    const fixture=kind==='thumbnail'?thumbnailFixture({count:10,start:5}):slotFixture({count:10,start:5,missing:[1,2,3,4,6,7,8,9,10]});
+    const collector=kind==='thumbnail'?createThumbnailGallery(fixture.profile):createSlotGallery(fixture.profile);
+    await assert.rejects(collector.collect({...fixture,signal:abort.signal,waitFor:async predicate=>predicate(),
+      onItem:async item=>streamed.push(item),onProgress:update=>{
+        progress.push(update);if(update.phase==='collecting'&&update.collected===2)abort.abort();
+      }}),{code:'BATCH_CANCELLED'});
+    assert.equal(streamed.length,2);
+    assert.equal(fixture.current(),5);
+    assert.equal(progress.at(-1).phase,'restoring');
+  }
+});
+
+test('navigation loops fail and restore instead of emitting an endless or partial success',async()=>{
+  const fixture=thumbnailFixture({mode:'navigation',count:3,onClick:target=>{
+    if(target===3)fixture.images[2].src=fixture.images[0].src;
+  }});
+  await assert.rejects(createThumbnailGallery(fixture.profile).collect(fixture),{code:'BATCH_INCOMPLETE'});
+  assert.equal(fixture.current(),1);
+});
+
+test('changed thumbnail item sets fail before emitting a changed-gallery item',async()=>{
+  const fixture=thumbnailFixture({onClick:target=>{if(target===2)fixture.thumbnails.pop();}});
+  const streamed=[];
+  await assert.rejects(createThumbnailGallery(fixture.profile).collect({...fixture,onItem:async item=>streamed.push(item)}),{code:'BATCH_INCOMPLETE'});
+  assert.equal(streamed.length,1);
+  assert.equal(fixture.current(),1);
 });
 
 test('slot context cancellation is checked after injected waits and skips restoration',async()=>{

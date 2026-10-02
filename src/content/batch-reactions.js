@@ -1,7 +1,7 @@
-import { collectAssetBatchItems } from './batch-providers/index.js';
+import { createGalleryReactionOperation } from './gallery-reaction-operation.js';
 import { captureProviderIdentity } from './provider-identities.js';
 import {
-  postAssetReactionBatchViaBackground,
+  acknowledgeGallerySegmentViaBackground,
   postAssetReactionViaBackground,
 } from './background-api.js';
 
@@ -35,22 +35,17 @@ export async function postAssetOrBatchReaction({
   locationContext,
   previewOnly,
   useBrowserDownload,
+  onProgress,
+  onAccepted,
+  onOperation,
 }) {
-  if (currentState.batch?.checked === true && batchContext !== undefined) {
-    const items = await collectAssetBatchItems(batchContext, {
-      documentContext,
-      locationContext,
+  if (currentState.batch?.checked === true && batchContext != null) {
+    const operation = createGalleryReactionOperation({ asset, batchContext, documentContext, locationContext,
+      downloadAction, event, previewOnly, useBrowserDownload }, {
+      acknowledge: previewOnly === true ? undefined : acknowledgeGallerySegmentViaBackground,
     });
-
-    if (items.length > 0) {
-      return postAssetReactionBatchViaBackground({
-        downloadAction,
-        items,
-        reactionType: event.type,
-        ...(previewOnly === true ? { previewOnly: true } : {}),
-    ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
-      });
-    }
+    onOperation?.(operation);
+    return operation.run({ onProgress, onAccepted });
   }
 
   return postAssetReactionViaBackground({

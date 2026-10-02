@@ -18,6 +18,8 @@ import AssetSheetPreview from "./AssetSheetPreview.vue";
 import AssetRequestInfo from "./AssetRequestInfo.vue";
 
 const props = defineProps({
+  collectionActive: { type: Boolean, default: false },
+  cancelInspection: { type: Function, default: null },
   inspectReaction: { type: Function, default: null },
   badges: {
     type: Array,
@@ -38,6 +40,10 @@ let originalDocumentOverflow = null;
 
 const uniqueAssets = computed(() => {
   return listReactionSheetAssets(props.badges);
+});
+
+watch(() => props.collectionActive, (active) => {
+  if (active && isOpen.value) closeSheet();
 });
 
 const assetTypes = {
@@ -159,6 +165,7 @@ function sourceLabel(asset) {
   <button
     v-if="uniqueAssets.length > 0"
     ref="triggerButton"
+    :disabled="collectionActive"
     type="button"
     class="atlas-asset-sheet-trigger"
     aria-haspopup="dialog"
@@ -208,13 +215,13 @@ function sourceLabel(asset) {
           <div class="atlas-asset-sheet-list">
             <article
               v-for="asset in uniqueAssets"
-              :key="asset.source"
+              :key="asset.id"
               class="atlas-asset-sheet-item"
               @click="handleCardShortcut($event, asset)"
               @contextmenu="handleCardShortcut($event, asset)"
               @mousedown="handleCardShortcut($event, asset)"
             >
-              <AssetSheetPreview :asset="asset" />
+              <AssetSheetPreview :key="asset.source" :asset="asset" />
               <div class="atlas-asset-sheet-item-meta">
                 <span class="atlas-asset-sheet-kind">
                   <component
@@ -263,7 +270,7 @@ function sourceLabel(asset) {
                   />
                 </button>
               </div>
-              <AssetRequestInfo v-if="inspectReaction" :asset="asset" :inspect-reaction="inspectReaction" />
+              <AssetRequestInfo v-if="inspectReaction" :asset="asset" :cancel-inspection="cancelInspection" :inspect-reaction="inspectReaction" />
             </article>
           </div>
         </section>

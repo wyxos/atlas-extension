@@ -1,8 +1,8 @@
 import { createBrowserReferrers, createCoalescedDownloadRelay } from './browser-referrers.js';
 import {
+  createBatchReactionPoster,
   deleteAtlasFile,
   fetchAssetStatuses,
-  postAssetReactionBatch,
   postAssetReaction,
   reactionPreviewTransport,
 } from './desktop-api.js';
@@ -41,9 +41,11 @@ const performanceDiagnostics = createPerformanceDiagnosticStore();
 const browserPages = createBrowserReferrers(body => desktopRuntime.resolveBrowserPages(body), () => contentInterests);
 const contentInterests = createContentInterestRegistry({ canonicalProviderPage: browserPages.canonical });
 const downloadEvents = createDownloadEventState();
+const postPreparedReactionBatch = createBatchReactionPoster();
 const downloadRelays = createCoalescedDownloadRelay({ deliver: relayTargetedDownloadEvent });
 const closeTabIntents = createCloseTabIntentManager({
   onMetric: (metric) => performanceDiagnostics.record(metric),
+  resolveAssetStatuses: async (assetUrls) => fetchAssetStatuses({ assetUrls, ...await desktopRuntime.requestContext() }),
 });
 const eventProbes = createEventProbeRunner({
   queryActiveTab: async () => (await queryTabs({ active: true, currentWindow: true }))[0],
@@ -132,6 +134,11 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     return true;
   }
 
+  if (message?.type === 'atlas-extension.gallery-segment-acknowledged') {
+    if (sender?.tab?.id !== undefined) postPreparedReactionBatch.acknowledge({ tabId: sender.tab.id, idempotencyKey: message.idempotencyKey });
+    sendResponse({ ok: true, payload: { acknowledged: true } });
+    return false;
+  }
   if (message?.type === 'atlas-extension.desktop.test-event-path') {
     void eventProbes.testActiveTab()
       .then((payload) => sendResponse({ ok: true, payload }))
@@ -192,7 +199,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     return false;
   }
 
-  void handleAtlasApiMessage(withReactionPageContext(message, sender))
+  void handleAtlasApiMessage(withReactionPageContext(message, sender), sender?.tab?.id)
     .then((payload) => sendResponse({ ok: true, payload }))
     .catch((error) => sendResponse({
       error: serializeDesktopError(error),
@@ -222,13 +229,12 @@ globalThis.chrome?.runtime?.onInstalled?.addListener?.((details) => {
   void handleExtensionReloadUpdate({ details });
 });
 
-async function handleAtlasApiMessage(message) {
+async function handleAtlasApiMessage(message, tabId) {
   const preview = message.previewOnly === true
     && ['atlas-extension.asset-reaction', 'atlas-extension.asset-reaction-batch'].includes(message.type);
   const { credentials, transport } = preview
     ? { transport: reactionPreviewTransport }
     : await desktopRuntime.requestContext();
-
   if (message.type === 'atlas-extension.asset-statuses') {
     return fetchAssetStatuses({
       assetUrls: message.assetUrls,
@@ -246,33 +252,35 @@ async function handleAtlasApiMessage(message) {
       transport,
     });
   }
-
-  const preferences = await loadAssetSourcePreferences();
-  const payload = message.type === 'atlas-extension.asset-reaction-batch'
-    ? await postAssetReactionBatch({
-      preferences,
+  if (message.type === 'atlas-extension.asset-reaction-batch') {
+    return postPreparedReactionBatch({
       credentials,
       downloadAction: message.downloadAction,
+      ...(message.idempotencyKey === undefined ? {} : { idempotencyKey: message.idempotencyKey }),
+      ...(message.acknowledgedIdempotencyKey === undefined ? {} : { acknowledgedIdempotencyKey: message.acknowledgedIdempotencyKey }),
       items: message.items,
       reactionType: message.reactionType,
       useBrowserDownload: message.useBrowserDownload,
-      runtimeContext: await collectReactionRuntimeContext(message),
-      transport,
-    })
-    : await postAssetReaction({
-      preferences,
-      asset: message.asset,
-      credentials,
-      downloadAction: message.downloadAction,
-      reactionType: message.reactionType,
-      useBrowserDownload: message.useBrowserDownload,
-      referrerUrl: message.referrerUrl,
-      runtimeContext: await collectReactionRuntimeContext(message),
-      source: message.source,
+      tabId, previewOnly: preview,
+      prepareContext: async () => ({
+        preferences: await loadAssetSourcePreferences(),
+        runtimeContext: await collectReactionRuntimeContext(message),
+      }),
       transport,
     });
-
-  return payload;
+  }
+  return postAssetReaction({
+    preferences: await loadAssetSourcePreferences(),
+    asset: message.asset,
+    credentials,
+    downloadAction: message.downloadAction,
+    reactionType: message.reactionType,
+    useBrowserDownload: message.useBrowserDownload,
+    referrerUrl: message.referrerUrl,
+    runtimeContext: await collectReactionRuntimeContext(message),
+    source: message.source,
+    transport,
+  });
 }
 
 function isAtlasApiMessage(message) {
@@ -340,7 +348,7 @@ function sendTabMessage(tabId, message) {
 }
 
 function relayDesktopResyncRequired() {
-  downloadRelays.clear(); browserPages.clear();
+  downloadRelays.clear(); browserPages.clear(); closeTabIntents.reconcile();
   void contentInterests.ready.then(() => Promise.all(
     contentInterests.snapshot().map(({ tabId }) => deliverTargetedResync(tabId)),
   ));
@@ -393,6 +401,7 @@ function bindOpenTabTracking() {
     const previousWindowId = openTabs.getWindowId(tabId);
 
     closeTabIntents.removeTab(tabId);
+    postPreparedReactionBatch.removeTab(tabId);
     void contentInterests.ready.then(() => contentInterests.remove(tabId));
     broadcastOpenTabCountChanges(openTabs.removeTab(tabId));
     broadcastTabCounterChanges([previousWindowId]);

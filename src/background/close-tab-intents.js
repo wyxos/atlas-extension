@@ -3,6 +3,7 @@ import { closeTabModes, normalizeCloseTabMode, normalizeSiteDomain } from '../sh
 export function createCloseTabIntentManager({
   clock = () => globalThis.performance?.now?.() ?? Date.now(),
   onMetric = () => {},
+  resolveAssetStatuses = null,
   tabsApi = globalThis.chrome?.tabs,
 } = {}) {
   const intentsByTabId = new Map();
@@ -38,13 +39,20 @@ export function createCloseTabIntentManager({
       };
     }
 
-    intentsByTabId.set(normalizedTabId, {
+    const intent = {
+      reconciling: typeof resolveAssetStatuses === 'function',
       pendingAssets: new Map(trackedAssetUrls.map((assetUrl) => [assetUrl, {
         attempt: null,
         generation: null,
         transferId: null,
       }])),
-    });
+    };
+    intentsByTabId.set(normalizedTabId, intent);
+    if (intent.reconciling) {
+      // Earlier chunks may finish before the gallery is fully queued. Listen
+      // immediately, then reconcile only these assets in bounded local requests.
+      void reconcileIntent(normalizedTabId, intent, trackedAssetUrls);
+    }
 
     return {
       armed: true,
@@ -63,32 +71,56 @@ export function createCloseTabIntentManager({
     }
 
     for (const [tabId, intent] of intentsByTabId.entries()) {
-      const tracked = intent.pendingAssets.get(assetUrl);
-      if (!tracked || isStaleTransferEvent(tracked, payload.download)) {
-        continue;
+      applyDownloadState(tabId, intent, assetUrl, payload.download);
+    }
+  }
+
+  function applyDownloadState(tabId, intent, assetUrl, download) {
+    const tracked = intent.pendingAssets.get(assetUrl);
+    if (!tracked || isStaleTransferEvent(tracked, download)) return;
+    updateTrackedTransfer(tracked, download);
+    if (download.status === 'canceled' || isTerminalFailure(download)) {
+      intentsByTabId.delete(tabId);
+      return;
+    }
+    if (download.status === 'completed') intent.pendingAssets.delete(assetUrl);
+    completeIntentIfReady(tabId, intent);
+  }
+
+  function completeIntentIfReady(tabId, intent) {
+    if (intent.reconciling || intent.pendingAssets.size > 0 || intentsByTabId.get(tabId) !== intent) return;
+    intentsByTabId.delete(tabId);
+    void closeTab(tabId, 'downloads-completed');
+  }
+
+  async function reconcileIntent(tabId, intent, assetUrls) {
+    try {
+      for (let offset = 0; offset < assetUrls.length; offset += 300) {
+        if (intentsByTabId.get(tabId) !== intent) return;
+        const batch = assetUrls.slice(offset, offset + 300);
+        const payload = await resolveAssetStatuses(batch);
+        if (intentsByTabId.get(tabId) !== intent) return;
+        for (const assetUrl of batch) {
+          const download = payload?.assets?.[assetUrl]?.download;
+          if (typeof download?.status === 'string') applyDownloadState(tabId, intent, assetUrl, download);
+          if (intentsByTabId.get(tabId) !== intent) return;
+        }
       }
+    } catch {
+      // Unknown status keeps the tab open; subsequent events can still finish
+      // known transfers. Reconciliation never adds polling or claims completion.
+    } finally {
+      intent.reconciling = false;
+      completeIntentIfReady(tabId, intent);
+    }
+  }
 
-      updateTrackedTransfer(tracked, payload.download);
-
-      if (status === 'canceled' || isTerminalFailure(payload.download)) {
-        intentsByTabId.delete(tabId);
-        continue;
-      }
-
-      if (status === 'failed') {
-        continue;
-      }
-
-      if (status !== 'completed') {
-        continue;
-      }
-
-      intent.pendingAssets.delete(assetUrl);
-
-      if (intent.pendingAssets.size === 0) {
-        intentsByTabId.delete(tabId);
-        void closeTab(tabId, 'downloads-completed');
-      }
+  function reconcile() {
+    if (typeof resolveAssetStatuses !== 'function') return;
+    for (const [tabId, intent] of intentsByTabId) {
+      if (intent.reconciling) continue;
+      intent.reconciling = true;
+      void reconcileIntent(tabId, intent, [...intent.pendingAssets.keys()]);
     }
   }
 
@@ -162,6 +194,7 @@ export function createCloseTabIntentManager({
   return {
     armCloseIntent,
     handleDownloadEvent,
+    reconcile,
     removeTab,
   };
 }

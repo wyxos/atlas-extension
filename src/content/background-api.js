@@ -78,7 +78,9 @@ export function postAssetReactionViaBackground({
 }
 
 export function postAssetReactionBatchViaBackground({
+  acknowledgedIdempotencyKey,
   downloadAction,
+  idempotencyKey,
   previewOnly,
   items,
   reactionType,
@@ -88,12 +90,22 @@ export function postAssetReactionBatchViaBackground({
 }) {
   return sendBackgroundRequest({
     downloadAction,
+    ...(acknowledgedIdempotencyKey === undefined ? {} : { acknowledgedIdempotencyKey }),
+    ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
     items,
     reactionType,
     ...(useBrowserDownload === true ? { useBrowserDownload: true } : {}),
     type: 'atlas-extension.asset-reaction-batch',
     ...(previewOnly === true ? { previewOnly: true } : {}),
   }, { runtime, timeoutMs });
+}
+
+export function acknowledgeGallerySegmentViaBackground({
+  idempotencyKey,
+  runtime = globalThis.chrome?.runtime,
+  timeoutMs = defaultTimeoutMs,
+}) {
+  return sendBackgroundRequest({ type: 'atlas-extension.gallery-segment-acknowledged', idempotencyKey }, { runtime, timeoutMs });
 }
 
 export function deleteAtlasFileViaBackground({

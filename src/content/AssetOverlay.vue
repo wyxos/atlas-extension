@@ -6,6 +6,8 @@ import ReferrerAssetBadge from "./ReferrerAssetBadge.vue";
 import ReferrerOpenDialog from "./ReferrerOpenDialog.vue";
 
 defineProps({
+  collectionActive: { type: Boolean, default: false },
+  cancelInspection: { type: Function, default: null },
   errorMessage: { type: String, default: null },
   inspectReaction: { type: Function, default: null },
   badges: {
@@ -91,6 +93,8 @@ defineEmits(["dismiss-error", "batch-toggle", "close-mode-change", "confirm", "d
     @resolve="$emit('reaction-confirm', $event)"
   />
   <AssetSheet
+    :collection-active="collectionActive"
+    :cancel-inspection="cancelInspection"
     :inspect-reaction="inspectReaction"
     :badges="badges"
     :portal-target="portalTarget"

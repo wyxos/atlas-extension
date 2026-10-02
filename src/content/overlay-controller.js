@@ -1,6 +1,7 @@
 import { createApp, h, reactive } from 'vue';
 
 import AssetOverlay from './AssetOverlay.vue';
+import { createCollectionProgress } from './collection-progress.js';
 import { createOverlayStyles } from './overlay-styles.js';
 import { upsertBadgeEntry } from './overlay-state.js';
 
@@ -10,6 +11,7 @@ export function createAssetOverlay(shadowRoot, options = {}) {
     confirmRequest: null,
     reactionRequest: null,
     errorMessage: null,
+    collectionActive: false,
   });
   const mountElement = document.createElement('div');
   const dialogMountElement = document.createElement('div');
@@ -20,6 +22,8 @@ export function createAssetOverlay(shadowRoot, options = {}) {
     setup() {
       return () => h(AssetOverlay, {
         badges: state.badges,
+        collectionActive: state.collectionActive,
+        cancelInspection: options.cancelInspection,
         inspectReaction: options.inspectReaction,
         confirmRequest: state.confirmRequest,
         onBatchToggle: options.onBatchToggle,
@@ -42,6 +46,11 @@ export function createAssetOverlay(shadowRoot, options = {}) {
   dialogMountElement.id = 'atlas-extension-dialog-root';
   shadowRoot.append(createOverlayStyles(), mountElement, dialogMountElement);
   app.mount(mountElement);
+  const collectionProgress = createCollectionProgress(shadowRoot, {
+    onCancel: options.onCollectionCancel,
+    onDismiss: options.onCollectionDismiss,
+    onRetry: options.onCollectionRetry,
+  });
 
   function resolveConfirmRequest(confirmed) {
     const resolve = pendingConfirmResolve;
@@ -60,6 +69,14 @@ export function createAssetOverlay(shadowRoot, options = {}) {
   }
 
   return {
+    showCollectionProgress(progress) {
+      state.collectionActive = ['collecting', 'queueing', 'restoring'].includes(progress.phase);
+      collectionProgress.show(progress);
+    },
+    clearCollectionProgress() {
+      state.collectionActive = false;
+      collectionProgress.clear();
+    },
     showError(message) {
       state.errorMessage = message;
     },

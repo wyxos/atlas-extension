@@ -10,6 +10,8 @@ import { findAssetShortcutFallback } from './asset-shortcut-target.js';
 import { shouldApplyAssetResponse, stateForSyncedAsset, stateWithoutAtlasAssetStatus } from './asset-state.js';
 import { applyBatchReactionPayload, postAssetOrBatchReaction, stateWithBatchContext } from './batch-reactions.js';
 import { resolveAssetBatchContext } from './batch-providers/index.js';
+import { createGalleryReactionRuntime } from './gallery-reaction-runtime.js';
+import { createReactionInspector } from './reaction-inspection.js';
 import { createAssetBadgePresentation } from './asset-badge-presentation.js';
 import { listAssetElements, watchAssetReadiness } from './asset-scanner.js';
 import { createBadgeFileActions } from './badge-file-actions.js';
@@ -22,7 +24,7 @@ import { createOverlayRoot } from './overlay-host.js';
 import { createReferrerBadgeManager } from './referrer-badges.js';
 import { createReferrerOpenGuard } from './referrer-open-guard.js';
 import { resolveDownloadActionForReaction } from './reaction-download-action.js';
-import { applyAcceptedReactionPayload, reactionFailureFromError, safePostReactionError } from './reaction-failure-state.js';
+import { reactionFailureFromError, safePostReactionError } from './reaction-failure-state.js';
 import { resolveStateFileId } from './state-file-id.js';
 import { createStatusCheckQueue } from './status-checks.js';
 import { startContentRuntime } from './content-runtime.js';
@@ -112,6 +114,20 @@ const contentInterests = createContentInterestReporter({
   }),
   onResyncRequired: handleResyncRequired,
 });
+const galleryRuntime = createGalleryReactionRuntime({
+  getOverlay: getOverlayController,
+  updateBadgeState,
+  applyAccepted: (accepted) => applyBatchReactionPayload(accepted, {
+    markAssetSourceChecked: (source, state) => statusChecks.markAssetSourceChecked(source, state),
+    updateBadgeStateBySource: (source, state) => updateBadgeStateBySource(source, {
+      ...state, reactionFailure: null, isBusy: false, submittingReaction: null,
+    }),
+  }),
+  closeAfterReaction: (payload, reactionType) => armCloseTabForReaction(payload, {
+    loadModeForSiteDomain: closeTabMode.loadModeForReaction,
+    locationContext: window.location, reactionType,
+  }),
+});
 const badgeFileActions = createBadgeFileActions({
   assetsById, badgeStatesById, deleteFile: deleteAtlasFileViaBackground,
   forgetAssetSource: statusChecks.forgetAssetSource,
@@ -127,22 +143,18 @@ function getOverlayController() {
   }
   const overlayRoot = createOverlayRoot(document, overlayHostId);
   overlayController = createAssetOverlay(overlayRoot, {
+    onCollectionCancel: galleryRuntime.cancel,
+    onCollectionRetry: galleryRuntime.retry,
+    onCollectionDismiss: galleryRuntime.dismiss,
     onBatchToggle: handleBadgeBatchToggle,
     onCloseModeChange: handleBadgeCloseModeChange,
     onDelete: badgeFileActions.handleDelete,
     onOpenFile: badgeFileActions.handleOpenFile,
     onPlacementChange: widgetPlacement.change,
     onReact: handleBadgeReaction,
-    inspectReaction: async ({ id, type, downloadAction, useBrowserDownload }) => {
-      const asset = assetsById.get(id);
-      if (!asset) throw new Error('This asset is no longer available.');
-      return postAssetOrBatchReaction({
-        asset, batchContext: batchContextsById.get(id), currentState: badgeStatesById.get(id) ?? {},
-        documentContext: document, downloadAction, event: { type },
-        locationContext: window.location,
-        previewOnly: true, useBrowserDownload,
-      });
-    },
+    cancelInspection: galleryRuntime.cancelInspection,
+    inspectReaction: createReactionInspector({ assetsById, batchContextsById, badgeStatesById, runtime: galleryRuntime,
+      documentContext: document, locationContext: window.location }),
   });
   return overlayController;
 }
@@ -280,7 +292,10 @@ function mergeOpenReferrerCounts(referrerUrls, counts) {
   mergeReferrerCounts(openReferrerCounts, referrerUrls, counts);
   referrerBadges.updateOpenCounts(openReferrerCounts);
 }
-async function handleBadgeReaction(event) {
+function handleBadgeReaction(event) {
+  return galleryRuntime.react(() => performBadgeReaction(event));
+}
+async function performBadgeReaction(event) {
   const asset = assetsById.get(event.id);
   const currentState = badgeStatesById.get(event.id) ?? {};
   if (asset === undefined || currentState.isBusy === true || currentState.isDeleting === true) {
@@ -300,6 +315,13 @@ async function handleBadgeReaction(event) {
     });
     return;
   }
+  const batchContext = batchContextsById.get(event.id);
+  if (currentState.batch?.checked === true && batchContext) {
+    await galleryRuntime.start({ id: event.id, asset, batchContext, documentContext: document,
+      locationContext: window.location, downloadAction, event });
+    performanceDiagnostics.finish('reaction-latency', reactionStartedAt, { reactionType: event.type });
+    return;
+  }
   updateBadgeState(event.id, {
     isBusy: true,
     submittingReaction: event.type,
@@ -317,7 +339,7 @@ async function handleBadgeReaction(event) {
         }
       },
       submit: (useBrowserDownload) => postAssetOrBatchReaction({
-        asset, batchContext: batchContextsById.get(event.id), currentState,
+        asset, batchContext, currentState,
         documentContext: document, downloadAction, event, locationContext: window.location, useBrowserDownload,
       }),
     });
@@ -341,26 +363,13 @@ async function handleBadgeReaction(event) {
     return;
   }
   try {
-    applyAcceptedReactionPayload(payload, {
-      applyBatch: (batchPayload) => applyBatchReactionPayload(batchPayload, {
-        markAssetSourceChecked: (source, state) => statusChecks.markAssetSourceChecked(source, state),
-        updateBadgeStateBySource: (source, state) => updateBadgeStateBySource(source, { ...state, reactionFailure: null, isBusy: false, submittingReaction: null }),
-      }),
-      applySingle: (singlePayload) => {
-        statusChecks.markAssetSourceChecked(asset.source, singlePayload);
-        if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
-          updateBadgeState(event.id, {
-            ...singlePayload, isBusy: false, reactionFailure: null, submittingReaction: null,
-          });
-        }
-      },
-    });
-    getOverlayController().clearError(reactionNotice);
-    if (Array.isArray(payload.items)) {
-      if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
-        updateBadgeState(event.id, { isBusy: false, reactionFailure: null, submittingReaction: null });
-      }
+    statusChecks.markAssetSourceChecked(asset.source, payload);
+    if (shouldApplyAssetResponse(asset, assetsById.get(event.id))) {
+      updateBadgeState(event.id, {
+        ...payload, isBusy: false, reactionFailure: null, submittingReaction: null,
+      });
     }
+    getOverlayController().clearError(reactionNotice);
     const closeIntent = await armCloseTabForReaction(payload, {
       loadModeForSiteDomain: closeTabMode.loadModeForReaction,
       locationContext: window.location, reactionType: event.type,

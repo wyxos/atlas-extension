@@ -2,6 +2,7 @@ import { getOverlayDialogStyles } from './overlay-dialog-styles.js';
 import { getAssetSheetStyles } from './asset-sheet-styles.js';
 import { getOverlayDragStyles } from './overlay-drag-styles.js';
 import { getOverlayNoticeStyles } from './overlay-notice-styles.js';
+import { getCollectionProgressStyles } from './collection-progress-styles.js';
 
 const badgeAttribute = 'data-atlas-asset-badge';
 
@@ -40,6 +41,8 @@ export function getOverlayStyles() {
     ${getOverlayDragStyles()}
 
     ${getOverlayNoticeStyles()}
+
+    ${getCollectionProgressStyles()}
 
     .atlas-static-meta {
       align-items: center;

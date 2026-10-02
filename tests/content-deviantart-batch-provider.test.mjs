@@ -18,13 +18,13 @@ test('detects DeviantArt batch context from deviation navigation controls', () =
     },
   };
 
-  assert.deepEqual(resolveDeviantArtBatchContext({
+  const context = resolveDeviantArtBatchContext({
     documentContext,
     locationContext: new URL('https://www.deviantart.com/artist/art/title-123'),
-  }), {
-    available: true,
-    provider: 'deviantart',
   });
+  assert.equal(context.available, true);
+  assert.equal(context.provider, 'deviantart');
+  assert.equal(context.root, documentContext);
   assert.equal(resolveDeviantArtBatchContext({
     documentContext,
     locationContext: new URL('https://example.test/artist/art/title-123'),
@@ -183,13 +183,11 @@ test('collects DeviantArt batch items from thumbnails when navigation skips file
   const thumbnailButtons = [1, 2, 3].map((fileIndex) => createButton('', () => {
     currentFile = fileIndex;
   }));
+  const section = { tagName: 'SECTION', textContent: 'All Images' };
   const thumbnails = [1, 2, 3].map((fileIndex, index) => createImage({
     button: thumbnailButtons[index],
     height: 36,
-    section: {
-      tagName: 'SECTION',
-      textContent: 'All Images',
-    },
+    section,
     src: `https://images.example.test/file-${fileIndex}-thumb.jpg`,
     width: 36,
   }));
@@ -286,6 +284,7 @@ async function verifyNavigationBatchRequest(t, startFile) {
   const originalChrome = globalThis.chrome;
   t.after(() => { globalThis.chrome = originalChrome; });
   globalThis.chrome = { runtime: { sendMessage(message, callback) {
+    if (message.type === 'atlas-extension.gallery-segment-acknowledged') { callback({ ok: true, payload: {} }); return; }
     assert.equal(message.type, 'atlas-extension.asset-reaction-batch');
     postAssetReactionBatch({ ...message, transport: { reactionBatch: async (_, body) => {
       sentBody = body;
@@ -317,21 +316,22 @@ function createGallery({ fixedUrl = false, imageDelayMs = 0, neverLoads = false 
     urlFile = index + 1;
     if (neverLoads) files[index].complete = false;
     if (imageDelayMs) {
-      setTimeout(() => { currentFile = index + 1; }, imageDelayMs);
+      setTimeout(() => { currentFile = index + 1; documentContext.dispatchEvent(new globalThis.Event('gallerychange')); }, imageDelayMs);
     } else {
       currentFile = index + 1;
     }
   }));
+  const section = { textContent: 'All Images' };
   const thumbnails = buttons.map((button, index) => createImage({
-    button, section: { textContent: 'All Images' },
+    button, section,
     src: `https://images.example.test/file-${index + 1}-thumb.jpg`, width: 36, height: 36,
   }));
+  const documentContext = new globalThis.EventTarget();
+  Object.defineProperty(documentContext, 'images', { get: () => [files[currentFile - 1], ...thumbnails] });
+  documentContext.querySelectorAll = selector => selector === 'section img' ? thumbnails : [];
   return {
     currentFile: () => currentFile,
-    documentContext: {
-      get images() { return [files[currentFile - 1], ...thumbnails]; },
-      querySelectorAll(selector) { return selector === 'section img' ? thumbnails : []; },
-    },
+    documentContext,
     locationContext: {
       get href() { return `https://www.deviantart.com/artist/art/title-123?file=${fixedUrl ? 1 : urlFile}`; },
       hostname: 'www.deviantart.com',

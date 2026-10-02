@@ -47,13 +47,26 @@ rediscovering every tab on each download progress event.
 
 ## Collection and cancellation
 
-The user must initiate gallery collection. Bundled collectors enforce a maximum
-of 50 items and bounded navigation, wait and restoration times. They honor explicit
+The user must initiate gallery collection. Bundled collectors traverse the complete
+gallery and submit sequential segments of at most 50 items. There is no whole-gallery
+size limit. Each navigation or media load has a stall deadline; collection and
+restoration continue according to the gallery size. They honor explicit
 user image-source preferences, validate the current page and do not evaluate
 provider-supplied code. Before and after collection, the extension asks Desktop to confirm
 the provider version, page identity and gallery configuration. Lifecycle changes cancel in-flight collection; cancellation
 does not click controls to restore a page belonging to another provider state.
-Failure returns an error rather than silently downloading a truncated gallery.
+Thumbnail collection binds to the selected media's gallery and excludes unrelated
+containers and repeated controls. Distinct query-based media identities remain distinct.
+Failure stops further collection and retains already accepted segments. The progress
+panel shows the phase, collected count, queued count and known total, with Cancel
+and Retry. Unknown totals show counts without an estimated percentage. Retry keeps
+the pending segment's request identity and skips accepted items while this page
+remains open with the same provider session. Provider changes or Desktop reconnects
+invalidate that session and require closing progress and starting a new collection.
+Reloading or closing the page discards its collection session; queued
+Desktop downloads remain. Each accepted segment commits separately, so a later
+failure does not undo earlier segments. Tab closing waits for the complete gallery
+to be queued or downloaded, according to the user's existing close setting.
 
 Offline or incompatible Desktop retains generic capture; provider-specific
 features require a connected Desktop with the relevant plugin enabled. This

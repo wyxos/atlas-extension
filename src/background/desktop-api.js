@@ -1,4 +1,5 @@
 import { deriveReferrerMatchIdentity } from '../shared/asset-match-identity.js';
+import { createDesktopContractError } from '../shared/desktop-contract.js';
 
 export const reactionPreviewTransport = {
   reaction: (_, body) => previewRequest('/v1/reactions', body),
@@ -47,19 +48,111 @@ export function postAssetReactionBatch({
   preferences,
   credentials,
   downloadAction,
+  idempotencyKey,
   items,
   reactionType,
   useBrowserDownload,
   runtimeContext,
   transport,
 }) {
-  return transport.reactionBatch(credentials, {
+  const body = prepareBatchReactionBody({
+    preferences, downloadAction, items, reactionType, useBrowserDownload, runtimeContext,
+  });
+  return idempotencyKey === undefined
+    ? transport.reactionBatch(credentials, body)
+    : transport.reactionBatch(credentials, body, { idempotencyKey });
+}
+
+function prepareBatchReactionBody({ preferences, downloadAction, items, reactionType, useBrowserDownload, runtimeContext }) {
+  return {
     ...(downloadAction ? { download_action: downloadAction } : {}),
     items: normalizeBatchItems(items, preferences),
     ...buildRuntimeContextPayload(runtimeContext),
     ...(useBrowserDownload === true ? { use_browser_download: true } : {}),
     type: reactionType,
-  });
+  };
+}
+
+// Keep only recent chunks, including acknowledged chunks whose content reply may
+// have been lost. Cookies and source rules are captured once for an exact retry.
+export function createBatchReactionPoster({ maxPreparedRequests = 16 } = {}) {
+  const preparedRequests = new Map();
+  let activeScope = null;
+
+  async function post(options) {
+    const { credentials, idempotencyKey, prepareContext, tabId, transport } = options;
+    if (idempotencyKey === undefined || options.previewOnly === true) {
+      return postAssetReactionBatch({ ...options, ...await prepareContext() });
+    }
+    const scope = JSON.stringify([transport.baseUrl, credentials?.clientId]);
+    if (activeScope !== scope) {
+      // One background runtime has one active pairing/channel. A retired
+      // identity cannot retry these requests or reserve the new identity's slot.
+      preparedRequests.clear();
+      activeScope = scope;
+    }
+    if (options.acknowledgedIdempotencyKey !== undefined) {
+      acknowledge({ tabId, idempotencyKey: options.acknowledgedIdempotencyKey });
+    }
+    const cacheKey = JSON.stringify([transport.baseUrl, credentials?.clientId, tabId, idempotencyKey]);
+    const identity = JSON.stringify([
+      options.items, options.downloadAction, options.reactionType, options.useBrowserDownload === true,
+    ]);
+    let cached = preparedRequests.get(cacheKey);
+    if (cached && cached.identity !== identity) {
+      throw createDesktopContractError('IDEMPOTENCY_CONFLICT', 'The reaction retry no longer matches its original chunk.', false);
+    }
+    if (!cached) {
+      if (tabId !== undefined && [...preparedRequests.values()].some((entry) => entry.tabId === tabId && !entry.acknowledged)) {
+        throw createDesktopContractError('GALLERY_REQUEST_PENDING', 'The previous gallery request needs acknowledgement before continuing.', true);
+      }
+      while (preparedRequests.size >= Math.max(1, maxPreparedRequests)) {
+        const acknowledged = [...preparedRequests].find(([, entry]) => entry.acknowledged);
+        if (!acknowledged) {
+          throw createDesktopContractError('GALLERY_REQUEST_PENDING', 'Earlier gallery requests are still awaiting acknowledgement. Retry in a moment.', true);
+        }
+        preparedRequests.delete(acknowledged[0]);
+      }
+      cached = {
+        acknowledged: false,
+        idempotencyKey,
+        identity,
+        tabId,
+        body: Promise.resolve().then(async () => JSON.parse(JSON.stringify(prepareBatchReactionBody({
+          ...options, ...await prepareContext(),
+        })))),
+      };
+    }
+    preparedRequests.delete(cacheKey);
+    preparedRequests.set(cacheKey, cached);
+    let body;
+    try {
+      body = await cached.body;
+    } catch (error) {
+      if (preparedRequests.get(cacheKey) === cached) preparedRequests.delete(cacheKey);
+      throw error;
+    }
+    try {
+      return await transport.reactionBatch(credentials, body, { idempotencyKey });
+    } catch (error) {
+      if (error?.retryable === false) cached.acknowledged = true;
+      throw error;
+    }
+  }
+
+  function acknowledge({ tabId, idempotencyKey }) {
+    for (const entry of preparedRequests.values()) {
+      if (entry.tabId === tabId && entry.idempotencyKey === idempotencyKey) entry.acknowledged = true;
+    }
+  }
+
+  post.acknowledge = acknowledge;
+  post.removeTab = (tabId) => {
+    for (const [key, entry] of preparedRequests) {
+      if (entry.tabId === tabId) preparedRequests.delete(key);
+    }
+  };
+  return post;
 }
 
 export function fetchAssetStatuses({
