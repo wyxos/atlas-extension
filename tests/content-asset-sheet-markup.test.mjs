@@ -32,6 +32,9 @@ test('asset sheet uses the shared reaction contract and busy state', () => {
 });
 
 test('asset sheet places a media preview before card metadata', () => {
-  assert.match(source, /AssetSheetPreview/);
-  assert.match(source, /<AssetSheetPreview :asset="asset" \/>/);
+  const preview = source.match(/<AssetSheetPreview\b[^>]*\/>/);
+  assert.ok(preview, 'the card renders its media preview');
+  assert.match(preview[0], /:asset="asset"/);
+  const metadata = source.indexOf('class="atlas-asset-sheet-item-meta"');
+  assert.ok(metadata > preview.index, 'the media preview precedes card metadata');
 });
