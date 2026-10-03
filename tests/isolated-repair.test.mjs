@@ -10,6 +10,8 @@ import { canRepairFailure, cargoWorkspaceManifests } from '../scripts/smart-rebu
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-repair-update-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const logFile = path.join(root, 'diagnostics', 'build-latest.log');
+  fs.mkdirSync(path.dirname(logFile));
   const repos = ['extension', 'desktop'].map(kind => {
     const directory = path.join(root, kind);
     fs.mkdirSync(directory);
@@ -26,8 +28,9 @@ function fixture(t) {
     git(directory, ['commit', '-m', 'initial']);
     return { kind, name: kind, root: directory, artifact: path.join(root, 'outputs', kind) };
   });
-  return { root, repos, stateDirectory: path.join(root, 'state'), log: () => {},
-    scopeFactory: async () => ({ environment: { CARGO_TARGET_DIR: path.join(root, 'target') }, close: async () => {} }),
+  return { root, repos, logFile, stateDirectory: path.join(root, 'state'), log: () => {},
+    // A fixture scope owns its diagnostics, including retained repair patches.
+    scopeFactory: async () => ({ environment: { CARGO_TARGET_DIR: path.join(root, 'target'), ATLAS_BUILD_LOG: logFile }, close: async () => {} }),
     execute: (name, args, options) => name === 'git' ? command(name, args, options) : Promise.resolve(),
     buildOverride: async repo => {
       const output = repo.kind === 'extension'
@@ -129,7 +132,7 @@ test('failed repairs stop at the retry limit without publishing source or output
   assert.equal(repairs, 2);
   assert.equal(git(f.repos[0].root, ['rev-parse', 'main']), head);
   assert.equal(fs.existsSync(f.repos[0].artifact), false);
-  assert.match(fs.readFileSync(path.join(f.stateDirectory, 'repair-extension-2.patch'), 'utf8'), /attempt 2/);
+  assert.match(fs.readFileSync(path.join(path.dirname(f.logFile), 'repair-extension-2.patch'), 'utf8'), /attempt 2/);
 });
 
 test('no-change and validation-command changes are rejected before publication', async t => {
@@ -388,5 +391,7 @@ test('command failures expose only that invocation and redaction handles split c
   assert.match(fs.readFileSync(logFile, 'utf8'), /\[redacted\]/);
   const result = await command(process.execPath, ['-e', 'console.log("stdout value"); console.error("separate stderr");'],
     { cwd: f.root, env: process.env, logFile, captureStdout: true });
-  assert.equal(result.stdout.trim(), 'stdout value');
+  // Managed execution prepends its startup banner to the captured stdout stream.
+  assert.equal(result.stdout.replace(/^Atlas runtime:external: isolated environment [^\r\n]+\.\r?\n/, '').trim(), 'stdout value');
+  assert.doesNotMatch(result.stdout, /separate stderr|Earlier|current assertion|secret|\[redacted\]/);
 });
