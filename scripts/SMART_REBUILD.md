@@ -87,6 +87,36 @@ Moving main after snapshot capture affects only the next run. The two captured
 commits are fixed for the run, but cross-repository compatibility remains the
 responsibility of the committed changes.
 
+## Automatic repair
+
+Failed code validation or Extension compilation starts Codex automatically in the
+isolated checkout, using the configured Codex CLI and model. The updater supplies
+the failed command's diagnostics and allows up to two repair attempts per repository.
+Codex is instructed to fix the cause while preserving the intended behavior and
+validation checks. Repair uses workspace-write access; it cannot start another updater.
+
+After a change, the updater runs that repository's complete check sequence again.
+Dependency changes reinstall npm dependencies before checks. A changed Cargo manifest
+resolves every independent Cargo workspace with `cargo update --workspace`, including
+workspaces that share path dependencies, while preserving unrelated locked versions.
+Changes to validation commands, release versions or frozen provider fixture
+definitions stop recovery.
+A passing repair becomes a local source commit at the already-prepared version,
+then the update continues. The original main commit must still match, and a main
+checkout must be clean; otherwise the repair is saved without overwriting live work.
+
+Dependency installation, missing executables, cancellation, storage admission or
+ownership errors, compiler cache errors, Desktop build/install, publication and
+cleanup failures stop with diagnostics.
+Codex authentication/quota failures and repairs that make no changes also stop.
+Repair does not fall back to Cursor. Dry runs do not invoke repair.
+
+Repair logs, summaries and patches are retained beside the updater log. Verified
+repairs also have a Git recovery bundle and JSON receipt there. A repository whose
+checks fail is not published. Interrupted source/index/version-state publication
+is reconciled from `AtlasBuild\\repair-publication-state.json` before version review.
+The recovery bundle needs the captured source commit in the original repository.
+
 ## Progress and logs
 
 The interactive terminal uses blue repository headings and a single active line

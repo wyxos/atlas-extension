@@ -3,10 +3,13 @@ import { setInterval, clearInterval } from 'node:timers';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { artifactFingerprint, git, saveState } from './repository.mjs';
+import { artifactFingerprint, git, saveState, snapshot } from './repository.mjs';
 import { verifyInstalledExecutable } from './installed-executable.mjs';
 import { createTerminal } from './terminal.mjs';
 import { prepareProviderTestSnapshots } from './provider-test-snapshots.mjs';
+import { repairSnapshot } from './repair.mjs';
+import { publishRepair } from './repair-publication.mjs';
+import { captureRepairContract, assertRepairContract, canRepairFailure, cargoWorkspaceManifests } from './repair-policy.mjs';
 
 export function removeWorkspace(parent, directory) {
   const base = fs.realpathSync(parent);
@@ -34,21 +37,33 @@ function appendLogFile(file, value) {
   try { appendLog(descriptor, value); } finally { fs.closeSync(descriptor); }
 }
 
-export async function command(name, args, { cwd, env, logFile, status = () => {} }) {
+export class CommandFailure extends Error {
+  constructor(name, args, exitCode, signal, diagnostics) {
+    super(`${name} failed (${signal ?? exitCode}).`);
+    Object.assign(this, { command: name, args, exitCode, signal, diagnostics });
+  }
+}
+
+export async function command(name, args, { cwd, env, logFile, status = () => {}, redactOutput, captureStdout = false }) {
   const descriptor = fs.openSync(logFile, 'a');
   appendLog(descriptor, `\n> ${name} ${args.join(' ')}\n`);
+  let captured = '';
   try {
-    await new Promise((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
       const managed = env.ATLAS_BUILD_CONTROLLER;
       const program = managed ? process.execPath : name;
       const parameters = managed ? [path.join(managed, 'scripts', 'runtime-launcher.mjs'), 'runtime:external', name, ...args] : args;
-      const child = spawn(program, parameters, { cwd, env: { ...env, ATLAS_COMMAND_CWD: cwd },
+      const child = spawn(program, parameters, { cwd, env: { ...env, ATLAS_COMMAND_CWD: cwd,
+        ...(redactOutput ? { ATLAS_COMMAND_OUTPUT_OWNER: 'redacted-outer' } : {}) },
         windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-      let tail = '';
+      let tail = '', stdout = '';
       const reported = new Set();
       const capture = (chunk) => {
-        appendLog(descriptor, chunk);
-        tail = (tail + chunk.toString()).slice(-8192);
+        // Codex output is redacted as one bounded stream at completion so secrets
+        // split between chunks cannot leak through per-chunk replacement.
+        if (redactOutput) captured = (captured + chunk.toString()).slice(-16 * 1024 ** 2);
+        else appendLog(descriptor, chunk);
+        tail = (tail + chunk.toString()).slice(-64 * 1024);
         for (const [marker, message] of [
           ['Preparing importer resources...', 'Desktop: preparing importer resources'],
           ['Requesting graceful shutdown', 'Desktop: waiting for Atlas to close'],
@@ -57,13 +72,19 @@ export async function command(name, args, { cwd, env, logFile, status = () => {}
           if (!reported.has(marker) && tail.includes(marker)) { reported.add(marker); status(message); }
         }
       };
-      child.stdout.on('data', capture);
+      child.stdout.on('data', chunk => {
+        if (captureStdout) stdout = (stdout + chunk.toString()).slice(-64 * 1024);
+        capture(chunk);
+      });
       child.stderr.on('data', capture);
       child.on('error', reject);
-      child.on('close', (code, signal) => code === 0 ? resolve()
-        : reject(new Error(`${name} failed (${signal ?? code}).`)));
+      child.on('close', (code, signal) => code === 0 ? resolve(captureStdout ? { stdout } : undefined)
+        : reject(new CommandFailure(name, args, code, signal, redactOutput ? redactOutput(tail) : tail)));
     });
-  } finally { fs.closeSync(descriptor); }
+  } finally {
+    if (redactOutput) appendLog(descriptor, redactOutput(captured));
+    fs.closeSync(descriptor);
+  }
 }
 
 export function recoverPublication(destination) {
@@ -108,7 +129,12 @@ export async function openBuildScope(repository, workspace, options) {
 }
 
 export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
-  log, execute = command, buildOverride, scopeFactory = openBuildScope }) {
+  log, execute = command, buildOverride, scopeFactory = openBuildScope,
+  repair = repairSnapshot, publishRepaired = publishRepair, maxRepairAttempts = 2 }) {
+  if (!Number.isInteger(maxRepairAttempts) || maxRepairAttempts < 0 || maxRepairAttempts > 3) {
+    throw new Error('Repair attempts must be between zero and three.');
+  }
+  if (process.env.ATLAS_UPDATER_REPAIR_ACTIVE === '1') throw new Error('An automatic repair cannot start another Atlas update.');
   const display = createTerminal({ log });
   log = display.line;
   const statePath = path.join(stateDirectory, 'isolated-state.json');
@@ -144,13 +170,31 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   const logFile = environment.ATLAS_BUILD_LOG || path.join(stateDirectory, 'build-latest.log');
   fs.writeFileSync(logFile, plans.map((repo) => `${repo.name}: main ${repo.head}`).join('\n') + '\n');
   const steps = [];
-  const run = (name, args, cwd) => execute(name, args, { cwd, env: environment, logFile,
-    status: (message) => display.status(message.replace(/^Desktop: /, '')) });
+  const run = (name, args, cwd, options = {}) => execute(name, args, { cwd, env: environment, logFile,
+    status: (message) => display.status(message.replace(/^Desktop: /, '')), ...options });
   const npm = (script, cwd) => {
     // A cold checkout otherwise launches a jsdom worker for nearly every CPU;
     // module transforms contend and short router tests time out before running.
     const options = script === 'test:unit' ? ' -- --maxWorkers=4' : '';
     return run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd run ${script}${options}; exit $LASTEXITCODE`], cwd);
+  };
+  const installDependencies = async (repo) => {
+    const install = fs.existsSync(path.join(repo.snapshot, 'package-lock.json')) ? 'ci' : 'install';
+    if (install === 'install') {
+      appendLogFile(logFile, `${repo.name}: resolving dependencies (no committed lockfile)\n`);
+      display.status('resolving dependencies');
+    }
+    await run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd ${install} --no-audit --no-fund; exit $LASTEXITCODE`], repo.snapshot);
+  };
+  const saveRepair = async (repo) => {
+    if (!repo.pendingRepair) return;
+    if (snapshot(repo.snapshot).tree !== repo.pendingRepair) throw new Error('Repair changed while checks were running.');
+    const published = await publishRepaired({ repo, stateDirectory, logFile, expectedTree: repo.pendingRepair });
+    repo.head = published.head;
+    repo.tree = published.tree;
+    repo.pendingRepair = undefined;
+    repo.contract = captureRepairContract(repo);
+    log(`  Saved verified ${repo.name} repair · ${repo.head.slice(0, 8)}`, 'green');
   };
   // Desktop always bundles the captured Extension revision, even when AE is skipped.
   const snapshots = plans.filter((repo) => repo.needed || repo.kind === 'extension');
@@ -163,12 +207,8 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       if (git(repo.snapshot, ['rev-parse', 'HEAD']) !== repo.head) throw new Error('Snapshot revision mismatch.');
     } });
     steps.push({ title: `${repo.name}: install dependencies`, action: async () => {
-      const install = fs.existsSync(path.join(repo.snapshot, 'package-lock.json')) ? 'ci' : 'install';
-      if (install === 'install') {
-        appendLogFile(logFile, `${repo.name}: resolving dependencies (no committed lockfile)\n`);
-        display.status('resolving dependencies');
-      }
-      await run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd ${install} --no-audit --no-fund; exit $LASTEXITCODE`], repo.snapshot);
+      await installDependencies(repo);
+      repo.contract = captureRepairContract(repo);
       if (repo.kind === 'desktop') {
         fs.mkdirSync(environment.CARGO_TARGET_DIR, { recursive: true });
       }
@@ -186,15 +226,27 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       'test:unit': 'run frontend tests', 'prepare:extension:stable': 'prepare bundled extension',
       'prepare:media-tools': 'prepare bundled media tools',
       'lint:rust': 'check Rust code', 'test:rust': 'run Rust tests' };
-    for (const check of checks) steps.push({ title: `${repo.name}: ${labels[check]}`, action: () => npm(check, repo.snapshot) });
-    steps.push({ title: repo.kind === 'desktop' ? 'Desktop: build installer, install and reopen' : 'Extension: build', action: async () => {
-      if (buildOverride) { await buildOverride(repo, plans); return; }
+    repo.checkStart = steps.length;
+    repo.repairAttempts = 0;
+    for (const check of checks) steps.push({ title: `${repo.name}: ${labels[check]}`, repo,
+      repairable: !check.startsWith('prepare:'), action: async () => {
+        await npm(check, repo.snapshot);
+        if (check === checks.at(-1) && repo.kind === 'desktop') await saveRepair(repo);
+      } });
+    steps.push({ title: repo.kind === 'desktop' ? 'Desktop: build installer, install and reopen' : 'Extension: build',
+      repo, repairable: repo.kind === 'extension' && !buildOverride, action: async () => {
+      if (buildOverride) {
+        await buildOverride(repo, plans);
+        if (repo.kind === 'extension') await saveRepair(repo);
+        return;
+      }
       const script = repo.kind === 'desktop' ? 'rebuild-and-run-installer.ps1' : 'rebuild-unpacked-extension.ps1';
       // The installer is a launcher/controller. Its build inputs and npm cwd
       // are explicitly the captured checkout, never the live source tree.
       const scriptRoot = repo.kind === 'desktop' ? repo.root : repo.snapshot;
       const parameters = repo.kind === 'desktop' ? ['-RepositoryRoot', repo.snapshot] : [];
       await run('pwsh.exe', ['-NoProfile', '-File', path.join(scriptRoot, 'scripts', script), ...parameters], repo.snapshot);
+      if (repo.kind === 'extension') await saveRepair(repo);
       if (repo.kind === 'desktop') {
         const receipt = environment.ATLAS_BUILD_REOPEN_REQUEST;
         if (!receipt || !fs.existsSync(receipt) ||
@@ -215,12 +267,50 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   let completed = 0;
   let failure;
   try {
-    for (const step of steps) {
+    while (completed < steps.length) {
+      const step = steps[completed];
       display.start(step.title, completed, steps.length);
       appendLogFile(logFile, `\nStep ${completed + 1}/${steps.length}: ${step.title}\n`);
       const timer = setInterval(display.tick, 1000);
       try { await step.action(); } catch (error) {
         display.fail();
+        const repo = step.repo;
+        // Only completed development/code commands are candidates. Spawn errors,
+        // cancellation, dependency installation and installation/publication
+        // failures cannot be fixed by rewriting application source.
+        if (step.repairable && error instanceof CommandFailure && canRepairFailure(error)
+          && repo.repairAttempts < maxRepairAttempts) {
+          repo.repairAttempts++;
+          log(`${repo.name}: starting Codex repair ${repo.repairAttempts}/${maxRepairAttempts}`, 'yellow');
+          const before = snapshot(repo.snapshot);
+          const repairLog = path.join(path.dirname(logFile), `repair-${repo.kind}-${repo.repairAttempts}.log`);
+          await repair({ repo, failure: { ...error, step: step.title }, execute,
+            env: { ...environment, ATLAS_UPDATER_REPAIR_ACTIVE: '1' }, logFile: repairLog,
+            status: (message) => log(message, 'blue') });
+          const after = snapshot(repo.snapshot);
+          const patchFile = path.join(path.dirname(logFile), `repair-${repo.kind}-${repo.repairAttempts}.patch`);
+          fs.writeFileSync(patchFile, git(repo.snapshot, ['diff', '--binary', '--full-index', before.head, after.tree]));
+          if (after.head !== before.head || after.index !== before.index) throw new Error('Codex changed Git history or staging during repair.', { cause: error });
+          if (after.tree === before.tree) throw new Error(`Codex made no source changes. See ${repairLog}`, { cause: error });
+          const dependenciesChanged = assertRepairContract(repo, repo.contract);
+          if (dependenciesChanged.npm) await installDependencies(repo);
+          if (dependenciesChanged.cargo) {
+            // Shared path dependencies can belong to multiple independent
+            // workspaces. Resolve every graph before binding checks to its tree,
+            // retaining locked versions of unrelated registry dependencies.
+            const manifests = await cargoWorkspaceManifests(repo, manifest => run('cargo',
+              ['locate-project', '--workspace', '--message-format', 'json', '--manifest-path', manifest],
+              repo.snapshot, { captureStdout: true }));
+            for (const manifest of manifests) {
+              await run('cargo', ['update', '--workspace', '--manifest-path', manifest], repo.snapshot);
+            }
+          }
+          assertRepairContract(repo, repo.contract);
+          repo.pendingRepair = snapshot(repo.snapshot).tree;
+          log(`${repo.name}: rerunning all repository checks after repair`, 'blue');
+          completed = repo.checkStart;
+          continue;
+        }
         throw new Error(`${step.title}: ${error.message}`, { cause: error });
       } finally { clearInterval(timer); }
       completed++;

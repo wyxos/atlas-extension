@@ -3,12 +3,14 @@ import path from 'node:path';
 import { loadBuildController, runIsolatedUpdate } from './smart-rebuild/isolated.mjs';
 import { prepareBuildSources } from './smart-rebuild/version-review.mjs';
 import { terminal } from './smart-rebuild/terminal.mjs';
+import { recoverRepairPublications } from './smart-rebuild/repair-publication.mjs';
 const extensionRoot = path.resolve(import.meta.dirname, '..');
 const stateDirectory = path.join(process.env.LOCALAPPDATA, 'AtlasBuild');
 const args = process.argv.slice(2);
 let locked = false;
 const lock = path.join(stateDirectory, 'update.lock');
 try {
+  if (process.env.ATLAS_UPDATER_REPAIR_ACTIVE === '1') throw new Error('An automatic repair cannot start another Atlas update.');
   if (args.some((arg) => !['--dry-run', '--skip-uncommitted'].includes(arg))) throw new Error('Supported options: --dry-run, --skip-uncommitted');
   const desktopRoot = path.resolve(extensionRoot, '..', 'atlas-desktop');
   // Check compatibility before asking to commit either repository or creating state.
@@ -31,6 +33,7 @@ try {
       artifact: path.join(process.env.LOCALAPPDATA, 'Atlas', 'atlas-desktop.exe') },
   ];
   const dryRun = args.includes('--dry-run');
+  if (!dryRun) recoverRepairPublications({ repos, stateDirectory });
   const prepared = await prepareBuildSources({ repos, stateDirectory, dryRun, skip: args.includes('--skip-uncommitted') });
   await runIsolatedUpdate({ stateDirectory, dryRun, repos: prepared });
 } catch (error) {
