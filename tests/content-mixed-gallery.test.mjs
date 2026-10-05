@@ -1,23 +1,17 @@
-// Opt-in defect reproduction, intentionally outside tests/*.test.mjs.
-// Run: node --test tests/reproductions/deviantart-mixed-gallery.test.mjs
-// Controls should pass; mixed-media completeness assertions currently fail.
-// Uses the sibling provider's actual descriptor, real collection/reaction/close
-// code, synthetic DOM nodes, and an accepting in-memory Desktop transport.
+// Regression coverage promoted from the mixed-gallery defect reproduction.
+// Uses real collection/reaction/close code with synthetic DOM nodes and an
+// accepting in-memory Desktop transport. The profile fixture matches the
+// existing provider descriptor; normal checks need no sibling provider repo.
 // No browser profile, network request, real download, or personal data is used.
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { getAssetTarget, getAssetType } from '../../src/content/assets.js';
-import { postAssetOrBatchReaction } from '../../src/content/batch-reactions.js';
-import { resolveAssetBatchContext } from '../../src/content/batch-providers/index.js';
-import { armCloseTabForReaction } from '../../src/content/close-tab-reactions.js';
-import { createCollectionProgress } from '../../src/content/collection-progress.js';
-import { createGalleryReactionRuntime } from '../../src/content/gallery-reaction-runtime.js';
-
-const descriptor = JSON.parse(await readFile(
-  new URL('../../../atlas-deviantart/browser/capture.json', import.meta.url), 'utf8'));
-const gallery = descriptor.rules.find(rule => rule.gallery)?.gallery;
-assert.ok(gallery, 'The real DeviantArt provider must declare a gallery');
+import { getAssetTarget, getAssetType } from '../src/content/assets.js';
+import { postAssetOrBatchReaction } from '../src/content/batch-reactions.js';
+import { resolveAssetBatchContext } from '../src/content/batch-providers/index.js';
+import { armCloseTabForReaction } from '../src/content/close-tab-reactions.js';
+import { createCollectionProgress } from '../src/content/collection-progress.js';
+import { createGalleryReactionRuntime } from '../src/content/gallery-reaction-runtime.js';
+import { thumbnailSpec as gallery } from './fixtures/gallery-adapters.js';
 const pageUrl = 'https://www.deviantart.com/fixture/art/Synthetic-123';
 
 for (const [label, types] of [
@@ -40,40 +34,73 @@ for (const [label, types] of [
 for (const imageCount of [2, 50]) {
   // Keep the real 30-second navigation deadline: the video is already ready,
   // so a failure cannot be explained by an artificially short load timeout.
-  test(`reproduction: ${imageCount} images followed by a ready video must all queue`, async t => {
+  test(`${imageCount} images followed by a ready video all queue before tab closing`, async t => {
     const f = fixture(t, [...Array(imageCount).fill('image'), 'video']);
     await f.run();
-    t.diagnostic(JSON.stringify(f.summary()));
     assert.equal(f.videoSelections(), 1, 'Collection reached the video slide');
     assert.equal(f.readyVideoSeen(), true, 'The normal asset reader resolves the ready video');
-    assert.equal(f.progress.at(-1).phase, 'paused');
-    assert.equal(f.progress.at(-1).collected, imageCount);
-    assert.equal(f.progress.at(-1).queued, imageCount === 50 ? 50 : 0);
-    assert.equal(f.closeIntents.length, 0, 'A failed collection never arms tab closing');
-    assert.equal(f.panel.hidden, false, 'Current progress code keeps the paused panel visible');
-    assert.match(f.errors[0], /BATCH_INCOMPLETE/, 'Current runtime reports an error');
+    assert.equal(f.progress.at(-1).phase, 'completed');
+    assert.equal(f.progress.at(-1).collected, imageCount + 1);
+    assert.equal(f.progress.at(-1).queued, imageCount + 1);
+    assert.equal(f.closeIntents.length, 1);
+    assert.deepEqual(f.closeIntents[0].assetUrls, f.sources);
+    assert.deepEqual(f.errors, []);
     assert.equal(f.currentIndex(), 0, 'The collector restores the original image');
-    // The desired behavior is deliberately asserted last, after capturing proof.
-    assert.equal(f.queued.filter(item => item.asset.type === 'video').length, 1,
-      'DEFECT: the ready gallery video was never queued');
+    assert.equal(f.queued.filter(item => item.asset.type === 'video').length, 1);
+    assert.deepEqual(f.queued.map(item => item.asset.source), f.sources);
   });
 }
 
-test('reproduction: a video with an image poster must queue the video, not its poster', async t => {
+test('a video with an image poster queues the video, not its poster', async t => {
   const f = fixture(t, ['image', 'image', 'video'], { poster: true });
   await f.run();
-  t.diagnostic(JSON.stringify(f.summary()));
   assert.equal(f.progress.at(-1).phase, 'completed');
   assert.equal(f.queued.length, 3);
   assert.equal(f.closeIntents.length, 1);
   assert.deepEqual(f.errors, []);
-  assert.equal(f.queued.at(-1).asset.source, 'https://media.example.test/video-poster.jpg');
-  assert.equal(f.queued.at(-1).asset.type, 'video',
-    'DEFECT: an image poster is queued in place of the video');
+  assert.equal(f.queued.at(-1).asset.source, f.sources.at(-1));
+  assert.equal(f.queued.at(-1).asset.type, 'video');
+  assert.equal(f.queued.at(-1).asset.resolution, '1200x800');
 });
 
-function fixture(t, types, { poster = false } = {}) {
-  let current = 0;
+test('a letterboxed video takes precedence over its larger retained poster', async t => {
+  const f = fixture(t, ['image', 'video', 'image'], { poster: true, videoHeight: 675 });
+  await f.run();
+  assert.deepEqual(f.queued.map(item => item.asset.source), f.sources);
+  assert.deepEqual(f.queued.map(item => item.asset.type), ['image', 'video', 'image']);
+  assert.equal(f.closeIntents.length, 1);
+  assert.deepEqual(f.errors, []);
+});
+
+for (const provider of ['deviantart', 'unrecognized-provider']) {
+  for (const start of [0, 1, 3]) {
+    test(`${provider}: mixed media restores start ${start} and retains each video identity`, async t => {
+      const types = ['image', 'video', 'video', 'image'];
+      const f = fixture(t, types, { start, provider, poster: true });
+      await f.run();
+      assert.deepEqual(f.queued.map(item => item.asset.type), types);
+      assert.deepEqual(f.queued.map(item => item.asset.source), f.sources);
+      assert.deepEqual(f.queued.map(item => new URL(item.referrerUrl).searchParams.get('file')), ['1', '2', '3', '4']);
+      assert.equal(f.currentIndex(), start);
+      assert.equal(f.closeIntents.length, 1);
+      assert.deepEqual(f.errors, []);
+    });
+  }
+}
+
+for (const event of ['loadedmetadata', 'loadeddata', 'canplay']) {
+  test(`waits for ${event} when video currentSrc becomes available without DOM mutation`, async t => {
+    const f = fixture(t, ['image', 'video', 'video', 'image'], { poster: true, delayedEvent: event });
+    await f.run();
+    assert.deepEqual(f.queued.map(item => item.asset.source), f.sources);
+    assert.deepEqual(f.queued.map(item => item.asset.type), ['image', 'video', 'video', 'image']);
+    assert.equal(f.closeIntents.length, 1);
+    assert.deepEqual(f.errors, []);
+  });
+}
+
+function fixture(t, types, { poster = false, start = 0, provider = 'deviantart', delayedEvent, videoHeight = 800 } = {}) {
+  let current = start;
   let videoSelections = 0;
   let readyVideoSeen = false;
   const progress = [];
@@ -85,6 +112,7 @@ function fixture(t, types, { poster = false } = {}) {
     get href() { return `${pageUrl}?file=${current + 1}`; },
     hostname: 'www.deviantart.com',
   };
+  documentContext.location = locationContext;
   const root = new FakeElement('main');
   const section = new FakeElement('section');
   section.textContent = 'All Images';
@@ -99,7 +127,9 @@ function fixture(t, types, { poster = false } = {}) {
     node.naturalHeight = type === 'image' ? 800 : undefined;
     node.videoWidth = type === 'video' ? 1200 : undefined;
     node.videoHeight = type === 'video' ? 800 : undefined;
+    if (type === 'video') node.height = videoHeight;
     node.parentElement = root;
+    node.ownerDocument = documentContext;
     Object.defineProperty(node, 'isConnected', { get: () => current === index });
     return node;
   });
@@ -114,6 +144,19 @@ function fixture(t, types, { poster = false } = {}) {
       if (types[index] === 'video') {
         videoSelections += 1;
         readyVideoSeen = getAssetTarget(media[index])?.source === media[index].src;
+        if (delayedEvent) {
+          const source = media[index].src;
+          media[index].src = '';
+          media[index].currentSrc = '';
+          media[index].readyState = 0;
+          // An event-loop turn models media source selection, which happens
+          // after the navigation observer's first check. No polling or sleeps.
+          globalThis.setImmediate(() => {
+            media[index].currentSrc = source;
+            media[index].readyState = 1;
+            documentContext.dispatchEvent(new globalThis.Event(delayedEvent));
+          });
+        }
       }
       documentContext.dispatchEvent(new globalThis.Event('gallerychange'));
     };
@@ -184,16 +227,10 @@ function fixture(t, types, { poster = false } = {}) {
     currentIndex: () => current,
     videoSelections: () => videoSelections,
     readyVideoSeen: () => readyVideoSeen,
-    summary: () => ({ inputImages: types.filter(type => type === 'image').length,
-      inputVideos: types.filter(type => type === 'video').length,
-      queuedImages: queued.filter(item => item.asset.type === 'image').length,
-      queuedVideos: queued.filter(item => item.asset.type === 'video').length,
-      phase: progress.at(-1)?.phase, closeIntents: closeIntents.length,
-      errorCount: errors.length, progressHidden: panel.hidden }),
     async run() {
-      const asset = { ...getAssetTarget(media[0]), type: getAssetType(media[0]) };
-      const batchContext = resolveAssetBatchContext({ element: media[0], documentContext,
-        locationContext, pageContext: { provider: 'deviantart', url: pageUrl, gallery } });
+      const asset = { ...getAssetTarget(media[start]), type: getAssetType(media[start]) };
+      const batchContext = resolveAssetBatchContext({ element: media[start], documentContext,
+        locationContext, pageContext: { provider, url: pageUrl, gallery } });
       assert.equal(Boolean(batchContext), types.length > 1);
       const request = { id: 'synthetic', asset, batchContext, documentContext, locationContext,
         downloadAction: 'download', event: { type: 'like' }, currentState: { batch: { checked: true } } };
@@ -220,7 +257,7 @@ class FakeElement {
   getAttribute(key) { return key === 'src' ? this.src ?? null : this.attributes[key] ?? null; }
   removeAttribute(key) { delete this.attributes[key]; }
   addEventListener() {}
-  getBoundingClientRect() { return { width: this.width, height: this.height }; }
+  getBoundingClientRect() { return { left: 0, top: 0, width: this.width, height: this.height }; }
   closest(selector) {
     for (let node = this; node; node = node.parentElement) {
       if (selector === 'section' && node.tagName === 'SECTION') return node;

@@ -88,7 +88,7 @@ export function getAssetTarget(element, options = {}) {
     return describeAssetTarget(element, shadowHostTarget);
   }
 
-  if (['AUDIO', 'VIDEO'].includes(tagName)) {
+  if (['AUDIO', 'VIDEO'].includes(tagName) && options.allowMediaPageFallback !== false) {
     const pageSource = normalizeSource(element?.ownerDocument?.location?.href ?? globalThis.location?.href);
 
     return pageSource === null ? null : describeAssetTarget(element, { source: pageSource });

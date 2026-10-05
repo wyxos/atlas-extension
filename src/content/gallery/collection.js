@@ -76,14 +76,15 @@ export function waitForGalleryCondition(predicate, timeoutMs, {
   return new Promise((resolve, reject) => {
     const observers = [];
     const eventRoots = [...new Set([documentContext, ...roots].filter(Boolean))];
+    // currentSrc and readyState can change without an attribute mutation.
+    const mediaEvents = ['load', 'error', 'loadedmetadata', 'loadeddata', 'canplay', 'emptied'];
     let timer;
     let settled = false;
     const cleanup = () => {
       globalThis.clearTimeout(timer);
       observers.forEach(observer => observer.disconnect());
       eventRoots.forEach(root => {
-        root.removeEventListener?.('load', check, { capture: true });
-        root.removeEventListener?.('error', check, { capture: true });
+        mediaEvents.forEach(event => root.removeEventListener?.(event, check, { capture: true }));
         root.removeEventListener?.('gallerychange', check);
       });
       signal?.removeEventListener('abort', check);
@@ -105,8 +106,7 @@ export function waitForGalleryCondition(predicate, timeoutMs, {
       observers.push(observer);
     }
     eventRoots.forEach(root => {
-      root.addEventListener?.('load', check, { capture: true });
-      root.addEventListener?.('error', check, { capture: true });
+      mediaEvents.forEach(event => root.addEventListener?.(event, check, { capture: true }));
       root.addEventListener?.('gallerychange', check);
     });
     signal?.addEventListener('abort', check, { once: true });

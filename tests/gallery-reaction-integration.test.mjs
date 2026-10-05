@@ -4,6 +4,7 @@ import { performance } from 'node:perf_hooks';
 import { getEventListeners } from 'node:events';
 import { resolveAssetBatchContext } from '../src/content/batch-providers/index.js';
 import { createGalleryReactionOperation } from '../src/content/gallery-reaction-operation.js';
+import { createThumbnailGallery } from '../src/content/gallery/thumbnails.js';
 
 const baseUrl = 'https://gallery.example.test/item';
 const source = index => `https://media.example.test/image?id=${index}`;
@@ -212,7 +213,9 @@ for (const count of [200, 1001]) for (const kind of ['thumbnails', 'navigation',
     assert.ok(f.progress.some(state => state.phase === 'restoring'));
     assert.ok(f.progress.some(state => state.phase === 'queueing'));
     assert.equal(f.observers.size, 0, 'All inventory/wait observers are released');
-    for (const event of ['load', 'error', 'gallerychange']) assert.equal(getEventListeners(f.root, event).length, 0);
+    for (const event of ['load', 'error', 'loadedmetadata', 'loadeddata', 'canplay', 'emptied', 'gallerychange']) {
+      assert.equal(getEventListeners(f.root, event).length, 0);
+    }
     assert.ok(f.stats.inventoryQueries <= 6, 'Gallery inventory reads stay constant across a traversal');
     assert.ok(f.stats.visitedInventoryNodes <= count * 6, 'Inventory scanning remains linear in gallery size');
     assert.ok(f.stats.mediaQueries <= 4, 'An img selector does not repeatedly scan all thumbnails');
@@ -226,6 +229,30 @@ test('actual collection queues 30 logical items despite 70 duplicated and 60 unr
   assert.equal(f.requests[0].items.length, 30);
   assert.deepEqual(f.accepted.map(item => item.asset.source), Array.from({ length: 30 }, (_, index) => source(index + 1)));
   assert.equal(f.current(), 12);
+});
+
+test('attribute-based image selectors refresh media candidates without replacing nodes', async () => {
+  const env = environment();
+  const root = env.node();
+  let selected = 0;
+  const images = [env.image(root, source(1)), env.image(root, source(2))];
+  images.forEach((image, index) => { image.matches = selector => selector === 'img.active' && index === selected; });
+  const select = index => {
+    selected = index;
+    images.forEach(image => image.setAttribute('class', image === images[index] ? 'active' : 'inactive'));
+  };
+  const previous = env.node(root, { 'aria-label': 'Earlier' }); previous.click = () => select(0);
+  const next = env.node(root, { 'aria-label': 'Later' }); next.click = () => select(1);
+  root.querySelectorAll = selector => selector === 'img.active' ? [images[selected]]
+    : selector === 'button' ? [selected ? previous : next] : [];
+  env.document.querySelectorAll = root.querySelectorAll;
+  const locationContext = { get href() { return `${baseUrl}?slide=${selected + 1}`; } };
+  const collector = createThumbnailGallery({ provider: 'unknown-provider', url: baseUrl,
+    gallery: { ...thumbnailSpec, imageSelector: 'img.active' } });
+  const result = await collector.collect({ element: images[0], documentContext: env.document, locationContext });
+  assert.deepEqual(result.map(item => item.asset.source), [source(1), source(2)]);
+  assert.equal(selected, 0);
+  assert.equal(env.observers.size, 0);
 });
 
 test('lost midway acknowledgement restores, retries an identical segment and skips previously accepted gallery items', async () => {

@@ -101,6 +101,36 @@ test('optional media hosts allow HTTP(S); explicit hosts require HTTPS and exact
   assert.equal(galleryMedia(image('https://media.example.test.evil.test/a.jpg'),{sourceMode:'src',mediaHosts:['media.example.test']},new URL(pageUrl)),null);
 });
 
+test('a cached main image moved outside the gallery or into its strip cannot be captured',()=>{
+  for (const movedOutside of [false, true]) {
+    const f = thumbnailFixture();
+    const previous = f.images[0];
+    previous.isConnected = true;
+    previous.parentElement = movedOutside ? {} : f.container;
+    const current = image('https://media.example.test/current.jpg', { parentElement: f.root });
+    f.root.querySelectorAll = selector => selector === f.profile.gallery.imageSelector ? [current, previous] : [];
+    const value = createThumbnailGallery(f.profile).readCurrent({ ...f,
+      scope: { root: f.root, container: f.container, mainImage: previous } });
+    assert.equal(value.asset.source, current.src);
+  }
+});
+
+for (const [width, height] of [[300, 200], [800, 600], [1200, 800]]) {
+test(`an unrelated ${width}x${height} video beside the main image cannot replace it`,()=>{
+  const f = thumbnailFixture();
+  const main = f.images[0];
+  main.isConnected = true;
+  main.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+  const video = image('https://media.example.test/sidebar.mp4', { tagName: 'VIDEO', parentElement: f.root,
+    getBoundingClientRect: () => ({ left: 850, top: 0, width, height }) });
+  f.root.querySelectorAll = selector => selector === 'video' ? [video] : selector === f.profile.gallery.imageSelector ? [main] : [];
+  const value = createThumbnailGallery(f.profile).readCurrent({ ...f,
+    scope: { root: f.root, container: f.container, mainImage: main } });
+  assert.equal(value.asset.source, main.src);
+  assert.equal(value.asset.type, 'image');
+});
+}
+
 test('unknown provider query IDs keep distinct thumbnail, navigation and slot media',async()=>{
   for(const kind of ['thumbnails','navigation','slots']){
     const fixture=kind==='slots'?slotFixture():thumbnailFixture({mode:kind});

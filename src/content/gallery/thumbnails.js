@@ -1,4 +1,5 @@
 import { galleryMedia } from './media.js';
+import { getAssetType } from '../assets.js';
 import { samePage } from './page-scope.js';
 import { assertNotCancelled, createCollection, createGalleryInventory, galleryError, mediaIdentity, waitForGalleryCondition } from './collection.js';
 
@@ -30,8 +31,9 @@ export function createThumbnailGallery(profile) {
   } = {}) {
     assertPage(locationContext, assertActive);
     assertNotCancelled(signal);
-    const scope = context?.root ? context : bindScope(documentContext, element);
-    if (!scope) throw galleryError('BATCH_INCOMPLETE');
+    const boundScope = context?.root ? context : bindScope(documentContext, element);
+    if (!boundScope) throw galleryError('BATCH_INCOMPLETE');
+    const scope = { ...boundScope };
     const assertCurrent = () => assertPage(locationContext, assertActive, scope);
     const collection = createCollection({ onItem, onProgress, assertCurrent, signal });
     const originalSource = readCurrent({ documentContext, locationContext, scope, assertActive })?.asset.source;
@@ -50,6 +52,15 @@ export function createThumbnailGallery(profile) {
         || visualState.get(record.target) !== visible(record.target) }) : null;
     let restoreTarget = originalIndex;
     let failure;
+    // Cache candidate nodes, not the selected image: a video can replace a
+    // still-connected poster. Source/visibility changes are read on each capture;
+    // Node changes (and attributes for custom selectors) outside the thumbnail
+    // strip rebuild the candidate list.
+    scope.mediaInventory = createGalleryInventory(() => mediaCandidates(scope.root, scope.container), {
+      roots: [scope.root], documentContext, attributes: spec.imageSelector === 'img' ? [] : undefined,
+      relevant: record => (record.type === 'childList' || spec.imageSelector !== 'img')
+        && !contains(scope.container, record.target),
+    });
     try {
       await collection.progress('collecting', buttons.length > 1 ? buttons.length : null);
       if (buttons.length > 1) {
@@ -109,6 +120,7 @@ export function createThumbnailGallery(profile) {
       } catch (error) { failure ??= error; }
     }
     inventory?.disconnect();
+    scope.mediaInventory.disconnect();
     if (failure) throw failure;
     collection.assertUsable();
     return collection.result();
@@ -116,19 +128,17 @@ export function createThumbnailGallery(profile) {
   function readCurrent({ documentContext = globalThis.document, locationContext = globalThis.location,
     scope, fileIndex: index = fileIndex(locationContext?.href), assertActive = noOp } = {}) {
     assertPage(locationContext, assertActive, scope);
-    // Thumbnail providers often declare imageSelector="img". Reuse the bound
-    // main node while valid instead of scanning every thumbnail per capture.
-    const bound = scope?.main;
-    const image = bound && bound.isConnected === true && visible(bound)
-      && (!scope.container || !contains(scope.container, bound))
-      && galleryMedia(bound, spec, new URL(locationContext.href)) ? bound
-      : findMainImage(scope?.root ?? documentContext, scope?.container);
-    if (scope) scope.main = image;
-    const media = galleryMedia(image, spec, new URL(locationContext.href));
+    const element = findMainMedia(scope?.root ?? documentContext, scope?.container,
+      scope?.mediaInventory?.current(), scope?.mainImage);
+    if (scope) {
+      scope.main = element;
+      if (element && getAssetType(element) !== 'video') scope.mainImage = element;
+    }
+    const media = galleryMedia(element, spec, new URL(locationContext.href));
     if (!media) return null;
     return {
-      asset: { ...media, resolution: image?.complete === false ? null : media.resolution ?? naturalResolution(image),
-        type: 'image', ...(profile.identity ? { providerIdentity: profile.identity } : {}) },
+      asset: { ...media, resolution: element?.complete === false ? null : media.resolution ?? naturalResolution(element),
+        type: getAssetType(element) ?? 'image', ...(profile.identity ? { providerIdentity: profile.identity } : {}) },
       referrerUrl: referrer(locationContext.href, index), source: new URL(locationContext.href).hostname,
     };
   }
@@ -231,14 +241,14 @@ export function createThumbnailGallery(profile) {
   }
   function bindScope(documentContext, element) {
     const groups = thumbnailGroups(documentContext);
-    const main = element ?? findMainImage(documentContext);
+    const main = element ?? findMainMedia(documentContext);
     if (element && (!visible(element) || !galleryMedia(element, spec, new URL(profile.url)))) return null;
     const explicitRoot = spec.rootSelector ? main?.closest?.(spec.rootSelector) : null;
     if (spec.rootSelector && !explicitRoot) return null;
     if (explicitRoot) {
       const containers = [...groups.keys()].filter(container => contains(explicitRoot, container));
       if (containers.length > 1) return null;
-      if (element && findMainImage(explicitRoot, containers[0]) !== element) return null;
+      if (element && findMainMedia(explicitRoot, containers[0]) !== element) return null;
       return { root: explicitRoot, container: containers[0] ?? null, main };
     }
     for (let root = main?.parentElement; root && root !== documentContext.documentElement; root = root.parentElement) {
@@ -246,22 +256,40 @@ export function createThumbnailGallery(profile) {
       if (containers.length > 1) return null;
       if (containers.length === 1 || (groups.size === 0
         && (findNavigationButton(root, spec.previousLabel) || findNavigationButton(root, spec.nextLabel)))) {
-        if (element && findMainImage(root, containers[0]) !== element) return null;
+        if (element && findMainMedia(root, containers[0]) !== element) return null;
         return { root, container: containers[0] ?? null, main };
       }
     }
     // Legacy profiles need no root selector, but multiple matching containers
     // are ambiguous. Never combine them into a document-wide gallery.
     if (groups.size > 1) return null;
-    if (element && findMainImage(documentContext, [...groups.keys()][0]) !== element) return null;
+    if (element && findMainMedia(documentContext, [...groups.keys()][0]) !== element) return null;
     return { root: documentContext, container: [...groups.keys()][0] ?? null, main };
   }
-  function findMainImage(root, container) {
+  function mediaCandidates(root, container) {
     const images = spec.imageSelector === 'img' ? root?.images ?? queryAll(root, spec.imageSelector) : queryAll(root, spec.imageSelector);
-    let selected = null;
-    for (const image of images) {
-      if ((!container || !contains(container, image)) && visible(image) && galleryMedia(image, spec, new URL(profile.url))
-        && (selected === null || area(image) > area(selected))) selected = image;
+    // Existing thumbnail descriptors describe image selection. Video is a
+    // shared media primitive within that same gallery, not a provider override.
+    const outsideStrip = element => !container || !contains(container, element);
+    return { images: [...images].filter(outsideStrip), videos: queryAll(root, 'video').filter(outsideStrip) };
+  }
+  function findMainMedia(root, container, candidates = mediaCandidates(root, container), boundImage) {
+    // Navigation-only profiles can have large unrelated image inventories.
+    // Preserve their bound-image fast path while still checking for a video
+    // that has appeared over it. Never pin a video across subsequent slides.
+    let selected = boundImage?.isConnected === true && !boundImage.hidden && visible(boundImage)
+      && contains(root, boundImage) && (!container || !contains(container, boundImage))
+      && (spec.imageSelector === 'img' || boundImage.matches?.(spec.imageSelector) !== false)
+      && galleryMedia(boundImage, spec, new URL(profile.url)) ? boundImage : null;
+    for (const element of selected ? candidates.videos : [...candidates.images, ...candidates.videos]) {
+      const video = getAssetType(element) === 'video';
+      const replacesImage = video && selected && getAssetType(selected) !== 'video';
+      // A pending video must win over its poster too; otherwise the poster is
+      // mistaken for the next gallery item before loadedmetadata supplies a URL.
+      if (element.isConnected !== false && !element.hidden && visible(element)
+        && (video || galleryMedia(element, spec, new URL(profile.url)))
+        && (selected === null || (replacesImage ? sharesMediaRegion(element, selected)
+          : area(element) > area(selected)))) selected = element;
     }
     return selected;
   }
@@ -280,6 +308,18 @@ function selectedIndex(buttons) {
 }
 function area(element) { const rect = element?.getBoundingClientRect?.(); return Number(rect?.width ?? 0) * Number(rect?.height ?? 0); }
 function visible(element) { return area(element) > 0; }
+function sharesMediaRegion(video, image) {
+  if (getAssetType(image) === 'video') return false;
+  const a = video.getBoundingClientRect(); const b = image.getBoundingClientRect();
+  if (![a.left, a.top, b.left, b.top].every(Number.isFinite)) return false;
+  const centerInside = (inner, outer) => inner.left + inner.width / 2 >= outer.left
+    && inner.left + inner.width / 2 <= outer.left + outer.width
+    && inner.top + inner.height / 2 >= outer.top
+    && inner.top + inner.height / 2 <= outer.top + outer.height;
+  // A letterboxed player can be smaller than its retained poster. Prefer it
+  // within the same stage without adopting an unrelated player beside it.
+  return centerInside(a, b) && centerInside(b, a);
+}
 function activate(element) {
   if (typeof element?.click === 'function') { element.click(); return; }
   const click = element?.ownerDocument?.defaultView?.HTMLElement?.prototype?.click ?? globalThis.HTMLElement?.prototype?.click;
