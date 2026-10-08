@@ -38,6 +38,7 @@ test('declares scripting permission for post-reload loaded-tab prompts', () => {
     'storage',
     'tabs',
     'webNavigation',
+    'webRequest',
     'cookies',
     'scripting',
     'clipboardRead',
@@ -49,6 +50,10 @@ test('loads a main-world location bridge before the isolated content script', ()
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 
   assert.deepEqual(manifest.content_scripts, [
+    {
+      matches: ['<all_urls>'], js: ['assets/session-relay.js'], run_at: 'document_start',
+      all_frames: true, match_origin_as_fallback: true,
+    },
     {
       matches: ['<all_urls>'],
       js: ['assets/location-bridge.js'],

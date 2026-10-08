@@ -1,8 +1,11 @@
+import { installRequestSessionObserver } from './request-session-observer.js';
+
 (() => {
   const eventName = 'atlas-extension-location-change';
   const installKey = '__atlasExtensionLocationBridgeInstalled';
 
   if (window[installKey] !== true) {
+    installRequestSessionObserver(window);
     Object.defineProperty(window, installKey, {
       configurable: false,
       value: true,

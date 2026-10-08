@@ -7,12 +7,16 @@ import { postAssetReaction, postAssetReactionBatch, reactionPreviewTransport } f
 import { postAssetOrBatchReaction } from '../src/content/batch-reactions.js';
 import { createBadgePresentation } from '../src/content/badge-model.js';
 
-test('inspection uses the sent single and batch body, masking only cookie values', async () => {
+test('inspection uses the sent single and batch body, masking cookie and scoped authentication header values', async () => {
   const options = {
     asset: { source: 'https://cdn.test/video.mp4', type: 'video', resolution: '640x480' },
     downloadAction: 'force', reactionType: 'love', referrerUrl: 'https://site.test/page',
     source: 'site.test', useBrowserDownload: true,
-    runtimeContext: { cookies: [{ name: 'session', value: 'secret', domain: 'site.test' }], user_agent: 'Test' },
+    runtimeContext: { cookies: [{ name: 'session', value: 'secret', domain: 'site.test' }], user_agent: 'Test',
+      browser_session: { version: 1, captured_at: 100, cookie_scope: { partition_supported: false },
+        request_headers: [{ url: 'https://cdn.test/video.mp4', headers: [
+          { name: 'authorization', value: 'Bearer synthetic' }, { name: 'x-media-token', value: 'synthetic' },
+        ] }] } },
   };
   for (const [submit, operation, path] of [[postAssetReaction, 'reaction', '/v1/reactions'],
     [postAssetReactionBatch, 'reactionBatch', '/v1/reactions/batch']]) {
@@ -21,8 +25,13 @@ test('inspection uses the sent single and batch body, masking only cookie values
     await submit({ ...args, transport: { [operation]: (_, body) => { sent = body; } } });
     const preview = await submit({ ...args, transport: reactionPreviewTransport });
     assert.deepEqual(preview, { method: 'POST', path, body: { ...sent,
-      cookies: [{ name: 'session', value: '[redacted]', domain: 'site.test' }] } });
+      cookies: [{ name: 'session', value: '[redacted]', domain: 'site.test' }],
+      browser_session: { ...sent.browser_session, request_headers: [{ url: 'https://cdn.test/video.mp4', headers: [
+        { name: 'authorization', value: '[redacted]' }, { name: 'x-media-token', value: '[redacted]' },
+      ] }] },
+    } });
     assert.equal(sent.cookies[0].value, 'secret');
+    assert.equal(sent.browser_session.request_headers[0].headers[0].value, 'Bearer synthetic');
   }
 });
 

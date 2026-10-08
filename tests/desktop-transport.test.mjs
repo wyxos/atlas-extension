@@ -13,6 +13,19 @@ const credentials = {
   clientToken: 'token-456',
 };
 
+test('old Desktop capabilities cannot silently discard authenticated download context', async () => {
+  const requests = [];
+  const transport = createDesktopTransport({ channel: 'dev', fetchImpl: createFetch(requests, { queued: true }) });
+  const body = { browser_session: { version: 1, captured_at: 100, cookie_scope: { partition_supported: false }, request_headers: [] } };
+  for (const operation of ['reaction', 'reactionBatch']) {
+    assert.throws(() => transport[operation](credentials, body), { code: 'DESKTOP_CAPABILITY_REQUIRED' });
+  }
+  assert.equal(requests.length, 0);
+  await transport.reaction({ ...credentials, capabilities: ['browser-authenticated-download-v1'] }, body);
+  assert.equal(requests.length, 1);
+  assert.deepEqual(JSON.parse(requests[0].options.body).browser_session, body.browser_session);
+});
+
 test('locks Dev and Stable builds to fixed loopback bases', () => {
   assert.equal(desktopBaseForChannel('dev'), 'http://127.0.0.1:17420');
   assert.equal(desktopBaseForChannel('stable'), 'http://127.0.0.1:37420');

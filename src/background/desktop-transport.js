@@ -6,6 +6,7 @@ import {
   resolveExtensionChannel,
 } from '../shared/desktop-contract.js';
 import { hasDesktopClientCredentials } from './desktop-connection-state.js';
+import { desktopCapabilities, hasDesktopCapability } from '../shared/desktop-capabilities.js';
 
 const defaultRequestTimeoutMs = 15000;
 const pairingRequestTimeoutMs = 5 * 60 * 1000;
@@ -108,6 +109,7 @@ export function createDesktopTransport(options = {}) {
   }
 
   function reaction(credentials, body, requestOptions = {}) {
+    requireBrowserSessionCapability(credentials, body);
     return request('/v1/reactions', {
       ...requestOptions,
       body,
@@ -118,6 +120,7 @@ export function createDesktopTransport(options = {}) {
   }
 
   function reactionBatch(credentials, body, requestOptions = {}) {
+    requireBrowserSessionCapability(credentials, body);
     return request('/v1/reactions/batch', {
       ...requestOptions,
       body,
@@ -316,6 +319,13 @@ function normalizeFileId(value) {
   }
 
   return fileId;
+}
+
+function requireBrowserSessionCapability(credentials, body) {
+  if (body?.browser_session && !hasDesktopCapability(credentials, desktopCapabilities.browserAuthenticatedDownload)) {
+    throw createDesktopContractError('DESKTOP_CAPABILITY_REQUIRED',
+      'Update Atlas Desktop and reconnect the extension to send authenticated browser downloads.', false);
+  }
 }
 
 function normalizeSequence(value) {

@@ -4,12 +4,14 @@ export const desktopCapabilities = Object.freeze({
   batchProviderPreference: 'batch-provider-preference',
   closeTabMode: 'close-tab-mode',
   browserProviders: 'browser-provider-resolution-v1',
+  browserAuthenticatedDownload: 'browser-authenticated-download-v1',
 });
 
 export const requiredDesktopCapabilities = Object.freeze([
   desktopCapabilities.batchProviderPreference,
   desktopCapabilities.closeTabMode,
   desktopCapabilities.browserProviders,
+  desktopCapabilities.browserAuthenticatedDownload,
 ]);
 
 export function hasDesktopCapability(value, capability) {

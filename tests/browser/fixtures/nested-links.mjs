@@ -23,8 +23,17 @@ export async function nestedLinksFixture(runtimeId) {
         return;
       }
       if (url.pathname.startsWith('/media/')) {
-        response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
-        response.end(image);
+        response.setHeader('Access-Control-Allow-Origin', '*');
+        response.setHeader('Access-Control-Allow-Headers', 'Authorization, X-Media-Token');
+        response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
+        if (url.pathname.endsWith('.m3u8')) {
+          response.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
+          response.end(`#EXTM3U\n#EXTINF:1,\nhttp://localhost:${server.address().port}/media/fragment.ts\n#EXT-X-ENDLIST`);
+        } else {
+          response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+          response.end(image);
+        }
         return;
       }
       if (url.pathname.startsWith('/pages/')) {
@@ -42,7 +51,7 @@ export async function nestedLinksFixture(runtimeId) {
       };
       if (url.pathname === '/v1/hello') {
         json({ app: { channel: 'dev', runtime_id: runtimeId }, protocol_version: 1,
-          capabilities: ['browser-provider-resolution-v1', 'close-tab-mode', 'batch-provider-preference'] });
+          capabilities: ['browser-provider-resolution-v1', 'close-tab-mode', 'batch-provider-preference', 'browser-authenticated-download-v1'] });
         return;
       }
       if (url.pathname === '/v1/pairings') {

@@ -12,6 +12,11 @@ function previewRequest(path, body) {
     body: {
       ...body,
       ...(body.cookies ? { cookies: body.cookies.map((cookie) => ({ ...cookie, value: '[redacted]' })) } : {}),
+      ...(body.browser_session ? { browser_session: { ...body.browser_session,
+        request_headers: body.browser_session.request_headers.map(scope => ({ ...scope,
+          headers: scope.headers.map(header => ({ ...header, value: '[redacted]' })),
+        })),
+      } } : {}),
     },
   };
 }
@@ -226,6 +231,7 @@ function buildRuntimeContextPayload(runtimeContext) {
   return {
     ...(cookies.length > 0 ? { cookies } : {}),
     ...(userAgent !== '' ? { user_agent: userAgent } : {}),
+    ...(runtimeContext?.browser_session ? { browser_session: runtimeContext.browser_session } : {}),
   };
 }
 

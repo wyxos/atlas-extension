@@ -8,6 +8,7 @@
     "storage",
     "tabs",
     "webNavigation",
+    "webRequest",
     "cookies",
     "scripting",
     "clipboardRead",
@@ -36,6 +37,13 @@
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*"
   },
   "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["assets/session-relay.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_origin_as_fallback": true
+    },
     {
       "matches": [
         "<all_urls>"

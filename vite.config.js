@@ -6,7 +6,7 @@ import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 
 const rootDirectory = fileURLToPath(new URL('.', import.meta.url));
-const allowedBuildTargets = new Set(['background', 'content', 'location-bridge', 'options']);
+const allowedBuildTargets = new Set(['background', 'content', 'location-bridge', 'session-relay', 'options']);
 const buildTarget = process.env.ATLAS_EXTENSION_BUILD_TARGET ?? 'options';
 const desktopChannel = process.env.CHANNEL ?? 'dev';
 const testConnection = JSON.parse(process.env.ATLAS_EXTENSION_TEST_CONNECTION ?? 'null');
@@ -29,6 +29,7 @@ function resolveInput() {
   const inputs = {
     content: path.resolve(rootDirectory, 'src/content/main.js'),
     'location-bridge': path.resolve(rootDirectory, 'src/content/location-bridge.js'),
+    'session-relay': path.resolve(rootDirectory, 'src/content/session-relay.js'),
     background: path.resolve(rootDirectory, 'src/background/main.js'),
     options: path.resolve(rootDirectory, 'options.html'),
     popup: path.resolve(rootDirectory, 'popup.html'),
@@ -45,6 +46,7 @@ function resolveInput() {
   if (buildTarget === 'location-bridge') {
     return { 'location-bridge': inputs['location-bridge'] };
   }
+  if (buildTarget === 'session-relay') return { 'session-relay': inputs['session-relay'] };
 
   return {
     options: inputs.options,
@@ -57,7 +59,7 @@ function resolveOutput() {
     entryFileNames: 'assets/[name].js',
   };
 
-  if (['background', 'content', 'location-bridge'].includes(buildTarget)) {
+  if (['background', 'content', 'location-bridge', 'session-relay'].includes(buildTarget)) {
     output.inlineDynamicImports = true;
   }
 

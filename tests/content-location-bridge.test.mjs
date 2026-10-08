@@ -27,11 +27,12 @@ test('location bridge does not reserve global page-world lexical names', () => {
         replaceState() {},
       },
     },
+    installRequestSessionObserver() {},
   };
   context.window.window = context.window;
   vm.createContext(context);
 
-  vm.runInContext(source, context);
+  vm.runInContext(source.replace(/^import .*;\s*/m, ''), context);
 
   assert.doesNotThrow(() => {
     vm.runInContext(`

@@ -224,6 +224,7 @@ export async function buildExtension({ channel, destination, root, testRuntime }
   const backgroundOutputPath = path.join(staging, 'background');
   const contentOutputPath = path.join(staging, 'content');
   const locationBridgeOutputPath = path.join(staging, 'location-bridge');
+  const sessionRelayOutputPath = path.join(staging, 'session-relay');
   try {
     fs.rmSync(buildOutputPath, { force: true, recursive: true });
     fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
@@ -233,9 +234,11 @@ export async function buildExtension({ channel, destination, root, testRuntime }
     await runViteBuild({ channel, connection, outDir: backgroundOutputPath, root, target: 'background' });
     await runViteBuild({ channel, connection, outDir: contentOutputPath, root, target: 'content' });
     await runViteBuild({ channel, connection, outDir: locationBridgeOutputPath, root, target: 'location-bridge' });
+    await runViteBuild({ channel, connection, outDir: sessionRelayOutputPath, root, target: 'session-relay' });
     copyContentBuild({ buildOutputPath, contentOutputPath: backgroundOutputPath, entryName: 'background' });
     copyContentBuild({ buildOutputPath, contentOutputPath });
     copyContentBuild({ buildOutputPath, contentOutputPath: locationBridgeOutputPath, entryName: 'location-bridge' });
+    copyContentBuild({ buildOutputPath, contentOutputPath: sessionRelayOutputPath, entryName: 'session-relay' });
     fs.rmSync(backgroundOutputPath, { force: true, recursive: true });
     fs.rmSync(contentOutputPath, { force: true, recursive: true });
     fs.rmSync(locationBridgeOutputPath, { force: true, recursive: true });

@@ -24,6 +24,7 @@ import {
   handleTabCounterSnapshotRequest,
 } from './tab-counter.js';
 import { collectReactionRuntimeContext } from './reaction-runtime-context.js';
+import { createRequestSessionCapture } from './request-session-capture.js';
 import { withReactionPageContext } from './reaction-page-context.js';
 import { loadAssetSourcePreferences } from '../shared/asset-source-preferences.js';
 import { loadNextTabsFromActive } from './load-next-tabs.js';
@@ -37,6 +38,7 @@ import { createPerformanceDiagnosticStore } from './performance-diagnostics.js';
 import { fanoutTabMessage } from './message-fanout.js';
 
 const openTabs = createOpenTabRegistry();
+const requestSessionCapture = createRequestSessionCapture(); requestSessionCapture.bind();
 const performanceDiagnostics = createPerformanceDiagnosticStore();
 const browserPages = createBrowserReferrers(body => desktopRuntime.resolveBrowserPages(body), () => contentInterests);
 const contentInterests = createContentInterestRegistry({ canonicalProviderPage: browserPages.canonical });
@@ -198,8 +200,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
   if (!isAtlasApiMessage(message)) {
     return false;
   }
-
-  void handleAtlasApiMessage(withReactionPageContext(message, sender), sender?.tab?.id)
+  void handleAtlasApiMessage(withReactionPageContext(message, sender), sender?.tab?.id, sender?.frameId ?? 0, sender?.documentId)
     .then((payload) => sendResponse({ ok: true, payload }))
     .catch((error) => sendResponse({
       error: serializeDesktopError(error),
@@ -208,7 +209,6 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
 
   return true;
 });
-
 bindOpenTabTracking();
 globalThis.chrome?.webNavigation?.onCommitted?.addListener?.(({ tabId, frameId }) => {
   void contentInterests.ready.then(() => {
@@ -229,7 +229,7 @@ globalThis.chrome?.runtime?.onInstalled?.addListener?.((details) => {
   void handleExtensionReloadUpdate({ details });
 });
 
-async function handleAtlasApiMessage(message, tabId) {
+async function handleAtlasApiMessage(message, tabId, frameId, documentId) {
   const preview = message.previewOnly === true
     && ['atlas-extension.asset-reaction', 'atlas-extension.asset-reaction-batch'].includes(message.type);
   const { credentials, transport } = preview
@@ -264,7 +264,7 @@ async function handleAtlasApiMessage(message, tabId) {
       tabId, previewOnly: preview,
       prepareContext: async () => ({
         preferences: await loadAssetSourcePreferences(),
-        runtimeContext: await collectReactionRuntimeContext(message),
+        runtimeContext: await collectReactionRuntimeContext(message, { tabId, frameId, documentId, requireTab: true, requestCapture: requestSessionCapture }),
       }),
       transport,
     });
@@ -277,12 +277,11 @@ async function handleAtlasApiMessage(message, tabId) {
     reactionType: message.reactionType,
     useBrowserDownload: message.useBrowserDownload,
     referrerUrl: message.referrerUrl,
-    runtimeContext: await collectReactionRuntimeContext(message),
+    runtimeContext: await collectReactionRuntimeContext(message, { tabId, frameId, documentId, requireTab: true, requestCapture: requestSessionCapture }),
     source: message.source,
     transport,
   });
 }
-
 function isAtlasApiMessage(message) {
   return [
     'atlas-extension.asset-reaction-batch',

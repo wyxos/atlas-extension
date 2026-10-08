@@ -87,6 +87,7 @@ if (manifest !== null) {
       'storage',
       'tabs',
       'webNavigation',
+      'webRequest',
       'cookies',
       'scripting',
       'clipboardRead',
@@ -127,35 +128,38 @@ if (manifest !== null) {
     'manifest.json must limit extension-page connections to the Desktop loopback service',
   );
   expect(Array.isArray(manifest.content_scripts), 'manifest.json must define content scripts for asset detection');
-  expect(manifest.content_scripts?.length === 2, 'manifest.json must define location bridge and badge content scripts');
+  expect(manifest.content_scripts?.length === 3, 'manifest.json must define location bridge and badge content scripts');
   expect(manifest.content_scripts?.every((script) => script.all_frames === true
     && script.match_origin_as_fallback === true), 'content scripts must reach embedded and origin-related frames');
+  expect(JSON.stringify(manifest.content_scripts?.[0]?.js) === JSON.stringify(['assets/session-relay.js'])
+    && manifest.content_scripts?.[0]?.run_at === 'document_start'
+    && manifest.content_scripts?.[0]?.world !== 'MAIN', 'session relay must run in the isolated world before page requests');
   expect(
-    JSON.stringify(manifest.content_scripts?.[0]?.matches) === JSON.stringify(['<all_urls>']),
+    JSON.stringify(manifest.content_scripts?.[1]?.matches) === JSON.stringify(['<all_urls>']),
     'manifest.json location bridge must run on normal web pages',
   );
   expect(
-    JSON.stringify(manifest.content_scripts?.[0]?.js) === JSON.stringify(['assets/location-bridge.js']),
+    JSON.stringify(manifest.content_scripts?.[1]?.js) === JSON.stringify(['assets/location-bridge.js']),
     'manifest.json location bridge must load before the badge content script',
   );
   expect(
-    manifest.content_scripts?.[0]?.run_at === 'document_start',
+    manifest.content_scripts?.[1]?.run_at === 'document_start',
     'manifest.json location bridge must run before SPA routers initialize',
   );
   expect(
-    manifest.content_scripts?.[0]?.world === 'MAIN',
+    manifest.content_scripts?.[1]?.world === 'MAIN',
     'manifest.json location bridge must run in the page main world',
   );
   expect(
-    JSON.stringify(manifest.content_scripts?.[1]?.matches) === JSON.stringify(['<all_urls>']),
+    JSON.stringify(manifest.content_scripts?.[2]?.matches) === JSON.stringify(['<all_urls>']),
     'manifest.json badge content script must run on normal web pages',
   );
   expect(
-    JSON.stringify(manifest.content_scripts?.[1]?.js) === JSON.stringify(['assets/content.js']),
+    JSON.stringify(manifest.content_scripts?.[2]?.js) === JSON.stringify(['assets/content.js']),
     'manifest.json badge content script must load the compiled content asset detector',
   );
   expect(
-    manifest.content_scripts?.[1]?.run_at === 'document_idle',
+    manifest.content_scripts?.[2]?.run_at === 'document_idle',
     'manifest.json badge content script must run after page content is available',
   );
 
