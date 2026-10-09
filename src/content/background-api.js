@@ -1,4 +1,10 @@
+import { createDesktopContractError } from '../shared/desktop-contract.js';
+import { reactionFailureCodes, reactionMessageTypes, reactionRequestId } from '../shared/reaction-diagnostics.js';
+
 const defaultTimeoutMs = 15000;
+// Reactions include browser-session preparation before Desktop's 15s request
+// deadline. The outer 30s deadline detects a lost worker reply without racing it.
+const reactionTimeoutMs = 30000;
 
 export function fetchAssetStatusesViaBackground({
   assetUrls,
@@ -171,16 +177,21 @@ export function updateBatchProviderPreferenceViaBackground({
 
 export function sendBackgroundRequest(message, options = {}) {
   const runtime = options.runtime ?? globalThis.chrome?.runtime;
-  const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : defaultTimeoutMs;
+  const isReaction = reactionMessageTypes.includes(message?.type);
+  const requestId = isReaction ? reactionRequestId(message.requestId) : undefined;
+  if (isReaction) message = { ...message, requestId };
+  const timeoutMs = isReaction && options.timeoutMs === defaultTimeoutMs ? reactionTimeoutMs
+    : typeof options.timeoutMs === 'number' ? options.timeoutMs : isReaction ? reactionTimeoutMs : defaultTimeoutMs;
+  const workerError = (code, text) => createDesktopContractError(code, text, true, undefined, requestId);
 
   if (typeof runtime?.sendMessage !== 'function') {
-    return Promise.reject(new Error('Atlas extension background worker is unavailable.'));
+    return Promise.reject(workerError('EXTENSION_WORKER_UNAVAILABLE', 'Atlas extension background worker is unavailable.'));
   }
 
   return new Promise((resolve, reject) => {
     let settled = false;
     const timeoutId = globalThis.setTimeout(() => {
-      finish(reject, new Error('Atlas extension background request timed out.'));
+      finish(reject, workerError('EXTENSION_REQUEST_TIMEOUT', 'Atlas extension background request timed out.'));
     }, timeoutMs);
 
     function finish(callback, value) {
@@ -190,6 +201,15 @@ export function sendBackgroundRequest(message, options = {}) {
 
       settled = true;
       globalThis.clearTimeout(timeoutId);
+      if (callback === reject && isReaction) {
+        if (!value?.requestId) value.requestId = requestId;
+        // Best-effort event delivery only; a disconnected worker cannot be asked
+        // to persist evidence. The page retains the reference in its error state.
+        try { if (reactionFailureCodes.includes(value.code)) runtime.sendMessage({ type: 'atlas-extension.reaction-failure', failure: {
+          requestId, code: value.code, phase: 'background-message',
+          operation: message.type.endsWith('-batch') ? 'reaction-batch' : 'reaction',
+        } }, () => { void runtime.lastError; }); } catch { /* Worker is unavailable. */ }
+      }
       callback(value);
     }
 
@@ -197,7 +217,7 @@ export function sendBackgroundRequest(message, options = {}) {
       const lastError = runtime.lastError?.message;
 
       if (lastError) {
-        finish(reject, new Error(lastError));
+        finish(reject, workerError('EXTENSION_MESSAGE_FAILED', 'Atlas extension messaging failed.'));
 
         return;
       }
@@ -219,10 +239,10 @@ export function sendBackgroundRequest(message, options = {}) {
       const maybePromise = runtime.sendMessage(message, handleResponse);
 
       if (maybePromise && typeof maybePromise.then === 'function') {
-        maybePromise.then(handleResponse).catch((error) => finish(reject, error));
+        maybePromise.then(handleResponse).catch(() => finish(reject, workerError('EXTENSION_MESSAGE_FAILED', 'Atlas extension messaging failed.')));
       }
-    } catch (error) {
-      finish(reject, error);
+    } catch {
+      finish(reject, workerError('EXTENSION_MESSAGE_FAILED', 'Atlas extension messaging failed.'));
     }
   });
 }

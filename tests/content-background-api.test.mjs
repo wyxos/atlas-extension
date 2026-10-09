@@ -80,7 +80,9 @@ test('posts asset reactions through the background worker', async () => {
     referrerUrl: 'https://www.example.test/post/123',
     source: 'example.test',
     type: 'atlas-extension.asset-reaction',
+    requestId: messages[0].requestId,
   }]);
+  assert.match(messages[0].requestId, /^[0-9a-f-]{36}$/);
   assert.equal(payload.reaction.type, 'love');
 });
 
@@ -145,7 +147,9 @@ test('posts batch asset reactions through the background worker', async () => {
     downloadAction: 'force',
     reactionType: 'love',
     type: 'atlas-extension.asset-reaction-batch',
+    requestId: messages[0].requestId,
   }]);
+  assert.match(messages[0].requestId, /^[0-9a-f-]{36}$/);
   assert.equal(payload.items.length, 2);
 });
 

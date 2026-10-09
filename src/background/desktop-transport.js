@@ -7,6 +7,7 @@ import {
 } from '../shared/desktop-contract.js';
 import { hasDesktopClientCredentials } from './desktop-connection-state.js';
 import { desktopCapabilities, hasDesktopCapability } from '../shared/desktop-capabilities.js';
+import { reactionDiagnosticCapability } from '../shared/reaction-diagnostics.js';
 
 const defaultRequestTimeoutMs = 15000;
 const pairingRequestTimeoutMs = 5 * 60 * 1000;
@@ -182,6 +183,10 @@ export function createDesktopTransport(options = {}) {
     });
   }
 
+  function reactionFailure(credentials, failure) {
+    return request('/v1/diagnostics/reaction-failures', { credentials, body: failure, method: 'POST' });
+  }
+
   async function request(path, requestOptions = {}) {
     if (typeof fetchImpl !== 'function') {
       throw createDesktopContractError('DESKTOP_OFFLINE', 'Atlas Desktop is not reachable.', true);
@@ -209,6 +214,7 @@ export function createDesktopTransport(options = {}) {
         headers: buildHeaders({
           body: requestOptions.body,
           credentials,
+          requestId: hasDesktopCapability(credentials, reactionDiagnosticCapability) ? requestOptions.requestId : null,
           idempotencyKey: requestOptions.mutation === true
             ? requestOptions.idempotencyKey ?? randomId()
             : null,
@@ -225,6 +231,7 @@ export function createDesktopTransport(options = {}) {
       return envelope.data ?? {};
     } catch (error) {
       if (error?.code) {
+        if (requestOptions.requestId && !error.requestId) error.requestId = requestOptions.requestId;
         throw error;
       }
 
@@ -235,7 +242,7 @@ export function createDesktopTransport(options = {}) {
           : createDesktopContractError('REQUEST_CANCELLED', 'Atlas Desktop request was cancelled.', true);
       }
 
-      throw createDesktopContractError('DESKTOP_OFFLINE', 'Atlas Desktop is not reachable.', true);
+      throw createDesktopContractError('DESKTOP_OFFLINE', 'Atlas Desktop is not reachable.', true, undefined, requestOptions.requestId);
     } finally {
       if (timeoutId !== null) {
         globalThis.clearTimeout(timeoutId);
@@ -255,6 +262,7 @@ export function createDesktopTransport(options = {}) {
     openFile,
     pair,
     reaction,
+    reactionFailure,
     reactionBatch,
     request,
     runtimePolicy,
@@ -266,7 +274,7 @@ export function createDesktopTransport(options = {}) {
   };
 }
 
-function buildHeaders({ body, credentials, idempotencyKey }) {
+function buildHeaders({ body, credentials, idempotencyKey, requestId }) {
   return {
     Accept: 'application/json',
     ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
@@ -275,6 +283,7 @@ function buildHeaders({ body, credentials, idempotencyKey }) {
       'X-Atlas-Client-Id': credentials.clientId,
     } : {}),
     ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    ...(requestId ? { 'X-Atlas-Request-Id': requestId } : {}),
   };
 }
 

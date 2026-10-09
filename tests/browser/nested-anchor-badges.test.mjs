@@ -133,6 +133,58 @@ for (const scenario of cases) {
     });
 }
 
+test('browser session failure shows its real code and relays the same safe reference to Desktop',
+  { timeout: 90_000 }, async t => {
+    const context = await chromium.launchPersistentContext('', {
+      channel: 'chromium', headless: true, viewport: { width: 1280, height: 1000 },
+      args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+    });
+    t.after(() => context.close());
+    const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${new URL(worker.url()).hostname}/options.html`);
+    const connected = fixture.connected();
+    assert.equal((await options.evaluate(() => globalThis.chrome.runtime.sendMessage({
+      type: 'atlas-extension.desktop.pair',
+    }))).ok, true);
+    await connected;
+    const page = await context.newPage();
+    await page.goto(`${fixture.origin}/pages/3`);
+    await worker.evaluate(() => {
+      // Synthetic unavailable cookie store exercises the real preparation path.
+      globalThis.chrome.cookies.getAllCookieStores = callback => callback([]);
+    });
+    const previousReactions = fixture.reactions.length;
+    const received = fixture.nextFailure();
+    await page.locator('[data-atlas-asset-badge="true"]').getByRole('button', { name: 'Like', exact: true }).click();
+    const [report] = await received;
+    assert.equal(report.code, 'BROWSER_SESSION_UNAVAILABLE');
+    assert.equal(report.phase, 'preparing-session');
+    assert.match(report.requestId, /^[0-9a-f-]{36}$/);
+    const alert = page.getByRole('alert').filter({ hasText: 'BROWSER_SESSION_UNAVAILABLE' }).first();
+    await alert.waitFor({ state: 'visible' });
+    assert.ok((await alert.textContent()).includes(report.requestId));
+    assert.equal(fixture.reactions.length, previousReactions);
+    const history = await options.evaluate(() => globalThis.chrome.runtime.sendMessage({
+      type: 'atlas-extension.desktop.diagnostics',
+    }));
+    assert.equal(history.payload.reactionFailures[0].requestId, report.requestId);
+    const historyRows = options.getByRole('region', { name: 'Reaction failures' });
+    await historyRows.getByText(report.code, { exact: true }).waitFor({ state: 'visible' });
+    assert.ok((await historyRows.textContent()).includes(report.requestId));
+    for (const width of [1280, 460]) {
+      await options.setViewportSize({ width, height: 1000 });
+      assert.equal(await options.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+      if (process.env.ATLAS_BROWSER_ARTIFACT_DIR) {
+        await fs.mkdir(process.env.ATLAS_BROWSER_ARTIFACT_DIR, { recursive: true });
+        await options.screenshot({ path: path.join(process.env.ATLAS_BROWSER_ARTIFACT_DIR,
+          `reaction-history-${width}.png`), fullPage: true });
+      }
+    }
+    assert.doesNotMatch(JSON.stringify(report), /127\.0\.0\.1|fixture-token|cookie.*value|stack|asset_url/);
+    assert.deepEqual(fixture.unexpected, []);
+  });
+
 function badgeSnapshot(page, link) {
   return page.locator(`#link-${link}`).evaluate(anchor => {
     const badge = anchor.querySelector('[data-atlas-extension-badge-host]')?.shadowRoot

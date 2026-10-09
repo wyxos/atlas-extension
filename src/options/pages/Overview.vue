@@ -23,8 +23,11 @@ import {
   requestDesktopUnpair,
 } from "../../shared/desktop-messages";
 import { desktopConnectionStorageKey } from "../../background/desktop-connection-state";
+import { createReactionFailureHistory } from "../../background/reaction-diagnostics.js";
 
 const diagnostics = ref(null);
+const reactionFailures = ref([]);
+const failureHistory = createReactionFailureHistory();
 const busyAction = ref("");
 let pairingCancelled = false;
 
@@ -60,6 +63,7 @@ const diagnosticRows = computed(() => [
 ]);
 
 function handleStorageChange(changes, areaName) {
+  if (areaName === "local" && changes?.atlasReactionFailures) void loadFailureHistory();
   if (areaName === "local" && changes?.[desktopConnectionStorageKey]) {
     void loadDiagnostics();
   }
@@ -68,7 +72,13 @@ function handleStorageChange(changes, areaName) {
 onMounted(() => {
   globalThis.chrome?.storage?.onChanged?.addListener?.(handleStorageChange);
   void loadDiagnostics();
+  void loadFailureHistory();
 });
+
+async function loadFailureHistory() {
+  try { reactionFailures.value = (await failureHistory.snapshot()).reverse(); }
+  catch { reactionFailures.value = []; }
+}
 onBeforeUnmount(() => {
   globalThis.chrome?.storage?.onChanged?.removeListener?.(handleStorageChange);
 });
@@ -227,6 +237,31 @@ function displayValue(value) {
         {{ diagnostics.lastError.retryable ? "Reconnect after Atlas Desktop is ready." : "Check the channel and pairing in Atlas Desktop." }}
       </p>
     </div>
+
+    <section class="space-y-3" aria-labelledby="reaction-failures-title">
+      <h3 id="reaction-failures-title" class="text-base font-semibold">
+        Reaction failures
+      </h3>
+      <p v-if="!reactionFailures.length" class="text-sm text-muted-foreground">
+        No recent reaction failures.
+      </p>
+      <ol v-else class="space-y-2">
+        <li v-for="failure in reactionFailures" :key="failure.requestId" class="min-w-0 rounded-sm border border-border bg-card p-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="break-all text-sm font-medium">{{ failure.code }}</span>
+            <Badge variant="outline" class="rounded-sm">
+              {{ failure.delivered ? "Recorded in Desktop" : "Pending Desktop connection" }}
+            </Badge>
+          </div>
+          <p class="mt-1 text-xs text-muted-foreground">
+            {{ formatTimestamp(failure.observedAt) }} · {{ failure.operation }} · {{ failure.phase }}
+          </p>
+          <p class="mt-2 break-all font-mono text-xs">
+            Reference: {{ failure.requestId }}
+          </p>
+        </li>
+      </ol>
+    </section>
 
     <dl class="grid grid-cols-1 overflow-hidden rounded-lg border border-border sm:grid-cols-2">
       <div

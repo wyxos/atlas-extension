@@ -88,6 +88,7 @@ export function createDesktopRuntime(options = {}) {
         lastError: null,
       }, storage);
       await startEventClient(state);
+      options.onConnected?.({ credentials: state, transport });
       options.onResyncRequired?.();
       return publicDesktopDiagnostics(await loadDesktopConnectionState(storage), runtime);
     } catch (error) {
@@ -173,7 +174,8 @@ export function createDesktopRuntime(options = {}) {
   }
 
   async function diagnostics() {
-    return publicDesktopDiagnostics(await loadDesktopConnectionState(storage), runtime);
+    return { ...publicDesktopDiagnostics(await loadDesktopConnectionState(storage), runtime),
+      reactionFailures: await options.reactionFailures?.() ?? [] };
   }
 
   async function requestContext() {
@@ -342,6 +344,7 @@ export function createDesktopRuntime(options = {}) {
           ...(error ? { lastError: serializeDesktopError(error) } : {}),
         }, storage);
         if (generation === eventGeneration && changed) options.onResyncRequired?.();
+        if (generation === eventGeneration && connected) options.onConnected?.({ credentials, transport });
       },
       transport,
       WebSocketImpl: options.WebSocketImpl,

@@ -44,7 +44,8 @@ test('content inspection flags the same request without submitting a reaction', 
       locationContext: { href: 'https://site.test/page', hostname: 'site.test' } };
     await postAssetOrBatchReaction({ ...args, previewOnly: true });
     await postAssetOrBatchReaction(args);
-    assert.deepEqual(messages[0], { ...messages[1], previewOnly: true });
+    assert.deepEqual(messages[0], { ...messages[1], previewOnly: true, requestId: messages[0].requestId });
+    assert.notEqual(messages[0].requestId, messages[1].requestId);
   } finally { globalThis.chrome = previous; }
 });
 

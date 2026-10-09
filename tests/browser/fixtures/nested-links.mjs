@@ -9,6 +9,7 @@ export async function nestedLinksFixture(runtimeId) {
   const events = new EventEmitter();
   const sockets = new Set();
   const reactions = [];
+  const failures = [];
   const unexpected = [];
   let sequence = 0;
   let current = null;
@@ -51,7 +52,7 @@ export async function nestedLinksFixture(runtimeId) {
       };
       if (url.pathname === '/v1/hello') {
         json({ app: { channel: 'dev', runtime_id: runtimeId }, protocol_version: 1,
-          capabilities: ['browser-provider-resolution-v1', 'close-tab-mode', 'batch-provider-preference', 'browser-authenticated-download-v1'] });
+          capabilities: ['browser-provider-resolution-v1', 'close-tab-mode', 'batch-provider-preference', 'browser-authenticated-download-v1', 'extension-diagnostics-v1'] });
         return;
       }
       if (url.pathname === '/v1/pairings') {
@@ -74,6 +75,10 @@ export async function nestedLinksFixture(runtimeId) {
         // from pushed events, without a reload, focus refresh or retry masking it.
         json({ assets: {}, referrers: {}, matches: {} });
         events.emit('status', body);
+      } else if (url.pathname === '/v1/diagnostics/reaction-failures') {
+        failures.push(body);
+        json({ recorded: true });
+        events.emit('failure', body);
       } else if (url.pathname === '/v1/reactions') {
         reactions.push(body);
         current = { assetUrl: body.asset_url, referrerUrl: body.referrer_url,
@@ -104,9 +109,10 @@ export async function nestedLinksFixture(runtimeId) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
   return {
-    origin, port: server.address().port, reactions, unexpected,
+    origin, port: server.address().port, reactions, failures, unexpected,
     connected: () => sockets.size ? Promise.resolve() : once(events, 'connected'),
     nextReaction: () => once(events, 'reaction'),
+    nextFailure: () => once(events, 'failure'),
     nextStatus: predicate => new Promise(resolve => {
       const listener = body => {
         if (!predicate || predicate(body)) {
