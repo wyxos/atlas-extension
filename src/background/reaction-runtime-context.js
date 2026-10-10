@@ -1,4 +1,5 @@
 import { createDesktopContractError } from '../shared/desktop-contract.js';
+import { cookieAccessFailureDetails } from '../shared/browser-session-error.js';
 
 export async function collectReactionRuntimeContext(message, options = {}) {
   const context = {};
@@ -104,14 +105,15 @@ async function resolveCookieScope(options) {
       });
       partitionKey = result?.partitionKey;
       if (!partitionKey || typeof partitionKey.topLevelSite !== 'string' || !partitionKey.topLevelSite) throw new Error();
-    } catch {
-      throw sessionError('BROWSER_SESSION_UNAVAILABLE', 'The browser cookie partition is unavailable. Refresh the page and retry.');
+    } catch (error) {
+      throw sessionError('BROWSER_SESSION_UNAVAILABLE', 'The browser cookie partition is unavailable. Refresh the page and retry.',
+        cookieAccessFailureDetails(error));
     }
   }
   return { storeId: store.id, partitionKey };
 }
 
-function sessionError(code, message) { return createDesktopContractError(code, message, true); }
+function sessionError(code, message, details) { return createDesktopContractError(code, message, true, details); }
 
 function chromeCookieCall(chromeApi, method, details) {
   return new Promise((resolve, reject) => {
@@ -121,14 +123,16 @@ function chromeCookieCall(chromeApi, method, details) {
     }
     const done = value => {
       if (chromeApi.runtime?.lastError || !Array.isArray(value)) {
-        reject(sessionError('BROWSER_SESSION_UNAVAILABLE', 'Browser cookies could not be read. Check extension permissions and retry.'));
+        reject(sessionError('BROWSER_SESSION_UNAVAILABLE', 'Browser cookies could not be read. Check extension permissions and retry.',
+          cookieAccessFailureDetails(chromeApi.runtime?.lastError)));
       } else resolve(value);
     };
     try {
       if (details === undefined) chromeApi.cookies[method](done);
       else chromeApi.cookies[method](details, done);
-    } catch {
-      reject(sessionError('BROWSER_SESSION_UNAVAILABLE', 'Browser cookies could not be read. Check extension permissions and retry.'));
+    } catch (error) {
+      reject(sessionError('BROWSER_SESSION_UNAVAILABLE', 'Browser cookies could not be read. Check extension permissions and retry.',
+        cookieAccessFailureDetails(error)));
     }
   });
 }

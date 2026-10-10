@@ -4,9 +4,54 @@ import { createDesktopTransport } from '../src/background/desktop-transport.js';
 import { serializeDesktopError } from '../src/shared/desktop-contract.js';
 import { sendBackgroundRequest } from '../src/content/background-api.js';
 import { reactionFailureFromError } from '../src/content/reaction-failure-state.js';
+import { collectReactionRuntimeContext } from '../src/background/reaction-runtime-context.js';
 
 const reference = '12345678-1234-4abc-8abc-123456789abc';
 const credentials = { channel: 'dev', clientId: 'fixture-client', clientToken: 'fixture-token' };
+
+test('cookie host permission denial survives worker and page error mapping without leaking the browser URL', async () => {
+  for (const type of ['atlas-extension.asset-reaction', 'atlas-extension.asset-reaction-batch']) {
+    let captured;
+    await assert.rejects(collectReactionRuntimeContext({ type, reactionType: 'like' }, {
+      tabId: 2, requireTab: true, chromeApi: { cookies: {
+        getAllCookieStores: done => done([{ id: 'selected', tabIds: [2] }]),
+        getPartitionKey: async () => { throw new Error('No host permissions for cookies at url: "https://private.example/?token=hidden".'); },
+        getAll: () => assert.fail('A denied partition must not read cookies with a different scope'),
+      } },
+    }), error => { captured = error; return error.code === 'BROWSER_SESSION_UNAVAILABLE'; });
+    captured.requestId = reference;
+    const workerFailure = reactionFailureFromError(captured);
+    const response = { code: workerFailure.errorCode, message: workerFailure.message,
+      details: workerFailure.details, requestId: workerFailure.requestId, retryable: workerFailure.retryable };
+    await assert.rejects(sendBackgroundRequest({ type }, { runtime: {
+      sendMessage(message, callback) {
+        if (message.type === 'atlas-extension.reaction-failure') { callback(); return; }
+        callback({ ok: false, error: response });
+      },
+    } }), error => {
+      const failure = reactionFailureFromError(error);
+      assert.deepEqual(failure.details, { reason: 'HOST_PERMISSION_DENIED' });
+      assert.match(failure.message, /site access/i);
+      assert.match(failure.message, /cookie/i);
+      assert.equal(failure.requestId, reference);
+      assert.doesNotMatch(JSON.stringify(failure), /private|https:|hidden/i);
+      return true;
+    });
+  }
+});
+
+test('only the known browser session permission category becomes recovery text', () => {
+  for (const code of ['BROWSER_SESSION_UNAVAILABLE', 'REACTION_FAILED']) {
+    for (const reason of ['https://private.example/?token=hidden', '__proto__', 'constructor', undefined]) {
+      const failure = reactionFailureFromError({ code, details: { reason, token: 'hidden' } });
+      assert.equal(failure.details, undefined);
+      assert.doesNotMatch(JSON.stringify(failure), /private|hidden|constructor|__proto__/i);
+    }
+  }
+  assert.equal(reactionFailureFromError({ code: 'REACTION_FAILED', details: { reason: 'HOST_PERMISSION_DENIED' } }).details, undefined);
+  assert.deepEqual(reactionFailureFromError({ code: 'BROWSER_SESSION_UNAVAILABLE',
+    details: { reason: 'HOST_PERMISSION_DENIED', token: 'hidden' } }).details, { reason: 'HOST_PERMISSION_DENIED' });
+});
 
 test('a rejected batch preserves its diagnostic reference across transport and background messaging', async () => {
   const transport = createDesktopTransport({

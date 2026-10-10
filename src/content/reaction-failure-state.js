@@ -1,4 +1,5 @@
 import { normalizeDesktopRequestId } from '../shared/desktop-contract.js';
+import { safeBrowserSessionFailureDetails } from '../shared/browser-session-error.js';
 
 export function applyAcceptedReactionPayload(payload, { applyBatch, applySingle }) {
   if (Array.isArray(payload?.items)) {
@@ -48,16 +49,21 @@ export function reactionFailureFromError(error) {
     BATCH_UNSUPPORTED_MEDIA: 'This gallery contains unsupported media. Turn off Batch to download items individually.',
     REACTION_REQUEST_FAILED: 'The reaction request failed. Retry, then check Desktop diagnostics if it continues.',
   };
-  // Only fixed explanations and UUID references reach the page. Server messages,
+  // Only fixed explanations, categories and UUID references reach the page. Server messages,
   // details, and unexpected codes can contain private provider or request data.
   const code = Object.hasOwn(messages, error?.code) ? error.code : 'REACTION_REQUEST_FAILED';
   const requestId = normalizeDesktopRequestId(error?.requestId ?? error?.request_id);
+  const details = safeBrowserSessionFailureDetails(error);
+  const explanation = details
+    ? 'The browser denied Atlas access to this site’s cookies. In the extension’s Site access settings, grant permanent access to the page and its main domain, then reload and retry.'
+    : messages[code];
   return {
     errorCode: code,
     failureStage: 'reaction',
-    message: `${messages[code]} [${code}${requestId ? ` · Reference: ${requestId}` : ''}]`,
+    message: `${explanation} [${code}${requestId ? ` · Reference: ${requestId}` : ''}]`,
     retryable: error?.retryable === true,
     ...(requestId === null ? {} : { requestId }),
+    ...(details ? { details } : {}),
   };
 }
 

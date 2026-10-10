@@ -207,6 +207,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
       });
       const failure = requestId ? reactionFailureFromError(error) : null;
       sendResponse({ error: failure ? { code: failure.errorCode, message: failure.message,
+        ...(failure.details ? { details: failure.details } : {}),
         requestId: failure.requestId, retryable: failure.retryable } : serializeDesktopError(error), ok: false });
     });
   return true;
