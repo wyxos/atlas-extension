@@ -22,6 +22,50 @@ after(async () => {
     await fs.rm(root, { recursive: true, force: true }); }
 });
 
+test('user actions skip hidden responsive copies on model and profile pages', { timeout: 90_000 }, async t => {
+  fixture.changeProvider(true, 'visibility@fixture'); fixture.setFailure(false);
+  const context = await chromium.launchPersistentContext('', { channel: 'chromium', headless: true,
+    viewport: { width: 1280, height: 850 }, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] });
+  t.after(() => context.close());
+  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+  const options = await context.newPage(); await options.goto(`chrome-extension://${new URL(worker.url()).hostname}/options.html`);
+  const connected = fixture.connected();
+  assert.equal((await options.evaluate(() => globalThis.chrome.runtime.sendMessage({ type: 'atlas-extension.desktop.pair' }))).ok, true);
+  await connected;
+  const page = await context.newPage();
+  await page.goto(`${fixture.origin}/models/2726029/synthetic?hiddenCopy=1`);
+  const creator = page.locator('[data-atlas-browser-action="creator"]');
+  await creator.locator('button').waitFor({ state: 'attached' });
+  if (process.env.ATLAS_BROWSER_ARTIFACT_DIR) {
+    await fs.mkdir(process.env.ATLAS_BROWSER_ARTIFACT_DIR, { recursive: true });
+    await page.screenshot({ path: path.join(process.env.ATLAS_BROWSER_ARTIFACT_DIR, 'user-visibility-model.png'), fullPage: true });
+  }
+  assert.equal(await creator.locator('button').isVisible(), true, 'creator CTA belongs beside the rendered card');
+  const request = fixture.nextAction(); await creator.getByRole('button').click();
+  assert.equal((await request)[0].target_url, `${fixture.origin}/user/Adel_AI`);
+  await page.goto(`${fixture.origin}/user/Adel_AI?hiddenCopy=1`);
+  const profile = page.locator('[data-atlas-browser-action="user-profile"]');
+  await profile.locator('button').waitFor({ state: 'attached' });
+  assert.equal(await profile.locator('button').isVisible(), true, 'profile CTA skips hidden username copies');
+  const profileRequest = fixture.nextAction(); await profile.getByRole('button').click();
+  assert.equal((await profileRequest)[0].target_url, `${fixture.origin}/user/Adel_AI?hiddenCopy=1`);
+  await page.addStyleTag({ content: '.responsive-copy{display:none}@media(max-width:600px){.responsive-copy{display:block}#user-heading{display:none}}' });
+  await page.locator('.responsive-copy').evaluate(copy => { copy.hidden = false; });
+  await page.setViewportSize({ width: 460, height: 850 });
+  await profile.getByRole('button', { name: 'Open user in Atlas' }).waitFor({ state: 'visible' });
+  assert.equal(await profile.evaluate(host => host.parentElement.className), 'responsive-copy');
+  assert.equal(await profile.count(), 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+  if (process.env.ATLAS_BROWSER_ARTIFACT_DIR) await page.screenshot({ path: path.join(process.env.ATLAS_BROWSER_ARTIFACT_DIR,
+    'user-visibility-profile-460.png'), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await profile.getByRole('button').waitFor({ state: 'visible' });
+  assert.equal(await profile.evaluate(host => host.previousElementSibling.id), 'user-heading');
+  await page.goto(`${fixture.origin}/user/Adel_AI?plainProfile=1`);
+  await page.locator('[data-atlas-browser-action]').waitFor({ state: 'attached', timeout: 2000 });
+  assert.equal(await profile.getByRole('button').isVisible(), true, 'profile action does not depend on cosmetic name gradients');
+});
+
 for (const width of [1280, 460]) {
   test(`generic package actions open model and scoped creator, SPA and lifecycle at ${width}px`, { timeout: 90_000 }, async t => {
     fixture.changeProvider(true, '1@fixture'); fixture.setFailure(false);

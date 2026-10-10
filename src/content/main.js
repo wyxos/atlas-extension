@@ -471,6 +471,7 @@ function updateAllAssetBadgePresentations() {
 }
 function updateAllBadgeStates(patch) { for (const id of badgeStatesById.keys()) updateBadgeState(id, patch); }
 window.addEventListener('atlas-browser-provider-changed', () => { browserActions.sync(); statusChecks.reset(); scheduleScan(); });
+window.addEventListener('resize', () => browserActions.sync(), { passive: true });
 startContentRuntime({
   onDomRemoved: browserActions.sync,
   getOpenReferrerCounts: () => openReferrerCounts,

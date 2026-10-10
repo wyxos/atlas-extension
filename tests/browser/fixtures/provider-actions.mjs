@@ -26,15 +26,19 @@ export async function providerActionsFixture(runtimeId) {
           response.end('<!doctype html><html><head><title>Synthetic deviation</title><style>body{margin:24px;background:#10141b;color:#edf0f6;font:16px/1.5 system-ui}main{max-width:720px}</style></head><body><main><h1>Synthetic deviation</h1><p>Creator: tolstijmoo</p></main></body></html>');
           return;
         }
+        const hiddenCopy = url.searchParams.has('hiddenCopy') ? `
+          <div hidden class="responsive-copy"><div class="CreatorCard-module___fixture__profileDetailsContainer"><div class="CreatorCard-module___fixture__profileDetails">
+            <a id="hidden-creator" href="/user/Hidden_AI"><p>Hidden_AI</p></a>
+          </div></div><p data-variant="gradient" data-size="xl" data-line-clamp="true">Hidden_AI</p></div>` : '';
         response.writeHead(200, { 'Content-Type': 'text/html' });
         response.end(`<!doctype html><html><head><title>Atlas provider action fixture</title><style>
           body{margin:24px;background:#10141b;color:#edf0f6;font:16px/1.5 system-ui}main{max-width:720px}a{color:#86c0fc}
           .CreatorCard-module___fixture__profileDetailsContainer{margin-top:24px;padding:12px;background:#18212d}
           .CreatorCard-module___fixture__profileDetails{max-width:100%}p{margin:0}code{overflow-wrap:anywhere}
-        </style></head><body><main><h1>Synthetic model page</h1><section id="model-target" class="ModelVersionDetails-module___fixture__detailRowTop"><code class="ModelURN-module___fixture__code">civitai:2726029@3064584+2943406</code></section>
+        </style></head><body>${hiddenCopy}<main><h1>Synthetic model page</h1><section id="model-target" class="ModelVersionDetails-module___fixture__detailRowTop"><code class="ModelURN-module___fixture__code">civitai:2726029@3064584+2943406</code></section>
           <a id="unsafe" href="javascript:void(0)">Unsafe link</a><a id="nav-user" href="/user/Navigation">Navigation user</a>
           <div class="CreatorCard-module___fixture__profileDetailsContainer"><div class="CreatorCard-module___fixture__profileDetails"><div style="overflow:hidden"><a id="creator" href="/user/Adel_AI"><div><p data-variant="gradient" data-size="md">Adel_AI</p></div></a></div></div></div>
-          <p id="user-heading" data-variant="gradient" data-size="xl" data-line-clamp="true">Adel_AI</p>
+          <p id="user-heading" ${url.searchParams.has('plainProfile') ? '' : 'data-variant="gradient"'} data-size="xl" data-line-clamp="true">Adel_AI</p>
         </main></body></html>`);
         return;
       }
@@ -57,7 +61,7 @@ export async function providerActionsFixture(runtimeId) {
           actions: !enabled ? [] : new URL(pageUrl).pathname.includes('/art/') ? [{ id: 'deviation-user', label: 'Open user in Atlas',
             target: 'page', selector: 'h1', pathPattern: '^/([A-Za-z0-9_-]+)/art/', containerType: 'user', sourceGroup: 1 }]
             : new URL(pageUrl).pathname.startsWith('/models/') ? actions : [{ ...actions[1],
-            id: 'user-profile', target: 'page', selector: 'p[data-variant="gradient"][data-size="xl"]',
+            id: 'user-profile', target: 'page', selector: 'p[data-size="xl"][data-line-clamp="true"]',
             pathPattern: '^/user/([A-Za-z0-9_-]+)/?$', placementSelector: null }] })) });
       } else if (url.pathname === '/v1/events/tickets') json({ websocket_url: `${origin.replace('http:', 'ws:')}/v1/events?ticket=fixture` });
       else if (url.pathname === '/v1/assets/status') json({ assets: {}, referrers: {}, matches: {} });

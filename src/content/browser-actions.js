@@ -49,6 +49,7 @@ export function createBrowserActions({ documentContext = globalThis.document,
     entries.delete(id);
   }
   function prune() {
+    let rescan = false;
     const pageUrl = getPageUrl();
     const page = getPage(pageUrl);
     const actions = normalizedBrowserActions(page);
@@ -59,13 +60,19 @@ export function createBrowserActions({ documentContext = globalThis.document,
     }
     for (const [id, entry] of entries) {
       if (!entry.element.isConnected || !entry.host.isConnected
+        || !isRendered(entry.element, documentContext)
         || !(entry.element.matches(entry.action.selector) || (entry.action.fallbackSelector && entry.element.matches(entry.action.fallbackSelector)))
-        || browserActionTarget(entry.action, entry.element, pageUrl) !== entry.targetUrl) remove(id);
+        || browserActionTarget(entry.action, entry.element, pageUrl) !== entry.targetUrl) {
+        remove(id); rescan = true;
+      }
     }
-    return { actions, page, pageUrl };
+    return { actions, page, pageUrl, rescan };
   }
   function sync(root = documentContext) {
-    const { actions, page, pageUrl } = prune();
+    const { actions, page, pageUrl, rescan } = prune();
+    // A responsive copy can hide while its visible sibling remains unchanged.
+    // Revisit the bounded document scan when an existing target is invalidated.
+    if (rescan) root = documentContext;
     if (!actions.length || root?.closest?.(`[${hostAttribute}]`)) return;
     for (const action of actions) {
       const existing = entries.get(action.id);
@@ -134,12 +141,19 @@ function findTarget(root, action, pageUrl, documentContext) {
   let visited = 0;
   while (element && visited++ < maxVisitedElements) {
     try {
-      if (!element.closest(`[${hostAttribute}]`) && element.matches(action.selector)
+      if (!element.closest(`[${hostAttribute}]`) && element.matches(action.selector) && isRendered(element, documentContext)
         && browserActionTarget(action, element, pageUrl)) return element;
     } catch { return null; }
     element = walker.nextNode();
   }
   return null;
+}
+
+function isRendered(element, documentContext) {
+  // Offscreen targets remain eligible; hidden responsive duplicates do not.
+  if (!element.getClientRects?.().length) return false;
+  const style = documentContext.defaultView?.getComputedStyle(element);
+  return style?.visibility !== 'hidden' && style?.visibility !== 'collapse';
 }
 
 export function browserActionObservations(action, documentContext, pageUrl) {

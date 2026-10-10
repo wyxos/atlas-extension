@@ -26,6 +26,8 @@ heading fallback, SPA replacement, package lifecycle invalidation, keyboard,
 busy/error states and narrow layouts. A synthetic deviation heading exercises
 the current DeviantArt package rule; live site placement remains unverified.
 All actions use the actual built Dev extension and authenticated local transport.
+User actions also skip hidden responsive copies, move on viewport changes, and
+support profile headings without cosmetic gradients.
 
 Run `npm run check` for the existing unit, extension-validation and lint checks
 alongside this browser suite. To save synthetic progress screenshots, set
