@@ -1,4 +1,5 @@
 import { browserPageContext } from './browser-page-context.js';
+import { createBrowserActions } from './browser-actions.js';
 import { mergeReferrerCounts } from './referrer-counts.js';
 import { matchesReactionFile, submitReaction } from './provider-reaction.js';
 import { describeAssetElement, getCurrentAssetSourcePreferences, initializeAssetSourcePreferences } from './assets.js';
@@ -50,6 +51,7 @@ let scheduledPositionUpdate = null;
 let nextAssetId = 0;
 let overlayController = null;
 const badgeHosts = createBadgeHostManager();
+const browserActions = createBrowserActions({ getPage: browserPageContext.get });
 const widgetPlacement = createWidgetPlacementRuntime({
   getElement: (id) => elementsById.get(id),
   getLocationHref: () => window.location.href,
@@ -410,6 +412,7 @@ function getVisibleRect(element) { return resolveVisibleRect(element, viewportPa
 function getReferrerVisibleRect(element) { return resolveVisibleRect(element, viewportPadding, { minVisibleWidth: referrerMinVisibleWidth }); }
 function scanAssets(root = document) {
   void browserPageContext.refresh({ url: window.location.href, documentContext: document });
+  browserActions.sync(root);
   const scanStartedAt = performanceDiagnostics.start();
   let scannedElements = 0;
   for (const element of listAssetElements(root, assetSelector)) {
@@ -467,8 +470,9 @@ function updateAllAssetBadgePresentations() {
   }
 }
 function updateAllBadgeStates(patch) { for (const id of badgeStatesById.keys()) updateBadgeState(id, patch); }
-window.addEventListener('atlas-browser-provider-changed', () => { statusChecks.reset(); scheduleScan(); });
+window.addEventListener('atlas-browser-provider-changed', () => { browserActions.sync(); statusChecks.reset(); scheduleScan(); });
 startContentRuntime({
+  onDomRemoved: browserActions.sync,
   getOpenReferrerCounts: () => openReferrerCounts,
   handleAssetShortcut,
   handleDownloadEvent: (payload) => applyDownloadEvent(payload, {

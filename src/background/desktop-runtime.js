@@ -213,6 +213,17 @@ export function createDesktopRuntime(options = {}) {
     return transport.openFile(credentials, fileId);
   }
 
+  async function openBrowserContainer(message) {
+    const { credentials } = await requestContext();
+    if (!hasDesktopCapability(credentials, desktopCapabilities.browserContainerActions)) {
+      throw createDesktopContractError('DESKTOP_CAPABILITY_REQUIRED', 'Update Atlas Desktop to open provider feeds.', false);
+    }
+    return transport.openBrowserContainer(credentials, { page_url: message.pageUrl,
+      target_url: message.targetUrl, provider: message.provider,
+      profile_version: message.profileVersion, action_id: message.actionId,
+      ...(Array.isArray(message.observations) && message.observations.length ? { observations: message.observations } : {}) });
+  }
+
   async function updateWidgetPlacement(siteDomain, placement) {
     const { credentials } = await requestContext();
     return transport.updateWidgetPlacement(credentials, {
@@ -270,6 +281,7 @@ export function createDesktopRuntime(options = {}) {
       [desktopMessageTypes.cancelPairing]: cancelPairing,
       [desktopMessageTypes.diagnostics]: diagnostics,
       [desktopMessageTypes.openFile]: () => openFile(message.fileId),
+      [desktopMessageTypes.openBrowserContainer]: () => openBrowserContainer(message),
       [desktopMessageTypes.updateBatchProviderPreference]: () => (
         updateBatchProviderPreference(message.provider, message.enabled)
       ),
@@ -366,6 +378,7 @@ export function createDesktopRuntime(options = {}) {
     handleMessage,
     initialize,
     openFile,
+    openBrowserContainer,
     pair,
     reconnect,
     requestContext,

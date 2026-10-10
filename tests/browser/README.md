@@ -19,6 +19,14 @@ events. Status lookups return no reactions, so pushed events must update the
 badges. This suite verifies extension behavior in Chromium; native downloads and
 provider matching need their separate Desktop tests.
 
+Provider action tests use the supplied CivitAI AIR and creator-card markup with
+an unknown package descriptor. They cover model version URLs, bounded AIR
+observations when the URL omits its selected version, author and profile opens,
+heading fallback, SPA replacement, package lifecycle invalidation, keyboard,
+busy/error states and narrow layouts. A synthetic deviation heading exercises
+the current DeviantArt package rule; live site placement remains unverified.
+All actions use the actual built Dev extension and authenticated local transport.
+
 Run `npm run check` for the existing unit, extension-validation and lint checks
 alongside this browser suite. To save synthetic progress screenshots, set
 `ATLAS_BROWSER_ARTIFACT_DIR` to an output directory before running it.

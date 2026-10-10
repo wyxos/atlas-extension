@@ -62,6 +62,14 @@ export function createDesktopTransport(options = {}) {
     return request('/v1/browser/resolve', { ...requestOptions, credentials, body, method: 'POST' });
   }
 
+  function openBrowserContainer(credentials, body, requestOptions = {}) {
+    if (!hasDesktopCapability(credentials, desktopCapabilities.browserContainerActions)) {
+      throw createDesktopContractError('DESKTOP_CAPABILITY_REQUIRED', 'Update Atlas Desktop to open provider feeds.', false);
+    }
+    return request('/v1/browser/open-container', { ...requestOptions, credentials, body,
+      method: 'POST', mutation: true });
+  }
+
   function runtimePolicy(credentials, requestOptions = {}) {
     return request('/v1/runtime-policy', {
       ...requestOptions,
@@ -260,6 +268,7 @@ export function createDesktopTransport(options = {}) {
     eventTicket,
     hello,
     openFile,
+    openBrowserContainer,
     pair,
     reaction,
     reactionFailure,

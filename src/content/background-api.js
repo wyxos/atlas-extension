@@ -1,4 +1,4 @@
-import { createDesktopContractError } from '../shared/desktop-contract.js';
+import { createDesktopContractError, desktopMessageTypes } from '../shared/desktop-contract.js';
 import { reactionFailureCodes, reactionMessageTypes, reactionRequestId } from '../shared/reaction-diagnostics.js';
 
 const defaultTimeoutMs = 15000;
@@ -269,4 +269,11 @@ function withoutUndefinedValues(value) {
 
 export function resolveBrowserPagesViaBackground({ pages, runtime = globalThis.chrome?.runtime }) {
   return sendBackgroundRequest({ type: 'atlas-extension.browser-resolve', pages }, { runtime, timeoutMs: defaultTimeoutMs });
+}
+
+export function openBrowserContainerViaBackground({ pageUrl, targetUrl, provider, profileVersion, actionId, observations,
+  runtime = globalThis.chrome?.runtime }) {
+  return sendBackgroundRequest({ type: desktopMessageTypes.openBrowserContainer,
+    pageUrl, targetUrl, provider, profileVersion, actionId,
+    ...(Array.isArray(observations) && observations.length ? { observations } : {}) }, { runtime, timeoutMs: defaultTimeoutMs });
 }

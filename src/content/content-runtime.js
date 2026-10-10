@@ -12,6 +12,7 @@ export function startContentRuntime({
   referrerBadges,
   referrerOpenGuard,
   scanAssets,
+  onDomRemoved = () => {},
   schedulePositionUpdate,
   updateBadgeStateBySource,
   waitForInitialDomMutationWindow: waitForDomMutationWindow = waitForInitialDomMutationWindow,
@@ -26,6 +27,7 @@ export function startContentRuntime({
   };
   const observer = createAssetObserver({
     scanAssets: scanAssetsWhenReady,
+    onDomRemoved,
     schedulePositionUpdate,
   });
 
@@ -90,7 +92,7 @@ const initialObserverOptions = {
   subtree: true,
 };
 
-function createAssetObserver({ scanAssets, schedulePositionUpdate }) {
+function createAssetObserver({ scanAssets, schedulePositionUpdate, onDomRemoved }) {
   return new MutationObserver((mutations) => {
     let shouldResyncKnownBadges = false;
 
@@ -104,6 +106,7 @@ function createAssetObserver({ scanAssets, schedulePositionUpdate }) {
         shouldResyncKnownBadges = true;
       }
       if (mutation.removedNodes?.length > 0) {
+        onDomRemoved?.();
         shouldResyncKnownBadges = true;
       }
     }

@@ -3,6 +3,7 @@ import { getAssetSheetStyles } from './asset-sheet-styles.js';
 import { getOverlayDragStyles } from './overlay-drag-styles.js';
 import { getOverlayNoticeStyles } from './overlay-notice-styles.js';
 import { getCollectionProgressStyles } from './collection-progress-styles.js';
+import { atlasDarkThemeCss } from '../shared/theme-tokens.js';
 
 const badgeAttribute = 'data-atlas-asset-badge';
 
@@ -16,6 +17,7 @@ export function createOverlayStyles(documentContext = document) {
 
 export function getOverlayStyles() {
   return `
+    ${atlasDarkThemeCss}
     [${badgeAttribute}] {
       align-items: center;
       backdrop-filter: blur(4px);
