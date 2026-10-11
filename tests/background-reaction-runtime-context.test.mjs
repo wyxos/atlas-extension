@@ -206,6 +206,65 @@ test('foreign cookie partitions are excluded and conflicting same-scope cookies 
   await assert.rejects(collectCookiesForUrls(urls, { chromeApi, tabId: 2 }), { code: 'BROWSER_SESSION_AMBIGUOUS' });
 });
 
+test('reaction handoff accepts expiry-only changes within the sending store and frame partition', async () => {
+  const source = 'https://site.test/media';
+  const referrerUrl = 'https://site.test/page';
+  const session = { name: 'session', value: 'synthetic-login', domain: 'site.test', path: '/',
+    secure: true, httpOnly: true, hostOnly: true };
+  const partitionKey = { topLevelSite: 'https://site.test', hasCrossSiteAncestor: false };
+  for (const partitioned of [false, true]) {
+    for (const [firstExpiry, secondExpiry] of [
+      [2000000000, 2000000100], [2000000100, 2000000000], [undefined, 2000000000], [2000000000, undefined],
+    ]) {
+      const calls = [];
+      const chromeApi = { cookies: {
+        getAllCookieStores: done => done([{ id: 'other', tabIds: [1] }, { id: 'selected', tabIds: [2] }]),
+        ...(partitioned ? { getPartitionKey: async details => {
+          assert.deepEqual(details, { tabId: 2, frameId: 7, documentId: 'synthetic-document' });
+          return { partitionKey };
+        } } : {}),
+        getAll: (details, done) => {
+          calls.push(details);
+          assert.equal(details.storeId, 'selected');
+          done(partitioned && !details.partitionKey ? [] : [{ ...session,
+            expirationDate: details.url === source ? firstExpiry : secondExpiry,
+            ...(partitioned ? { partitionKey } : {}),
+          }]);
+        },
+      } };
+      const context = await collectReactionRuntimeContext({ asset: { source }, referrerUrl, reactionType: 'like' }, {
+        chromeApi, tabId: 2, frameId: 7, documentId: 'synthetic-document', requireTab: true, now: () => 100000,
+      });
+      assert.deepEqual(context.cookies, [{ domain: 'site.test', expires_at: secondExpiry ?? null,
+        host_only: true, http_only: true, name: 'session', path: '/', secure: true, value: 'synthetic-login',
+        ...(partitioned ? { partition_key: { top_level_site: partitionKey.topLevelSite, has_cross_site_ancestor: false } } : {}),
+      }]);
+      assert.deepEqual(calls, [source, referrerUrl].flatMap(url => [
+        { url, storeId: 'selected' }, ...(partitioned ? [{ url, storeId: 'selected', partitionKey }] : []),
+      ]));
+    }
+  }
+});
+
+test('expiry changes do not hide conflicting login values or cookie security attributes', async () => {
+  const source = 'https://site.test/media';
+  const referrerUrl = 'https://site.test/page';
+  const session = { name: 'session', value: 'synthetic-login', domain: 'site.test', path: '/',
+    secure: true, httpOnly: true, hostOnly: true, expirationDate: 2000000000 };
+  for (const conflicting of [{ value: 'other-login' }, { secure: false }, { httpOnly: false }, { hostOnly: false }]) {
+    const chromeApi = { cookies: {
+      getAllCookieStores: done => done([{ id: 'selected', tabIds: [2] }]),
+      getAll: (details, done) => {
+        assert.equal(details.storeId, 'selected');
+        done([{ ...session, ...(details.url === referrerUrl ? { ...conflicting, expirationDate: 2000000100 } : {}) }]);
+      },
+    } };
+    await assert.rejects(collectReactionRuntimeContext({ asset: { source }, referrerUrl, reactionType: 'like' }, {
+      chromeApi, tabId: 2, requireTab: true,
+    }), { code: 'BROWSER_SESSION_AMBIGUOUS' });
+  }
+});
+
 test('one verified header snapshot also collects cross-host and API path cookies from the sending store', async () => {
   const root = 'https://site.test/watch', fragment = 'https://cdn.test/media/fragment.ts', api = 'https://site.test/api/media';
   const requests = [];

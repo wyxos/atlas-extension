@@ -231,6 +231,8 @@ function normalizeCookiePath(value) {
 }
 
 function cookieKey(cookie) {
+  // Expiry may refresh between URL reads without changing the login or scope.
+  // It is not a conflict; byKey retains the last collected cookie's expiry.
   return [
     cookie.domain,
     cookie.path,
@@ -239,7 +241,6 @@ function cookieKey(cookie) {
     cookie.secure ? '1' : '0',
     cookie.http_only ? '1' : '0',
     cookie.host_only ? '1' : '0',
-    cookie.expires_at === null ? 'null' : String(cookie.expires_at),
     JSON.stringify(cookie.partition_key ?? null),
   ].join('|');
 }
