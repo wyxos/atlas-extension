@@ -71,7 +71,9 @@ Desktop before rerunning the updater.
    files and local dependency links are not copied. Desktop updates use the storage
    manager's leased snapshot location, allowing the compiler cache to recognize
    source paths across runs. Each run still checks out its captured commits and
-   removes its temporary source and dependencies after the managed scope closes.
+   delegates removal of temporary source and dependencies to the storage manager.
+   Cleanup waits for native leases to end; closing the updater scope can leave
+   snapshots protected by surviving child processes for later managed recovery.
 5. Before Desktop checks, resolve its external provider test sources beside the
    original Desktop checkout (or through `ATLAS_TEST_PROVIDER_SOURCES`), capture
    their committed main revisions, and copy them into the managed temporary

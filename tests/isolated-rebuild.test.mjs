@@ -118,6 +118,33 @@ test('failed scope cleanup retains workspaces for managed recovery', async (t) =
   assert.ok(fs.existsSync(workspace));
 });
 
+test('managed scope cleanup preserves pinned snapshots and a subsequent owner of the same path', async (t) => {
+  for (const scenario of ['surviving-child', 'subsequent-owner']) {
+    const f = fixture(t);
+    let workspace, control;
+    await runIsolatedUpdate({ ...f, scopeFactory: async (_root, directory) => {
+      control = directory;
+      workspace = path.join(path.dirname(directory), 'run-managed-fixture');
+      fs.mkdirSync(workspace);
+      return { workspace, managedWorkspaces: true,
+        environment: { CARGO_TARGET_DIR: path.join(f.root, 'target') }, close: async () => {
+          // A successful close releases the updater scope. A child's lease can
+          // retain its source, or the next scope can already own this slot.
+          assert.ok(fs.existsSync(path.join(workspace, 'desktop', 'source.txt')));
+          fs.writeFileSync(path.join(workspace, 'owner.txt'), scenario);
+          fs.writeFileSync(path.join(control, 'owner.txt'), scenario);
+          if (scenario === 'subsequent-owner') {
+            fs.writeFileSync(path.join(workspace, 'desktop', 'source.txt'), 'next captured revision');
+          }
+        } };
+    } });
+    assert.equal(fs.readFileSync(path.join(workspace, 'owner.txt'), 'utf8'), scenario);
+    assert.equal(fs.readFileSync(path.join(control, 'owner.txt'), 'utf8'), scenario);
+    assert.equal(fs.readFileSync(path.join(workspace, 'desktop', 'source.txt'), 'utf8'),
+      scenario === 'subsequent-owner' ? 'next captured revision' : 'committed');
+  }
+});
+
 test('publication recovers interrupted rename and rejects incomplete replacement', (t) => {
   const f = fixture(t);
   const destination = path.join(f.root, 'published');

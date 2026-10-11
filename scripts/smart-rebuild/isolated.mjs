@@ -328,11 +328,13 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   } catch (error) { failure = error; }
   finally {
     log('\nCleaning temporary workspaces…', 'dim');
-    // The scope owns workspace leases and waits for command pins before cleanup.
+    // Managed cleanup checks native leases and defers while child pins survive.
+    // Closing the scope can release a target before its snapshot is reclaimed;
+    // direct deletion could remove a pinned source or a subsequent owner's tree.
     let scopeClosed = false;
     try { await scope.close(); scopeClosed = true; } catch (error) { failure ??= error; }
     try {
-      if (scopeClosed) {
+      if (scopeClosed && !scope.managedWorkspaces) {
         for (const directory of new Set([workspace, controlWorkspace])) {
           if (fs.existsSync(directory)) removeWorkspace(workspaceParent, directory);
         }
