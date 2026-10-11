@@ -145,6 +145,19 @@ test('managed scope cleanup preserves pinned snapshots and a subsequent owner of
   }
 });
 
+test('older managed controller environment retains pinned workspaces without ownership flag', async (t) => {
+  const f = fixture(t);
+  let workspace;
+  await runIsolatedUpdate({ ...f, scopeFactory: async (_root, directory) => {
+    workspace = directory;
+    return { environment: { CARGO_TARGET_DIR: path.join(f.root, 'target'),
+      ATLAS_BUILD_CONNECTION: '{"fixture":"connection"}', ATLAS_BUILD_PARENT_SCOPE: 'fixture-parent' },
+      close: async () => {} };
+  } });
+  assert.equal(fs.readFileSync(path.join(workspace, 'desktop', 'source.txt'), 'utf8'), 'committed');
+  assert.equal(fs.readFileSync(path.join(workspace, 'extension', 'source.txt'), 'utf8'), 'committed');
+});
+
 test('publication recovers interrupted rename and rejects incomplete replacement', (t) => {
   const f = fixture(t);
   const destination = path.join(f.root, 'published');

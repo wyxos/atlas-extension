@@ -333,8 +333,12 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     // direct deletion could remove a pinned source or a subsequent owner's tree.
     let scopeClosed = false;
     try { await scope.close(); scopeClosed = true; } catch (error) { failure ??= error; }
+    // Older Desktop controllers identify their managed parent scope through the
+    // inherited environment rather than the explicit workspace ownership flag.
+    const managedWorkspaces = scope.managedWorkspaces === true
+      || Boolean(scope.environment?.ATLAS_BUILD_CONNECTION && scope.environment?.ATLAS_BUILD_PARENT_SCOPE);
     try {
-      if (scopeClosed && !scope.managedWorkspaces) {
+      if (scopeClosed && !managedWorkspaces) {
         for (const directory of new Set([workspace, controlWorkspace])) {
           if (fs.existsSync(directory)) removeWorkspace(workspaceParent, directory);
         }
