@@ -12,6 +12,9 @@ export function decorateAssetWithMatchIdentity({
   pageContext = browserPageContext.get(pageUrl),
 }) {
   const providerIdentity = captureProviderIdentity({ documentContext, pageUrl, pageContext });
+  // A provider page can expose a gallery asset without an item UUID. Retain
+  // its page for Desktop's provider-owned asset matching and status lookup.
+  if (pageContext?.provider) asset = { ...asset, providerReferrerUrl: pageUrl };
   if (providerIdentity) asset = { ...asset, providerIdentity, providerReferrerUrl: pageUrl };
   const result = deriveAssetMatchIdentity({
     asset,
