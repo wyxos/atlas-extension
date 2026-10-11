@@ -77,13 +77,45 @@ test('an Extension-only rebuild requests no Rust target or reservation', async (
     options = args[2];
     return { environment: {}, close: async () => {} };
   } });
-  assert.deepEqual(options, { rust: false });
+  assert.deepEqual(options, { rust: false, stableSnapshots: true });
 });
 
 test('dry run does not create state or workspaces', async (t) => {
   const f = fixture(t);
   await runIsolatedUpdate({ ...f, dryRun: true });
   assert.equal(fs.existsSync(f.stateDirectory), false);
+});
+
+test('managed snapshot path holds both sources and is cleaned only after scope closure', async (t) => {
+  const f = fixture(t);
+  let control, workspace, closed = false;
+  const plans = await runIsolatedUpdate({ ...f, scopeFactory: async (_root, directory, options) => {
+    assert.equal(options.stableSnapshots, true);
+    control = directory;
+    workspace = path.join(path.dirname(directory), 'run-stable-fixture');
+    fs.mkdirSync(workspace);
+    return { workspace, environment: { CARGO_TARGET_DIR: path.join(f.root, 'target') }, close: async () => {
+      assert.ok(fs.existsSync(path.join(workspace, 'desktop', 'source.txt')));
+      assert.ok(fs.existsSync(path.join(workspace, 'extension', 'source.txt')));
+      assert.ok(fs.existsSync(control));
+      closed = true;
+    } };
+  } });
+  assert.ok(plans.every(repo => path.dirname(repo.snapshot) === workspace));
+  assert.equal(closed, true);
+  assert.equal(fs.existsSync(workspace), false);
+  assert.equal(fs.existsSync(control), false);
+});
+
+test('failed scope cleanup retains workspaces for managed recovery', async (t) => {
+  const f = fixture(t);
+  let workspace;
+  await assert.rejects(runIsolatedUpdate({ ...f, scopeFactory: async (_root, directory) => {
+    workspace = directory;
+    return { environment: { CARGO_TARGET_DIR: path.join(f.root, 'target') },
+      close: async () => { throw new Error('scope fixture cleanup failed'); } };
+  } }), /scope fixture cleanup failed/);
+  assert.ok(fs.existsSync(workspace));
 });
 
 test('publication recovers interrupted rename and rejects incomplete replacement', (t) => {

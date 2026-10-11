@@ -5,6 +5,7 @@ import { cliReview } from './codex-review.mjs';
 import { committedVersion, versionBaseline, planVersionCommit, publishVersionCommit } from './version-commit.mjs';
 import { terminal } from './terminal.mjs';
 import { prepareMainChanges } from './main-changes.mjs';
+import { documentationOnlyChanges } from './documentation.mjs';
 
 export async function prepareBuildSources(options) {
   await prepareVersions({ ...options, recoverOnly: true });
@@ -82,6 +83,15 @@ export async function prepareVersions({ repos, stateDirectory, dryRun = false, r
     // Do not use the last successful build: older updater runs built changed
     // source without versioning. Review all changes since the version declaration.
     const base = versionBaseline(repo, repo.head);
+    // A completed no-bump review also covers code changes. Compare new prose
+    // against that reviewed tree, without hiding older unreviewed code changes.
+    const documentationOnly = documentationOnlyChanges(repo.root,
+      previous?.version === currentVersion ? previous.tree : base, tree);
+    if (documentationOnly) {
+      assertHeads();
+      log(`${repo.name}: documentation only; keeping ${currentVersion}.`);
+      continue;
+    }
     if (dryRun) { log(`${repo.name}: ${git(repo.root, ['rev-parse', `${base}^{tree}`]) === tree ? 'no changes since version commit' : 'version review pending'} · ${currentVersion}`); continue; }
     let decision = { proceed: true, bump: 'none', reason: 'No source changes since the version commit.' };
     if (git(repo.root, ['rev-parse', `${base}^{tree}`]) !== tree) {

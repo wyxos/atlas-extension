@@ -10,6 +10,7 @@ import { prepareProviderTestSnapshots } from './provider-test-snapshots.mjs';
 import { repairSnapshot } from './repair.mjs';
 import { publishRepair } from './repair-publication.mjs';
 import { captureRepairContract, assertRepairContract, canRepairFailure, cargoWorkspaceManifests } from './repair-policy.mjs';
+import { documentationOnlyChanges } from './documentation.mjs';
 
 export function removeWorkspace(parent, directory) {
   const base = fs.realpathSync(parent);
@@ -150,22 +151,30 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     const previous = state.repos[key];
     if (!dryRun && repo.kind === 'extension') recoverPublication(repo.artifact);
     const fingerprint = artifactFingerprint(repo.artifact);
-    const needed = !previous || previous.tree !== tree || !fingerprint || previous.artifact !== fingerprint;
-    return { ...repo, head, tree, key, needed };
+    const documentationOnly = previous?.tree !== tree && documentationOnlyChanges(repo.root, previous?.tree, tree);
+    const needed = !previous || (previous.tree !== tree && !documentationOnly)
+      || !fingerprint || previous.artifact !== fingerprint;
+    return { ...repo, head, tree, key, needed, documentationOnly };
   });
   log('\nATLAS UPDATE', 'blue');
-  for (const repo of plans) log(`${repo.name}: ${repo.needed ? 'pending' : 'up to date'} · main ${repo.head.slice(0, 8)}`, repo.needed ? 'yellow' : 'green');
+  for (const repo of plans) log(`${repo.name}: ${repo.needed ? 'pending'
+    : repo.documentationOnly ? 'documentation only; installed output verified' : 'up to date'} · main ${repo.head.slice(0, 8)}`, repo.needed ? 'yellow' : 'green');
   if (dryRun) { log('Inspection complete. No source, versions, builds or installations changed.'); return plans; }
   if (!plans.some((repo) => repo.needed)) { log('Complete. Nothing outstanding.'); return plans; }
   fs.mkdirSync(stateDirectory, { recursive: true });
   const workspaceParent = path.join(stateDirectory, 'workspaces');
   fs.mkdirSync(workspaceParent, { recursive: true });
   // Only the storage manager can prove that an abandoned workspace has no users.
-  const workspace = fs.mkdtempSync(path.join(fs.realpathSync(workspaceParent), 'run-'));
+  const controlWorkspace = fs.mkdtempSync(path.join(fs.realpathSync(workspaceParent), 'run-'));
+  let workspace = controlWorkspace;
   let scope;
-  try { scope = await scopeFactory(repos.find(repo => repo.kind === 'desktop').root, workspace,
-    { rust: plans.some(repo => repo.kind === 'desktop' && repo.needed) }); }
-  catch (error) { removeWorkspace(workspaceParent, workspace); throw error; }
+  try { scope = await scopeFactory(repos.find(repo => repo.kind === 'desktop').root, controlWorkspace,
+    { rust: plans.some(repo => repo.kind === 'desktop' && repo.needed), stableSnapshots: true });
+    workspace = scope.workspace ?? controlWorkspace; }
+  catch (error) {
+    if (fs.existsSync(controlWorkspace)) removeWorkspace(workspaceParent, controlWorkspace);
+    throw error;
+  }
   const environment = { ...process.env, ...scope.environment, EXTENSION_SOURCE: path.join(workspace, 'extension') };
   const logFile = environment.ATLAS_BUILD_LOG || path.join(stateDirectory, 'build-latest.log');
   fs.writeFileSync(logFile, plans.map((repo) => `${repo.name}: main ${repo.head}`).join('\n') + '\n');
@@ -319,12 +328,20 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   } catch (error) { failure = error; }
   finally {
     log('\nCleaning temporary workspaces…', 'dim');
-    try { removeWorkspace(workspaceParent, workspace); } catch (error) {
-      log(`Cleanup pending: ${workspace}`);
+    // The scope owns workspace leases and waits for command pins before cleanup.
+    let scopeClosed = false;
+    try { await scope.close(); scopeClosed = true; } catch (error) { failure ??= error; }
+    try {
+      if (scopeClosed) {
+        for (const directory of new Set([workspace, controlWorkspace])) {
+          if (fs.existsSync(directory)) removeWorkspace(workspaceParent, directory);
+        }
+      }
+    } catch (error) {
+      log('Cleanup pending for temporary workspaces.');
       failure ??= error;
     }
     if (failure) appendLogFile(logFile, `\nStopped: ${failure.message}\nOutstanding: ${steps.slice(completed).map((step) => step.title).join('; ') || 'cleanup'}\n`);
-    try { await scope.close(); } catch (error) { failure ??= error; }
   }
   if (failure) {
     log(`Outstanding: ${steps.length - completed} build steps${completed === steps.length ? '; cleanup needs attention' : '. Rerun to retry; completed repositories will be skipped.'}`, 'yellow');

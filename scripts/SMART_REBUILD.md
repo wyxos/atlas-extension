@@ -43,6 +43,12 @@ Desktop before rerunning the updater.
    The main checkout is found even when the launcher runs from another branch.
 2. Capture both local `main` commits. For each repository with unreviewed source
    changes, ask Codex whether a version bump is needed: none, patch, minor or major.
+   Changes limited to safe prose files keep the current version without a CLI review:
+   root `README.md`, Markdown under `docs/`, `scripts/SMART_REBUILD.md`, and
+   `scripts/smart-rebuild/README.md`. Compare against the last completed review at
+   the current version, or the version declaration if no such review exists, so
+   older unreviewed code is still reviewed. Executable files, symlinks, renamed
+   runtime assets and unknown paths keep the normal review and checks.
    If Codex fails or has no quota, the same review is retried through the signed-in
    Cursor Agent CLI. The evidence covers committed changes since its latest version
    commit, including changes built previously without a bump. A refused or invalid
@@ -51,13 +57,21 @@ Desktop before rerunning the updater.
    switches are performed. Save the decision and use these exact reviewed/versioned
    commits for the build.
 3. Skip repositories whose committed source tree and published output fingerprint
-   match the last successful isolated build. Missing or altered output is rebuilt.
+   match the last successful isolated build. Also skip checks, builds and installation
+   when only the safe prose files above changed and that output fingerprint still
+   matches. Compare cumulative changes against the actual last successful build;
+   a skipped documentation update never records a new build receipt. Missing or
+   altered output is rebuilt, including after documentation-only changes. First
+   builds and mixed code/documentation changes keep all checks.
 4. Fetch each captured commit into a temporary independent Git repository under
    `%LOCALAPPDATA%\AtlasBuild\workspaces`. Each build uses its own dependencies
    installed with `npm ci` when a committed lockfile exists, otherwise `npm install`
    inside the temporary checkout. The Extension currently ignores its lockfile;
    transitive dependencies may resolve differently between builds. Ignored local `.env`
-   files and local dependency links are not copied.
+   files and local dependency links are not copied. Desktop updates use the storage
+   manager's leased snapshot location, allowing the compiler cache to recognize
+   source paths across runs. Each run still checks out its captured commits and
+   removes its temporary source and dependencies after the managed scope closes.
 5. Before Desktop checks, resolve its external provider test sources beside the
    original Desktop checkout (or through `ATLAS_TEST_PROVIDER_SOURCES`), capture
    their committed main revisions, and copy them into the managed temporary
