@@ -151,7 +151,10 @@ test('older managed controller environment retains pinned workspaces without own
   await runIsolatedUpdate({ ...f, scopeFactory: async (_root, directory) => {
     workspace = directory;
     return { environment: { CARGO_TARGET_DIR: path.join(f.root, 'target'),
-      ATLAS_BUILD_CONNECTION: '{"fixture":"connection"}', ATLAS_BUILD_PARENT_SCOPE: 'fixture-parent' },
+      // Child Git commands use the inherited managed launcher when present.
+      // Keep its real lease; fixture identifiers only model unmanaged test runs.
+      ATLAS_BUILD_CONNECTION: process.env.ATLAS_BUILD_CONNECTION ?? '{"fixture":"connection"}',
+      ATLAS_BUILD_PARENT_SCOPE: process.env.ATLAS_BUILD_PARENT_SCOPE ?? 'fixture-parent' },
       close: async () => {} };
   } });
   assert.equal(fs.readFileSync(path.join(workspace, 'desktop', 'source.txt'), 'utf8'), 'committed');
