@@ -206,6 +206,70 @@ test('foreign cookie partitions are excluded and conflicting same-scope cookies 
   await assert.rejects(collectCookiesForUrls(urls, { chromeApi, tabId: 2 }), { code: 'BROWSER_SESSION_AMBIGUOUS' });
 });
 
+test('reaction handoff preserves distinct host-only and domain cookies within the sending store', async () => {
+  const source = 'https://site.test/media';
+  const referrerUrl = 'https://sub.site.test/page';
+  const host = { name: 'session', value: 'synthetic', domain: 'site.test', path: '/',
+    secure: true, httpOnly: true, hostOnly: true };
+  const domain = { ...host, domain: '.site.test', hostOnly: false };
+  for (const [reverse, domainValue] of [[false, 'synthetic'], [true, 'synthetic'], [false, 'domain-synthetic'], [true, 'domain-synthetic']]) {
+    const calls = [];
+    const chromeApi = { cookies: {
+      getAllCookieStores: done => done([{ id: 'other-profile-store', tabIds: [1] }, { id: 'selected', tabIds: [2] }]),
+      getAll: (details, done) => {
+        calls.push(details);
+        assert.equal(details.storeId, 'selected');
+        const scopedDomain = { ...domain, value: domainValue };
+        const cookies = details.url === source ? [host, scopedDomain] : [scopedDomain];
+        done(reverse ? cookies.toReversed() : cookies);
+      },
+    } };
+    const context = await collectReactionRuntimeContext({ asset: { source }, referrerUrl, reactionType: 'like' }, {
+      chromeApi, tabId: 2, requireTab: true,
+    });
+    assert.equal(context.cookies.length, 2);
+    assert.deepEqual(context.cookies.map(cookie => [cookie.domain, cookie.host_only, cookie.value]).sort(),
+      [['site.test', false, domainValue], ['site.test', true, 'synthetic']].sort());
+    assert.deepEqual(calls, [source, referrerUrl].map(url => ({ url, storeId: 'selected' })));
+  }
+});
+
+test('partition selection precedes host-only identity and cannot mix cookie contexts', async () => {
+  const partitionKey = { topLevelSite: 'https://site.test', hasCrossSiteAncestor: false };
+  const base = { name: 'session', value: 'unpartitioned', domain: 'site.test', path: '/', secure: true, httpOnly: true };
+  for (const hostOnly of [true, false]) {
+    for (const reverse of [false, true]) {
+      const unpartitioned = { ...base, hostOnly: !hostOnly };
+      const partitioned = { ...base, hostOnly, value: 'selected-partition', partitionKey };
+      const foreign = { ...base, hostOnly: !hostOnly, value: 'foreign',
+        partitionKey: { ...partitionKey, topLevelSite: 'https://other.test' } };
+      const chromeApi = { cookies: {
+        getAllCookieStores: done => done([{ id: 'selected', tabIds: [2] }]),
+        getPartitionKey: async () => ({ partitionKey }),
+        getAll: (details, done) => {
+          assert.equal(details.storeId, 'selected');
+          const cookies = [unpartitioned, partitioned, foreign];
+          done(reverse ? cookies.toReversed() : cookies);
+        },
+      } };
+      const context = await collectReactionRuntimeContext({ asset: { source: 'https://site.test/media' } }, {
+        chromeApi, tabId: 2, requireTab: true,
+      });
+      assert.equal(context.cookies.length, 1);
+      assert.equal(context.cookies[0].host_only, hostOnly);
+      assert.equal(context.cookies[0].value, 'selected-partition');
+      chromeApi.cookies.getAll = (details, done) => done(details.partitionKey
+        ? [partitioned, { ...partitioned, hostOnly: !hostOnly, value: 'selected-other-scope' }] : [unpartitioned]);
+      const both = await collectReactionRuntimeContext({ asset: { source: 'https://site.test/media' } }, {
+        chromeApi, tabId: 2, requireTab: true,
+      });
+      assert.equal(both.cookies.length, 2);
+      assert.deepEqual(new Set(both.cookies.map(cookie => cookie.value)), new Set(['selected-partition', 'selected-other-scope']));
+      assert.ok(both.cookies.every(cookie => cookie.partition_key.top_level_site === partitionKey.topLevelSite));
+    }
+  }
+});
+
 test('reaction handoff accepts expiry-only changes within the sending store and frame partition', async () => {
   const source = 'https://site.test/media';
   const referrerUrl = 'https://site.test/page';
@@ -251,7 +315,7 @@ test('expiry changes do not hide conflicting login values or cookie security att
   const referrerUrl = 'https://site.test/page';
   const session = { name: 'session', value: 'synthetic-login', domain: 'site.test', path: '/',
     secure: true, httpOnly: true, hostOnly: true, expirationDate: 2000000000 };
-  for (const conflicting of [{ value: 'other-login' }, { secure: false }, { httpOnly: false }, { hostOnly: false }]) {
+  for (const conflicting of [{ value: 'other-login' }, { secure: false }, { httpOnly: false }]) {
     const chromeApi = { cookies: {
       getAllCookieStores: done => done([{ id: 'selected', tabIds: [2] }]),
       getAll: (details, done) => {

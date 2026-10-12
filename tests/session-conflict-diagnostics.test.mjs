@@ -54,8 +54,10 @@ test('real session conflict producers expose only fixed reasons, not conflicting
 });
 
 test('cookie flag diagnostics identify every differing flag without exposing values or weakening isolation', async () => {
-  const flags = [['secure', 'SECURE'], ['httpOnly', 'HTTP_ONLY'], ['hostOnly', 'HOST_ONLY']];
-  for (let mask = 1; mask < 8; mask++) {
+  // Host-only is now part of identity; differing scopes are preserved instead
+  // of reported as conflicting attributes. Legacy HOST_ONLY labels stay valid.
+  const flags = [['secure', 'SECURE'], ['httpOnly', 'HTTP_ONLY']];
+  for (let mask = 1; mask < 4; mask++) {
     const selected = flags.filter((_flag, index) => mask & (1 << index));
     const error = await cookieConflict(Object.fromEntries(selected.map(([field]) => [field, false])));
     assert.equal(error.code, 'BROWSER_SESSION_AMBIGUOUS');
@@ -94,12 +96,12 @@ test('history and capability-gated transport retain only fixed reasons and safe 
   const history = createReactionFailureHistory({ storage: {
     get: async () => globalThis.structuredClone(stored), set: async value => { stored = globalThis.structuredClone(value); },
   } });
-  const error = await cookieConflict({ secure: false, httpOnly: false, hostOnly: false });
+  const error = await cookieConflict({ secure: false, httpOnly: false });
   await history.record({ ...reactionDiagnosticFromError(error, { requestId, operation: 'reaction' }), message: source, cookie: 'synthetic-cookie-secret',
     headers: [{ name: 'Authorization', value: 'synthetic-header-secret' }], account: 'synthetic-account' });
   const restored = (await history.snapshot())[0];
   assert.equal(restored.reason, reasons[1]);
-  assert.deepEqual(restored.cookieFlags, ['SECURE', 'HTTP_ONLY', 'HOST_ONLY']);
+  assert.deepEqual(restored.cookieFlags, ['SECURE', 'HTTP_ONLY']);
   assert.doesNotMatch(JSON.stringify(stored), /private|secret|https|account|Authorization/);
   const requests = [];
   const transport = createDesktopTransport({ channel: 'dev', fetchImpl: async (_url, options) => {
@@ -115,7 +117,7 @@ test('history and capability-gated transport retain only fixed reasons and safe 
   assert.equal(requests[1].cookieFlags, undefined);
   await transport.reactionFailure({ ...credentials, capabilities: [...credentials.capabilities,
     'extension-diagnostics-reasons-v1', 'extension-diagnostics-cookie-flags-v1'] }, restored);
-  assert.deepEqual(requests[2].cookieFlags, ['SECURE', 'HTTP_ONLY', 'HOST_ONLY']);
+  assert.deepEqual(requests[2].cookieFlags, ['SECURE', 'HTTP_ONLY']);
   await transport.reactionFailure({ ...credentials, capabilities: [...credentials.capabilities,
     'extension-diagnostics-cookie-flags-v1'] }, restored);
   assert.equal(requests[3].reason, undefined);

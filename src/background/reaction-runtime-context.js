@@ -58,30 +58,30 @@ export async function collectCookiesForUrls(urls, options = {}) {
       options.chromeApi ?? globalThis.chrome)] : []),
   ]));
   const byKey = new Map();
-
-  for (const cookieList of cookieLists) {
-    for (const cookie of cookieList) {
-      const partition = cookie.partition_key;
-      if (partition && (!scope.partitionKey || partition.top_level_site !== scope.partitionKey.topLevelSite
-        || partition.has_cross_site_ancestor !== scope.partitionKey.hasCrossSiteAncestor)) continue;
-      const key = [cookie.domain, cookie.path, cookie.name].join('|');
-      const previous = byKey.get(key);
-      if (previous) {
-        // A partitioned session belongs to the actual sending frame. Flattening
-        // both values into yt-dlp's cookie jar would select an arbitrary login.
-        if (partition && !previous.partition_key) { byKey.set(key, cookie); continue; }
-        if (!partition && previous.partition_key) continue;
-        if (cookieKey(previous) !== cookieKey(cookie)) {
-          const cookieFlags = [['secure', 'SECURE'], ['http_only', 'HTTP_ONLY'], ['host_only', 'HOST_ONLY']]
-            .filter(([field]) => previous[field] !== cookie[field]).map(([, flag]) => flag);
-          throw sessionError('BROWSER_SESSION_AMBIGUOUS', 'The browser returned conflicting session cookies. Refresh the page and retry.', {
-            reason: previous.value !== cookie.value ? 'COOKIE_VALUE_CONFLICT' : 'COOKIE_SECURITY_ATTRIBUTE_CONFLICT',
-            ...(previous.value === cookie.value && cookieFlags.length ? { cookieFlags } : {}),
-          });
-        }
-      }
-      byKey.set(key, cookie);
+  const candidates = cookieLists.flat().filter(cookie => {
+    const partition = cookie.partition_key;
+    return !partition || (scope.partitionKey && partition.top_level_site === scope.partitionKey.topLevelSite
+      && partition.has_cross_site_ancestor === scope.partitionKey.hasCrossSiteAncestor);
+  });
+  const baseKey = cookie => JSON.stringify([cookie.domain, cookie.path, cookie.name]);
+  // Keep the existing frame-partition preference across all host/domain scopes
+  // in a base group before flattening into a downloader's unpartitioned jar.
+  const partitionedKeys = new Set(candidates.filter(cookie => cookie.partition_key).map(baseKey));
+  for (const cookie of candidates) {
+    if (!cookie.partition_key && partitionedKeys.has(baseKey(cookie))) continue;
+    // Chromium keeps host-only and domain cookies as distinct identities.
+    // Normalizing the leading dot must not collapse their different scopes.
+    const key = JSON.stringify([cookie.domain, cookie.path, cookie.name, cookie.host_only]);
+    const previous = byKey.get(key);
+    if (previous && cookieKey(previous) !== cookieKey(cookie)) {
+      const cookieFlags = [['secure', 'SECURE'], ['http_only', 'HTTP_ONLY'], ['host_only', 'HOST_ONLY']]
+        .filter(([field]) => previous[field] !== cookie[field]).map(([, flag]) => flag);
+      throw sessionError('BROWSER_SESSION_AMBIGUOUS', 'The browser returned conflicting session cookies. Refresh the page and retry.', {
+        reason: previous.value !== cookie.value ? 'COOKIE_VALUE_CONFLICT' : 'COOKIE_SECURITY_ATTRIBUTE_CONFLICT',
+        ...(previous.value === cookie.value && cookieFlags.length ? { cookieFlags } : {}),
+      });
     }
+    byKey.set(key, cookie);
   }
 
   const result = [...byKey.values()];
