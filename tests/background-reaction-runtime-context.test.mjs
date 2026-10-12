@@ -302,3 +302,40 @@ test('forged unobserved page scope never authorizes another domain cookie read',
   });
   assert.deepEqual(requests, ['https://site.test/media']);
 });
+
+test('harmless header differences hand off only sending-frame headers and selected-store cookies', async () => {
+  const source = 'https://site.test/media';
+  const partitionKey = { topLevelSite: 'https://site.test', hasCrossSiteAncestor: true };
+  const requestCapture = createRequestSessionCapture({ now: () => 1000 });
+  for (const [tabId, frameId, documentId, accept, token] of [
+    [2, 7, 'selected', '*/*', 'synthetic'], [2, 0, 'top', 'text/html', 'synthetic'],
+    [1, 7, 'other-tab', '*/*', 'foreign'], [2, 8, 'other-frame', '*/*', 'foreign'],
+    [2, 7, 'old-document', '*/*', 'foreign'],
+  ]) {
+    const requestId = `${tabId}-${documentId}`;
+    requestCapture.observe({ tabId, frameId, documentId, requestId, method: 'GET', url: source, type: 'media',
+      requestHeaders: [{ name: 'Authorization', value: token }, { name: 'Accept', value: accept }] });
+    requestCapture.complete({ requestId, statusCode: 200 });
+  }
+  const chromeApi = { cookies: {
+    getAllCookieStores: done => done([{ id: 'other', tabIds: [1] }, { id: 'selected', tabIds: [2] }]),
+    getPartitionKey: async details => {
+      assert.deepEqual(details, { tabId: 2, frameId: 7, documentId: 'selected' });
+      return { partitionKey };
+    },
+    getAll: (details, done) => {
+      assert.equal(details.storeId, 'selected');
+      assert.equal(details.url, source);
+      done(details.partitionKey ? [{ name: 'session', value: 'synthetic', domain: 'site.test', path: '/', partitionKey }] : []);
+    },
+  } };
+  const context = await collectReactionRuntimeContext({ asset: { source, topPageUrl: source }, reactionType: 'like' }, {
+    chromeApi, tabId: 2, frameId: 7, documentId: 'selected', requireTab: true, requestCapture, now: () => 1000,
+  });
+  assert.deepEqual(context.browser_session.request_headers, [{ url: source, headers: [
+    { name: 'authorization', value: 'synthetic' }, { name: 'accept', value: '*/*' },
+  ] }]);
+  assert.equal(context.cookies.length, 1);
+  assert.equal(context.cookies[0].value, 'synthetic');
+  assert.equal(context.cookies[0].partition_key.has_cross_site_ancestor, true);
+});

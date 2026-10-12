@@ -140,20 +140,24 @@ export function createRequestSessionCapture({ now = () => Date.now(), maxTabs = 
     entries.sort((a, b) => Number(roots.has(b.url)) - Number(roots.has(a.url)));
     const byUrl = new Map();
     for (const entry of entries) {
-      const previous = byUrl.get(entry.url);
-      if (previous && JSON.stringify(previous.headers) !== JSON.stringify(entry.headers)) {
-        throw createDesktopContractError('BROWSER_SESSION_AMBIGUOUS',
-          'The selected page and frame use different credentials for the same request. Send the media from its own page.', true);
-      }
-      byUrl.set(entry.url, entry);
-    }
-    const result = [...byUrl.values()].flatMap(entry => {
+      // Validate every candidate before deduplication so choosing the sending
+      // document cannot hide an invalid or expired top-page observation.
       if (entry.invalid || entry.headers.length > 64 || JSON.stringify(entry.headers).length > 32768) throw createDesktopContractError('BROWSER_SESSION_HEADERS_INVALID',
         'The browser authentication headers exceed supported limits. Refresh the page and retry.', true);
       // A bounded freshness check is required for short-lived bearer tokens.
       // It runs only when sending a download; it creates no recurring timer.
       if (now() - entry.capturedAt > maxAgeMs) throw createDesktopContractError('BROWSER_SESSION_EXPIRED',
         'The captured browser request has expired. Refresh the page and send the file again.', true);
+      const previous = byUrl.get(entry.url);
+      if (previous && credentialHeaderKey(previous.headers) !== credentialHeaderKey(entry.headers)) {
+        throw createDesktopContractError('BROWSER_SESSION_AMBIGUOUS',
+          'The selected page and frame use different credentials for the same request. Send the media from its own page.', true);
+      }
+      // Keep one complete sending-document record, including its contextual
+      // headers. Never borrow or merge credentials from the top-page fallback.
+      if (!previous || sameDocument(entry) || !sameDocument(previous)) byUrl.set(entry.url, entry);
+    }
+    const result = [...byUrl.values()].flatMap(entry => {
       return [{ url: entry.url, headers: entry.headers.map(header => ({ ...header })) }];
     });
     if (result.length > 128 || new globalThis.TextEncoder().encode(JSON.stringify(result)).length > 256 * 1024) {
@@ -191,3 +195,11 @@ function mergeHeaders(browser, page) {
 }
 
 function requestKey(entry) { return JSON.stringify([entry.frameId ?? 0, entry.documentId ?? '', entry.url]); }
+
+function credentialHeaderKey(headers) {
+  // Ordinary request context can differ without changing the login. Treat every
+  // allowed custom header as a possible credential; absence still conflicts.
+  // Sorting ignores header order without normalizing credential values.
+  return JSON.stringify(headers.filter(header => header.name === 'authorization' || header.name.startsWith('x-'))
+    .map(header => JSON.stringify([header.name, header.value])).sort());
+}

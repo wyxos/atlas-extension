@@ -18,6 +18,75 @@ function acceptedPage(cache, details) {
   cache.observePage(details);
 }
 
+function overlappingRequests(cache, topHeaders, frameHeaders, frameFirst = false) {
+  const records = [
+    { tabId: 4, frameId: 0, documentId: 'top', url, headers: topHeaders },
+    { tabId: 4, frameId: 7, documentId: 'selected', url, headers: frameHeaders },
+  ];
+  for (const record of frameFirst ? records.toReversed() : records) acceptedPage(cache, record);
+}
+
+const selectedScope = { frameId: 7, documentId: 'selected', topPageUrl: url };
+
+test('ordinary page/frame header differences retain the sending document request without merging', () => {
+  const credentials = [{ name: 'Authorization', value: 'Bearer synthetic' }, { name: 'X-Media-Token', value: 'synthetic' }];
+  const topHeaders = [...credentials, { name: 'Accept', value: 'text/html' }, { name: 'Accept-Language', value: 'en' },
+    { name: 'Origin', value: 'https://top.test' }, { name: 'Referer', value: 'https://top.test/page' },
+    { name: 'User-Agent', value: 'synthetic-top' }];
+  const frameHeaders = [...credentials.toReversed(), { name: 'Accept', value: '*/*' },
+    { name: 'Origin', value: 'https://frame.test' }, { name: 'Referer', value: 'https://frame.test/page' },
+    { name: 'User-Agent', value: 'synthetic-frame' }];
+  for (const frameFirst of [false, true]) {
+    const cache = createRequestSessionCapture({ now: () => 1000 });
+    overlappingRequests(cache, topHeaders, frameHeaders, frameFirst);
+    assert.deepEqual(cache.snapshot(4, [url], selectedScope), [{ url,
+      headers: frameHeaders.map(header => ({ ...header, name: header.name.toLowerCase() })),
+    }]);
+  }
+});
+
+test('header ordering alone cannot make an otherwise identical session ambiguous', () => {
+  const headers = [{ name: 'Authorization', value: 'Bearer synthetic' },
+    { name: 'X-Session', value: 'synthetic' }, { name: 'Accept', value: '*/*' }];
+  const cache = createRequestSessionCapture({ now: () => 1000 });
+  overlappingRequests(cache, headers, headers.toReversed());
+  assert.deepEqual(cache.snapshot(4, [url], selectedScope), [{ url,
+    headers: headers.toReversed().map(header => ({ ...header, name: header.name.toLowerCase() })),
+  }]);
+});
+
+test('different or missing authorization and opaque custom headers remain ambiguous', () => {
+  const credentials = [{ name: 'Authorization', value: 'Bearer synthetic' }, { name: 'X-Custom', value: 'synthetic' }];
+  const conflicts = [
+    [{ ...credentials[0], value: 'Bearer other' }, credentials[1]],
+    [credentials[0], { ...credentials[1], value: 'other' }],
+    [credentials[0]], [credentials[1]], [],
+    [...credentials, { name: 'X-Unknown', value: 'extra' }],
+    [...credentials, { name: 'Authorization', value: 'Bearer other' }],
+  ];
+  for (const conflicting of conflicts) {
+    for (const frameFirst of [false, true]) {
+      const cache = createRequestSessionCapture({ now: () => 1000 });
+      overlappingRequests(cache, credentials, conflicting, frameFirst);
+      assert.throws(() => cache.snapshot(4, [url], selectedScope), { code: 'BROWSER_SESSION_AMBIGUOUS' });
+    }
+  }
+});
+
+test('harmless differences cannot hide invalid or expired overlapping requests', () => {
+  for (const frameFirst of [false, true]) {
+    const cache = createRequestSessionCapture({ now: () => 1000 });
+    overlappingRequests(cache, [{ name: 'Accept', value: 'unsafe\r\nheader' }], [{ name: 'Accept', value: '*/*' }], frameFirst);
+    assert.throws(() => cache.snapshot(4, [url], selectedScope), { code: 'BROWSER_SESSION_HEADERS_INVALID' });
+  }
+  let time = 1000;
+  const cache = createRequestSessionCapture({ now: () => time, maxAgeMs: 100 });
+  acceptedPage(cache, { tabId: 4, frameId: 0, documentId: 'top', url, headers: [{ name: 'Accept', value: 'text/html' }] });
+  time += 101;
+  acceptedPage(cache, { tabId: 4, frameId: 7, documentId: 'selected', url, headers: [{ name: 'Accept', value: '*/*' }] });
+  assert.throws(() => cache.snapshot(4, [url], selectedScope), { code: 'BROWSER_SESSION_EXPIRED' });
+});
+
 test('captures accepted tab requests and forwards credentials only to the exact signed URL', () => {
   const cache = createRequestSessionCapture();
   capture(cache);
