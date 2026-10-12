@@ -48,8 +48,35 @@ test('real session conflict producers expose only fixed reasons, not conflicting
     headerConflict('Authorization', 'other-header-secret'), headerConflict('X-Synthetic-Secret-Name', undefined)];
   for (const [index, error] of errors.entries()) {
     assert.equal(error.code, 'BROWSER_SESSION_AMBIGUOUS');
-    assert.deepEqual(error.details, { reason: reasons[index] });
+    assert.deepEqual(error.details, { reason: reasons[index], ...(index === 1 ? { cookieFlags: ['SECURE'] } : {}) });
     assert.doesNotMatch(JSON.stringify(error.details), /secret|private|example|https|selected/);
+  }
+});
+
+test('cookie flag diagnostics identify every differing flag without exposing values or weakening isolation', async () => {
+  const flags = [['secure', 'SECURE'], ['httpOnly', 'HTTP_ONLY'], ['hostOnly', 'HOST_ONLY']];
+  for (let mask = 1; mask < 8; mask++) {
+    const selected = flags.filter((_flag, index) => mask & (1 << index));
+    const error = await cookieConflict(Object.fromEntries(selected.map(([field]) => [field, false])));
+    assert.equal(error.code, 'BROWSER_SESSION_AMBIGUOUS');
+    assert.deepEqual(error.details, { reason: reasons[1], cookieFlags: selected.map(([, flag]) => flag) });
+    const diagnostic = reactionDiagnosticFromError(error, { requestId });
+    assert.deepEqual(diagnostic.cookieFlags, selected.map(([, flag]) => flag));
+    assert.doesNotMatch(JSON.stringify(diagnostic), /private|secret|https|selected|true|false/);
+  }
+  const valueError = await cookieConflict({ value: 'other-cookie-secret', secure: false, httpOnly: false });
+  assert.deepEqual(valueError.details, { reason: reasons[0] });
+});
+
+test('cookie flag sanitizer accepts only bounded distinct fixed labels with the security reason', () => {
+  const event = { ...base, reason: reasons[1] };
+  assert.deepEqual(safeReactionDiagnostic({ ...event, cookieFlags: ['HOST_ONLY', 'SECURE'] }).cookieFlags, ['SECURE', 'HOST_ONLY']);
+  for (const cookieFlags of [null, [], Object.assign([], { length: 1 }), ['SECURE', 'SECURE'], ['SECURE', 'HTTP_ONLY', 'HOST_ONLY', 'SECURE'],
+    ['synthetic-cookie-name'], [source], ['SECURE', { value: 'synthetic-cookie-secret' }], 'SECURE']) {
+    assert.equal(safeReactionDiagnostic({ ...event, cookieFlags }).cookieFlags, undefined);
+  }
+  for (const invalid of [{ reason: reasons[0] }, { phase: 'sending-request' }, { code: 'REACTION_REQUEST_FAILED' }]) {
+    assert.equal(safeReactionDiagnostic({ ...event, ...invalid, cookieFlags: ['SECURE'] }).cookieFlags, undefined);
   }
 });
 
@@ -67,11 +94,12 @@ test('history and capability-gated transport retain only fixed reasons and safe 
   const history = createReactionFailureHistory({ storage: {
     get: async () => globalThis.structuredClone(stored), set: async value => { stored = globalThis.structuredClone(value); },
   } });
-  const error = await cookieConflict({ value: 'other-cookie-secret' });
+  const error = await cookieConflict({ secure: false, httpOnly: false, hostOnly: false });
   await history.record({ ...reactionDiagnosticFromError(error, { requestId, operation: 'reaction' }), message: source, cookie: 'synthetic-cookie-secret',
     headers: [{ name: 'Authorization', value: 'synthetic-header-secret' }], account: 'synthetic-account' });
   const restored = (await history.snapshot())[0];
-  assert.equal(restored.reason, reasons[0]);
+  assert.equal(restored.reason, reasons[1]);
+  assert.deepEqual(restored.cookieFlags, ['SECURE', 'HTTP_ONLY', 'HOST_ONLY']);
   assert.doesNotMatch(JSON.stringify(stored), /private|secret|https|account|Authorization/);
   const requests = [];
   const transport = createDesktopTransport({ channel: 'dev', fetchImpl: async (_url, options) => {
@@ -80,9 +108,18 @@ test('history and capability-gated transport retain only fixed reasons and safe 
   } });
   await transport.reactionFailure(credentials, { ...restored, url: source, value: 'synthetic-header-secret' });
   assert.equal(requests[0].reason, undefined);
+  assert.equal(requests[0].cookieFlags, undefined);
   await transport.reactionFailure({ ...credentials, capabilities: [...credentials.capabilities, 'extension-diagnostics-reasons-v1'] },
     { ...restored, url: source, value: 'synthetic-header-secret' });
-  assert.equal(requests[1].reason, reasons[0]);
+  assert.equal(requests[1].reason, reasons[1]);
+  assert.equal(requests[1].cookieFlags, undefined);
+  await transport.reactionFailure({ ...credentials, capabilities: [...credentials.capabilities,
+    'extension-diagnostics-reasons-v1', 'extension-diagnostics-cookie-flags-v1'] }, restored);
+  assert.deepEqual(requests[2].cookieFlags, ['SECURE', 'HTTP_ONLY', 'HOST_ONLY']);
+  await transport.reactionFailure({ ...credentials, capabilities: [...credentials.capabilities,
+    'extension-diagnostics-cookie-flags-v1'] }, restored);
+  assert.equal(requests[3].reason, undefined);
+  assert.equal(requests[3].cookieFlags, undefined);
   for (const request of requests) {
     assert.equal(request.delivered, undefined);
     assert.doesNotMatch(JSON.stringify(request), /private|secret|https|synthetic-account/);

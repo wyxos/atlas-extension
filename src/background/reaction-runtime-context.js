@@ -72,8 +72,11 @@ export async function collectCookiesForUrls(urls, options = {}) {
         if (partition && !previous.partition_key) { byKey.set(key, cookie); continue; }
         if (!partition && previous.partition_key) continue;
         if (cookieKey(previous) !== cookieKey(cookie)) {
+          const cookieFlags = [['secure', 'SECURE'], ['http_only', 'HTTP_ONLY'], ['host_only', 'HOST_ONLY']]
+            .filter(([field]) => previous[field] !== cookie[field]).map(([, flag]) => flag);
           throw sessionError('BROWSER_SESSION_AMBIGUOUS', 'The browser returned conflicting session cookies. Refresh the page and retry.', {
             reason: previous.value !== cookie.value ? 'COOKIE_VALUE_CONFLICT' : 'COOKIE_SECURITY_ATTRIBUTE_CONFLICT',
+            ...(previous.value === cookie.value && cookieFlags.length ? { cookieFlags } : {}),
           });
         }
       }

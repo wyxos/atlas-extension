@@ -7,7 +7,7 @@ import {
 } from '../shared/desktop-contract.js';
 import { hasDesktopClientCredentials } from './desktop-connection-state.js';
 import { desktopCapabilities, hasDesktopCapability } from '../shared/desktop-capabilities.js';
-import { reactionDiagnosticCapability, reactionDiagnosticReasonCapability, safeReactionDiagnostic } from '../shared/reaction-diagnostics.js';
+import { reactionDiagnosticCapability, reactionDiagnosticReasonCapability, reactionDiagnosticCookieFlagCapability, safeReactionDiagnostic } from '../shared/reaction-diagnostics.js';
 
 const defaultRequestTimeoutMs = 15000;
 const pairingRequestTimeoutMs = 5 * 60 * 1000;
@@ -198,6 +198,7 @@ export function createDesktopTransport(options = {}) {
     // them only after the receiving Desktop explicitly advertises support.
     const body = { ...event };
     if (!hasDesktopCapability(credentials, reactionDiagnosticReasonCapability)) delete body.reason;
+    if (!body.reason || !hasDesktopCapability(credentials, reactionDiagnosticCookieFlagCapability)) delete body.cookieFlags;
     return request('/v1/diagnostics/reaction-failures', { credentials,
       body, method: 'POST' });
   }
