@@ -72,7 +72,9 @@ export async function collectCookiesForUrls(urls, options = {}) {
         if (partition && !previous.partition_key) { byKey.set(key, cookie); continue; }
         if (!partition && previous.partition_key) continue;
         if (cookieKey(previous) !== cookieKey(cookie)) {
-          throw sessionError('BROWSER_SESSION_AMBIGUOUS', 'The browser returned conflicting session cookies. Refresh the page and retry.');
+          throw sessionError('BROWSER_SESSION_AMBIGUOUS', 'The browser returned conflicting session cookies. Refresh the page and retry.', {
+            reason: previous.value !== cookie.value ? 'COOKIE_VALUE_CONFLICT' : 'COOKIE_SECURITY_ATTRIBUTE_CONFLICT',
+          });
         }
       }
       byKey.set(key, cookie);

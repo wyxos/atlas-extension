@@ -7,7 +7,7 @@ import {
 } from '../shared/desktop-contract.js';
 import { hasDesktopClientCredentials } from './desktop-connection-state.js';
 import { desktopCapabilities, hasDesktopCapability } from '../shared/desktop-capabilities.js';
-import { reactionDiagnosticCapability } from '../shared/reaction-diagnostics.js';
+import { reactionDiagnosticCapability, reactionDiagnosticReasonCapability, safeReactionDiagnostic } from '../shared/reaction-diagnostics.js';
 
 const defaultRequestTimeoutMs = 15000;
 const pairingRequestTimeoutMs = 5 * 60 * 1000;
@@ -191,8 +191,15 @@ export function createDesktopTransport(options = {}) {
     });
   }
 
-  function reactionFailure(credentials, failure) {
-    return request('/v1/diagnostics/reaction-failures', { credentials, body: failure, method: 'POST' });
+  async function reactionFailure(credentials, failure) {
+    const event = safeReactionDiagnostic(failure);
+    if (!event) throw createDesktopContractError('INVALID_DIAGNOSTIC_REPORT', 'The diagnostic report is invalid.', false);
+    // Older Desktop builds reject unknown fields. Keep local reasons, but send
+    // them only after the receiving Desktop explicitly advertises support.
+    const body = { ...event };
+    if (!hasDesktopCapability(credentials, reactionDiagnosticReasonCapability)) delete body.reason;
+    return request('/v1/diagnostics/reaction-failures', { credentials,
+      body, method: 'POST' });
   }
 
   async function request(path, requestOptions = {}) {

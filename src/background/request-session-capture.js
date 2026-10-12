@@ -150,8 +150,12 @@ export function createRequestSessionCapture({ now = () => Date.now(), maxTabs = 
         'The captured browser request has expired. Refresh the page and send the file again.', true);
       const previous = byUrl.get(entry.url);
       if (previous && credentialHeaderKey(previous.headers) !== credentialHeaderKey(entry.headers)) {
+        const authorizationKey = headers => credentialHeaderKey(headers.filter(header => header.name === 'authorization'));
         throw createDesktopContractError('BROWSER_SESSION_AMBIGUOUS',
-          'The selected page and frame use different credentials for the same request. Send the media from its own page.', true);
+          'The selected page and frame use different credentials for the same request. Send the media from its own page.', true, {
+            reason: authorizationKey(previous.headers) !== authorizationKey(entry.headers)
+              ? 'HEADER_AUTHORIZATION_CONFLICT' : 'HEADER_CUSTOM_CONFLICT',
+          });
       }
       // Keep one complete sending-document record, including its contextual
       // headers. Never borrow or merge credentials from the top-page fallback.

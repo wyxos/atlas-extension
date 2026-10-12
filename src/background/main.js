@@ -31,7 +31,7 @@ import { loadNextTabsFromActive } from './load-next-tabs.js';
 import { loadNextTabsRequestType } from '../shared/load-next-tabs-messages.js';
 import { tabCounterSnapshotRequestType } from '../shared/tab-counter-messages.js';
 import { createDesktopContractError, serializeDesktopError } from '../shared/desktop-contract.js';
-import { reactionFailureCodes, reactionMessageTypes, reactionRequestId } from '../shared/reaction-diagnostics.js';
+import { reactionDiagnosticFromError, reactionFailureCodes, reactionMessageTypes, reactionRequestId } from '../shared/reaction-diagnostics.js';
 import { createReactionFailureHistory } from './reaction-diagnostics.js';
 import { reactionFailureFromError } from '../content/reaction-failure-state.js';
 import { createDesktopRuntime } from './desktop-runtime.js';
@@ -200,11 +200,10 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     .catch((error) => {
       if (!error || typeof error !== 'object') error = createDesktopContractError('REACTION_REQUEST_FAILED', 'The reaction request failed.', true);
       if (requestId && !error.requestId) error.requestId = requestId;
-      if (requestId && reactionFailureCodes.includes(error.code)) void recordReactionFailure({
-        requestId: error.requestId, code: error.code,
-        phase: error.code.startsWith('BROWSER_SESSION') ? 'preparing-session' : 'sending-request',
+      if (requestId && reactionFailureCodes.includes(error.code)) void recordReactionFailure(reactionDiagnosticFromError(error, {
+        requestId,
         operation: message.type.endsWith('-batch') ? 'reaction-batch' : 'reaction',
-      });
+      }));
       const failure = requestId ? reactionFailureFromError(error) : null;
       sendResponse({ error: failure ? { code: failure.errorCode, message: failure.message,
         ...(failure.details ? { details: failure.details } : {}),
