@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { git } from './repository.mjs';
+import { runCapturedSnapshots } from './captured-snapshots.mjs';
 
 // Integration fixtures are captured separately; they never become app resources.
 export async function prepareProviderTestSnapshots({ desktop, workspace, run, env = process.env }) {
@@ -23,11 +24,8 @@ export async function prepareProviderTestSnapshots({ desktop, workspace, run, en
   // Capture all refs before the first asynchronous command. Later source edits
   // and commits cannot change the fixtures for this update.
   const overrides = {};
+  await runCapturedSnapshots(plans, workspace, run);
   for (const plan of plans) {
-    await run('git', ['init', plan.snapshot], workspace);
-    await run('git', ['-C', plan.snapshot, 'fetch', '--no-tags', '--depth=1', plan.source, plan.head], workspace);
-    await run('git', ['-C', plan.snapshot, 'checkout', '--detach', 'FETCH_HEAD'], workspace);
-    if (git(plan.snapshot, ['rev-parse', 'HEAD']) !== plan.head) throw new Error('Provider test snapshot revision mismatch.');
     const manifest = JSON.parse(fs.readFileSync(path.join(plan.snapshot, 'manifest.json'), 'utf8'));
     if (manifest.id !== plan.id || !fs.existsSync(path.join(plan.snapshot, 'Cargo.toml'))) {
       throw new Error(`Committed provider test source does not match ${plan.id}.`);

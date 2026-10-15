@@ -204,6 +204,20 @@ Desktop frontend tests run with four workers to keep cold module transforms from
 timing out short tests through CPU contention. Codex's input-only review uses
 [non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode).
 
+Snapshot Git operations run together in one supervised process per repository;
+provider snapshots share one supervised batch. Each checkout still receives only
+its captured commit and an independent Git object store.
+Dependency installation uses npm's verified download cache with `--prefer-offline`;
+missing artifacts are fetched normally and installation still runs in each snapshot.
+
+Completed and failed steps write `updater-timings.json` beside the detailed update
+log, including retries and scope cleanup. `rust-test-timings.json` in that same
+directory separates native compilation, fixture preparation and test execution.
+Both reports survive removal of the temporary source checkout. The updater report
+starts after build-scope acquisition; use the outer transcript for total elapsed
+time including version review and initial storage setup. Compare cold and warm
+builds separately: retaining a compiler cache does not eliminate the first build.
+
 The installer controller accepts an explicit RepositoryRoot and honors the dedicated
 CARGO_TARGET_DIR. The controller runs from the maintained Desktop launcher scripts;
 all npm/application inputs come from the captured checkout. Importer preparation

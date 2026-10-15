@@ -19,7 +19,11 @@ test('desktop launcher waits for Enter after success, failure, and explicit exit
       await writeFile(scriptPath, script);
       const child = spawn('pwsh.exe', ['-NoProfile', '-File',
         path.resolve(import.meta.dirname, '../scripts/run-desktop-script.ps1'), '-ScriptPath', scriptPath,
-      ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+        // This fixture exercises prompt/exit handling. CLI discovery has its own
+        // tests and can start Windows package services under a busy test runner.
+        env: { ...process.env, CODEX_EXECUTABLE: process.execPath },
+      });
       try {
         let output = '';
         const closed = new Promise((resolve, reject) => {

@@ -31,7 +31,7 @@ function fixture(t) {
   return { root, repos, logFile, stateDirectory: path.join(root, 'state'), log: () => {},
     // A fixture scope owns its diagnostics, including retained repair patches.
     scopeFactory: async () => ({ environment: { CARGO_TARGET_DIR: path.join(root, 'target'), ATLAS_BUILD_LOG: logFile }, close: async () => {} }),
-    execute: (name, args, options) => name === 'git' ? command(name, args, options) : Promise.resolve(),
+    execute: (name, args, options) => (name === 'git' || name === process.execPath) ? command(name, args, options) : Promise.resolve(),
     buildOverride: async repo => {
       const output = repo.kind === 'extension'
         ? path.join(repo.snapshot, 'dist', 'atlas-extension-stable-validation') : path.dirname(repo.artifact);
@@ -156,7 +156,7 @@ test('install failures and cancellation never invoke Codex', async t => {
     let repairs = 0;
     await assert.rejects(runIsolatedUpdate({ ...f,
       execute: async (name, args, options) => {
-        if (name !== 'git' && (!cancel || scriptName(args) === 'check')) {
+        if (name === 'pwsh.exe' && (!cancel || scriptName(args) === 'check')) {
           throw new CommandFailure(name, args, cancel ? null : 1, cancel ? 'SIGTERM' : null, 'fixture');
         }
         return f.execute(name, args, options);

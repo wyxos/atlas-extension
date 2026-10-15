@@ -7,10 +7,12 @@ import { artifactFingerprint, git, saveState, snapshot } from './repository.mjs'
 import { verifyInstalledExecutable } from './installed-executable.mjs';
 import { createTerminal } from './terminal.mjs';
 import { prepareProviderTestSnapshots } from './provider-test-snapshots.mjs';
+import { runCapturedSnapshots } from './captured-snapshots.mjs';
 import { repairSnapshot } from './repair.mjs';
 import { publishRepair } from './repair-publication.mjs';
 import { captureRepairContract, assertRepairContract, canRepairFailure, cargoWorkspaceManifests } from './repair-policy.mjs';
 import { documentationOnlyChanges } from './documentation.mjs';
+import { updateTimings } from './timings.mjs';
 
 export function removeWorkspace(parent, directory) {
   const base = fs.realpathSync(parent);
@@ -177,6 +179,8 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   }
   const environment = { ...process.env, ...scope.environment, EXTENSION_SOURCE: path.join(workspace, 'extension') };
   const logFile = environment.ATLAS_BUILD_LOG || path.join(stateDirectory, 'build-latest.log');
+  const timingFile = path.join(path.dirname(logFile), 'updater-timings.json');
+  const timings = updateTimings(timingFile, plans.map(({ kind, head, tree, needed }) => ({ kind, head, tree, needed })));
   fs.writeFileSync(logFile, plans.map((repo) => `${repo.name}: main ${repo.head}`).join('\n') + '\n');
   const steps = [];
   const run = (name, args, cwd, options = {}) => execute(name, args, { cwd, env: environment, logFile,
@@ -184,7 +188,9 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   const npm = (script, cwd) => {
     // A cold checkout otherwise launches a jsdom worker for nearly every CPU;
     // module transforms contend and short router tests time out before running.
-    const options = script === 'test:unit' ? ' -- --maxWorkers=4' : '';
+    const testReport = path.join(path.dirname(logFile), 'rust-test-timings.json').replaceAll("'", "''");
+    const options = script === 'test:unit' ? ' -- --maxWorkers=4'
+      : script === 'test:rust' ? ` -- '--timings=${testReport}'` : '';
     return run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd run ${script}${options}; exit $LASTEXITCODE`], cwd);
   };
   const installDependencies = async (repo) => {
@@ -193,7 +199,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       appendLogFile(logFile, `${repo.name}: resolving dependencies (no committed lockfile)\n`);
       display.status('resolving dependencies');
     }
-    await run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd ${install} --no-audit --no-fund; exit $LASTEXITCODE`], repo.snapshot);
+    await run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd ${install} --no-audit --no-fund --prefer-offline; exit $LASTEXITCODE`], repo.snapshot);
   };
   const saveRepair = async (repo) => {
     if (!repo.pendingRepair) return;
@@ -210,10 +216,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   for (const repo of snapshots) {
     repo.snapshot = path.join(workspace, repo.kind);
     steps.push({ title: `${repo.name}: copy committed main`, action: async () => {
-      await run('git', ['init', repo.snapshot], workspace);
-      await run('git', ['-C', repo.snapshot, 'fetch', '--no-tags', '--depth=1', repo.root, repo.head], workspace);
-      await run('git', ['-C', repo.snapshot, 'checkout', '--detach', 'FETCH_HEAD'], workspace);
-      if (git(repo.snapshot, ['rev-parse', 'HEAD']) !== repo.head) throw new Error('Snapshot revision mismatch.');
+      await runCapturedSnapshots([{ id: repo.kind, source: repo.root, snapshot: repo.snapshot, head: repo.head }], workspace, run);
     } });
     steps.push({ title: `${repo.name}: install dependencies`, action: async () => {
       await installDependencies(repo);
@@ -281,7 +284,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       display.start(step.title, completed, steps.length);
       appendLogFile(logFile, `\nStep ${completed + 1}/${steps.length}: ${step.title}\n`);
       const timer = setInterval(display.tick, 1000);
-      try { await step.action(); } catch (error) {
+      try { await timings.stage(step.title, step.action); } catch (error) {
         display.fail();
         const repo = step.repo;
         // Only completed development/code commands are candidates. Spawn errors,
@@ -332,7 +335,8 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     // Closing the scope can release a target before its snapshot is reclaimed;
     // direct deletion could remove a pinned source or a subsequent owner's tree.
     let scopeClosed = false;
-    try { await scope.close(); scopeClosed = true; } catch (error) { failure ??= error; }
+    try { await timings.stage('cleanup', async () => { await scope.close(); scopeClosed = true; }); }
+    catch (error) { failure ??= error; }
     // Older Desktop controllers identify their managed parent scope through the
     // inherited environment rather than the explicit workspace ownership flag.
     const managedWorkspaces = scope.managedWorkspaces === true
@@ -348,6 +352,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       failure ??= error;
     }
     if (failure) appendLogFile(logFile, `\nStopped: ${failure.message}\nOutstanding: ${steps.slice(completed).map((step) => step.title).join('; ') || 'cleanup'}\n`);
+    timings.finish(failure ? 'failed' : 'passed');
   }
   if (failure) {
     log(`Outstanding: ${steps.length - completed} build steps${completed === steps.length ? '; cleanup needs attention' : '. Rerun to retry; completed repositories will be skipped.'}`, 'yellow');
@@ -356,6 +361,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   }
   log(`Complete: ${completed}/${steps.length} steps. Temporary workspaces removed.`, 'green');
   log(`Details: ${logFile}`, 'dim');
+  log(`Timings: ${timingFile}`, 'dim');
   if (plans.some((repo) => repo.kind === 'extension' && repo.needed)) log('Outstanding: reload Atlas Extension in the browser.', 'yellow');
   else log('Nothing outstanding.');
   return plans;

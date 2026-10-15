@@ -436,7 +436,7 @@ test('isolated builds use versioned snapshots, preserve failed-build versions, a
   }
   const buildOptions = { ...f, repos: prepared,
     scopeFactory: async () => ({ environment: { CARGO_TARGET_DIR: path.join(f.directory, 'target') }, close: async () => {} }),
-    execute: (name, args, options) => name === 'git' ? command(name, args, options) : Promise.resolve(),
+    execute: (name, args, options) => (name === 'git' || name === process.execPath) ? command(name, args, options) : Promise.resolve(),
     buildOverride: async (repo, plans) => {
       assert.equal(committedVersion({ ...repo, root: repo.snapshot }, 'HEAD'), '1.3.0');
       assert.equal(git(repo.snapshot, ['show', 'HEAD:source.txt']), 'new feature');

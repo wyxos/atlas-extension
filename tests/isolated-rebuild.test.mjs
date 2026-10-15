@@ -30,7 +30,7 @@ function fixture(t) {
   const logs = [];
   return { root, repos, logs, stateDirectory: path.join(root, 'state'), log: (line) => logs.push(line),
     scopeFactory: async () => ({ environment: { CARGO_TARGET_DIR: path.join(root, 'state', 'cache', 'desktop-target') }, close: async () => {} }),
-    execute: (name, args, options) => name === 'git' ? command(name, args, options) : Promise.resolve(),
+    execute: (name, args, options) => (name === 'git' || name === process.execPath) ? command(name, args, options) : Promise.resolve(),
     buildOverride: async (repo, plans) => {
       assert.equal(fs.readFileSync(path.join(repo.snapshot, 'source.txt'), 'utf8'), 'committed');
       assert.equal(fs.readFileSync(path.join(plans[0].snapshot, 'source.txt'), 'utf8'), 'committed');
@@ -209,7 +209,7 @@ test('a main revision without a lockfile uses npm install only inside its snapsh
   git(repo.root, ['update-ref', 'refs/heads/main', 'HEAD']);
   let usedFallback = false;
   await assert.rejects(runIsolatedUpdate({ ...f, execute: async (name, args, options) => {
-    if (name !== 'git') {
+    if (name === 'pwsh.exe') {
       assert.match(args.join(' '), /npm.cmd install --no-audit/);
       assert.notEqual(options.cwd, repo.root);
       usedFallback = true;

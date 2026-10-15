@@ -46,7 +46,7 @@ function fixture(t, kinds = ['extension', 'desktop']) {
     scopeFactory: async () => ({ environment: { CARGO_TARGET_DIR: path.join(directory, 'target') }, close: async () => {} }),
     execute: async (name, args, options) => {
       commands.push([name, args]);
-      if (name === 'git') return command(name, args, options);
+      if (name === 'git' || name === process.execPath) return command(name, args, options);
     },
     buildOverride: async repo => {
       if (repo.kind === 'extension') {

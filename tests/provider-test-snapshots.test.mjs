@@ -47,7 +47,9 @@ test('provider fixtures use captured commits, preserve edits, and map only tempo
   const f = fixture(t);
   const before = f.sources.map(({source}) => [git(source, ['status', '--porcelain']), git(source, ['write-tree'])]);
   let moved = false;
+  let commands = 0;
   const overrides = await prepareProviderTestSnapshots({ ...f, run: async (...args) => {
+    commands++;
     if (!moved) {
       moved = true;
       for (const {source} of f.sources) {
@@ -57,6 +59,7 @@ test('provider fixtures use captured commits, preserve edits, and map only tempo
     }
     return f.run(...args);
   } });
+  assert.equal(commands, 1, 'All frozen fixtures share one supervised command');
   assert.deepEqual(Object.keys(overrides).sort(), ['civitai', 'wallhaven']);
   for (const {id, source, head} of f.sources) {
     assert.equal(overrides[id], path.join(f.workspace, 'provider-tests', id));
