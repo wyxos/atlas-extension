@@ -192,6 +192,20 @@ test('storage, compiler-cache failures, managed cancellation and recursive calls
   }
 });
 
+test('bounded Git ownership launch diagnostics do not trigger source repair', () => {
+  const failure = diagnostics => new CommandFailure('node', ['runtime-launcher.mjs'], 1, null, diagnostics);
+  for (const code of ['EPERM', 'EACCES', 'ENOENT', 'ETIMEDOUT', 'ENOBUFS', 'UNKNOWN']) {
+    assert.equal(canRepairFailure(failure(`Atlas could not start Git to resolve runtime ownership (${code}).`)), false);
+  }
+  assert.equal(canRepairFailure(failure('Atlas Git ownership check was interrupted.')), false);
+  assert.equal(canRepairFailure(failure('runtime banner\r\nAtlas could not start Git to resolve runtime ownership (EPERM).\r\n')), false);
+  for (const diagnostics of ['AssertionError: expected EPERM for protected source fixture',
+    'Error: ENOENT opening required source file', 'AssertionError: Atlas Git ownership check was interrupted.',
+    'Atlas could not start Git to resolve runtime ownership (source assertion).']) {
+    assert.equal(canRepairFailure(failure(diagnostics)), true);
+  }
+});
+
 test('a cache fallback message does not hide an application compile failure', () => {
   assert.equal(canRepairFailure(new CommandFailure('cargo', ['check'], 1, null,
     'Compiler cache unavailable; compiling without cached results.\nerror[E0308]: mismatched types')), true);

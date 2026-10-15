@@ -79,6 +79,10 @@ export function canRepairFailure(error) {
   // A supervised child spawn can become an outer exit(1). Match Node's spawn
   // failure prefix, preserving repairable ENOENT assertions about source files.
   if (/^\s*spawn(?:Sync)?\s+.+\s+(?:ENOENT|EACCES|EPERM)\b/mi.test(error.diagnostics ?? '')) return false;
+  // Ownership discovery emits bounded infrastructure categories instead of raw
+  // spawn errors. Match those complete lines, not ordinary source assertions.
+  if (/^Atlas (?:could not start Git to resolve runtime ownership \((?:EPERM|EACCES|ENOENT|ETIMEDOUT|ENOBUFS|UNKNOWN)\)|Git ownership check was interrupted)\.\r?$/m
+    .test(error.diagnostics ?? '')) return false;
   // Fixed supervisor/environment categories are not source-code failures.
   return !/^(?:Atlas (?:runtime interrupted\.|build stopped: disk capacity|requires a Git checkout|runtime containment requires|update.*queued)|Build storage ownership could not be verified\.|Updater build scope cleanup failed\.|.*(?:ENOSPC|npm error code E(?:AI_AGAIN|CONNRESET|CONNREFUSED|ACCES)))/mi
     .test(error.diagnostics ?? '');
