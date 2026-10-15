@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { git } from '../scripts/smart-rebuild/repository.mjs';
-import { command, runIsolatedUpdate, publishExtension, recoverPublication, removeWorkspace } from '../scripts/smart-rebuild/isolated.mjs';
+import { command, runIsolatedUpdate, publishExtension, recoverPublication, removeWorkspace, isolatedBuildEnvironment } from '../scripts/smart-rebuild/isolated.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-isolation-test-'));
@@ -58,6 +58,58 @@ test('builds captured main, preserves live index/branch/edits, skips success and
   const restored = await runIsolatedUpdate(f);
   assert.equal(restored[0].needed, false);
   assert.equal(restored[1].needed, true);
+});
+
+test('a nested fixture scope cannot inherit the enclosing updater ownership or overwrite its diagnostics', async t => {
+  const f = fixture(t);
+  const outerLog = path.join(f.root, 'outer-updater.log');
+  const poisoned = {
+    ATLAS_BUILD_LOG: outerLog, ATLAS_BUILD_CONTROLLER: path.join(f.root, 'outer-controller'),
+    ATLAS_BUILD_CONNECTION: 'outer-connection', ATLAS_BUILD_SESSION: 'outer-session',
+    ATLAS_BUILD_PARENT_SCOPE: 'outer-parent', ATLAS_BUILD_REOPEN_REQUEST: 'outer-reopen',
+    ATLAS_RUNTIME_SLOT: 'outer-slot', ATLAS_RUNTIME_HOST_BINARY: 'outer-host',
+    ATLAS_COMMAND_CWD: 'outer-cwd', ATLAS_COMMAND_OUTPUT_OWNER: 'outer-output',
+    ATLAS_CHECKOUT_INFO: 'outer-checkout', ATLAS_ARTIFACT_DIR: 'outer-artifacts',
+    CARGO_TARGET_DIR: 'outer-target', CARGO_INCREMENTAL: 'outer-incremental',
+    RUSTC_WRAPPER: 'outer-wrapper', SCCACHE_DIR: 'outer-cache',
+  };
+  const before = Object.fromEntries(Object.keys(poisoned).map(key => [key, process.env[key]]));
+  fs.writeFileSync(outerLog, 'real updater diagnostics');
+  Object.assign(process.env, poisoned);
+  try {
+    await runIsolatedUpdate({ ...f, execute: (name, args, options) => {
+      assert.equal(options.logFile, path.join(f.stateDirectory, 'build-latest.log'));
+      for (const key of Object.keys(poisoned).filter(key => key !== 'CARGO_TARGET_DIR')) {
+        assert.equal(options.env[key], undefined, `${key} must come from the selected scope`);
+      }
+      assert.equal(options.env.CARGO_TARGET_DIR, path.join(f.root, 'state', 'cache', 'desktop-target'));
+      const pathKey = Object.keys(process.env).find(key => key.toUpperCase() === 'PATH');
+      assert.equal(options.env[pathKey], process.env[pathKey]);
+      assert.equal(options.env.ATLAS_TEST_PROVIDER_SOURCES, process.env.ATLAS_TEST_PROVIDER_SOURCES);
+      return f.execute(name, args, options);
+    } });
+    assert.equal(fs.readFileSync(outerLog, 'utf8'), 'real updater diagnostics');
+    assert.equal(fs.existsSync(path.join(f.root, 'updater-timings.json')), false);
+    assert.ok(fs.existsSync(path.join(f.stateDirectory, 'updater-timings.json')));
+  } finally {
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
+test('the selected native scope supplies authoritative ownership and compiler settings without losing user configuration', () => {
+  const selected = { ATLAS_BUILD_CONTROLLER: 'selected-controller', ATLAS_BUILD_CONNECTION: 'selected-connection',
+    ATLAS_BUILD_SESSION: 'selected-session', ATLAS_BUILD_PARENT_SCOPE: 'selected-parent',
+    ATLAS_BUILD_LOG: 'selected-log', ATLAS_BUILD_REOPEN_REQUEST: 'selected-reopen',
+    CARGO_TARGET_DIR: 'selected-target', CARGO_INCREMENTAL: '0', RUSTC_WRAPPER: 'selected-wrapper', SCCACHE_DIR: 'selected-cache' };
+  const user = { PATH: 'user-tool-path', ATLAS_TEST_PROVIDER_SOURCES: '{"fixture":"user-source"}',
+    CODEX_EXECUTABLE: 'user-codex', CARGO_BUILD_JOBS: '4', ATLAS_UPDATER_REPAIR_ACTIVE: '1' };
+  const inherited = { ...user, ...Object.fromEntries(Object.keys(selected).map(key => [key, 'outer-scope'])),
+    ATLAS_RUNTIME_SLOT: 'outer-slot', ATLAS_COMMAND_CWD: 'outer-cwd', ATLAS_ARTIFACT_DIR: 'outer-artifacts' };
+  assert.deepEqual(isolatedBuildEnvironment(selected, 'workspace', inherited), {
+    ...user, ...selected, EXTENSION_SOURCE: path.join('workspace', 'extension'),
+  });
 });
 
 test('failed build preserves output, cleans workspace and reports outstanding steps', async (t) => {

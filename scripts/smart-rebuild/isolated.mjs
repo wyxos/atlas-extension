@@ -131,6 +131,19 @@ export async function openBuildScope(repository, workspace, options) {
   return (await loadBuildController(repository)).openUpdateScope(repository, workspace, options);
 }
 
+export function isolatedBuildEnvironment(scopeEnvironment, workspace, inherited = process.env) {
+  // A nested updater (including its repository fixtures) must never borrow its
+  // caller's log, native ownership, compiler target or runtime identity. Only
+  // the selected scope can supply these; ordinary user/tool configuration stays.
+  const owned = new Set(['ATLAS_CHECKOUT_INFO', 'ATLAS_ARTIFACT_DIR', 'ATLAS_RUN_ID',
+    'CARGO_TARGET_DIR', 'CARGO_INCREMENTAL', 'RUSTC_WRAPPER']);
+  const environment = Object.fromEntries(Object.entries(inherited).filter(([key]) => {
+    const name = key.toUpperCase();
+    return !/^(ATLAS_BUILD_|ATLAS_RUNTIME_|ATLAS_COMMAND_|SCCACHE_)/.test(name) && !owned.has(name);
+  }));
+  return { ...environment, ...scopeEnvironment, EXTENSION_SOURCE: path.join(workspace, 'extension') };
+}
+
 export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   log, execute = command, buildOverride, scopeFactory = openBuildScope,
   repair = repairSnapshot, publishRepaired = publishRepair, maxRepairAttempts = 2 }) {
@@ -177,7 +190,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     if (fs.existsSync(controlWorkspace)) removeWorkspace(workspaceParent, controlWorkspace);
     throw error;
   }
-  const environment = { ...process.env, ...scope.environment, EXTENSION_SOURCE: path.join(workspace, 'extension') };
+  const environment = isolatedBuildEnvironment(scope.environment, workspace);
   const logFile = environment.ATLAS_BUILD_LOG || path.join(stateDirectory, 'build-latest.log');
   const timingFile = path.join(path.dirname(logFile), 'updater-timings.json');
   const timings = updateTimings(timingFile, plans.map(({ kind, head, tree, needed }) => ({ kind, head, tree, needed })));
