@@ -141,7 +141,16 @@ export function isolatedBuildEnvironment(scopeEnvironment, workspace, inherited 
     const name = key.toUpperCase();
     return !/^(ATLAS_BUILD_|ATLAS_RUNTIME_|ATLAS_COMMAND_|SCCACHE_)/.test(name) && !owned.has(name);
   }));
-  return { ...environment, ...scopeEnvironment, EXTENSION_SOURCE: path.join(workspace, 'extension') };
+  // Proxy selection is user configuration, not ownership. Windows env keys can
+  // retain mixed casing, so normalize this exception before applying the scope.
+  const proxy = 'ATLAS_BUILD_PROXY_URL';
+  for (const [key, value] of Object.entries(inherited)) {
+    if (key.toUpperCase() === proxy) environment[proxy] = value;
+  }
+  for (const [key, value] of Object.entries(scopeEnvironment ?? {})) {
+    environment[key.toUpperCase() === proxy ? proxy : key] = value;
+  }
+  return { ...environment, EXTENSION_SOURCE: path.join(workspace, 'extension') };
 }
 
 export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,

@@ -112,6 +112,20 @@ test('the selected native scope supplies authoritative ownership and compiler se
   });
 });
 
+test('build proxy configuration survives mixed-case Windows environment keys with one authoritative value', () => {
+  for (const key of ['ATLAS_BUILD_PROXY_URL', 'atlas_build_proxy_url', 'Atlas_Build_Proxy_Url']) {
+    const inherited = { [key]: 'http://127.0.0.1:12345', atlas_build_controller: 'outer-controller' };
+    const environment = isolatedBuildEnvironment({}, 'workspace', inherited);
+    assert.equal(environment.ATLAS_BUILD_PROXY_URL, inherited[key]);
+    assert.deepEqual(Object.keys(environment).filter(name => name.toUpperCase().startsWith('ATLAS_BUILD_')), ['ATLAS_BUILD_PROXY_URL']);
+    for (const selectedKey of ['ATLAS_BUILD_PROXY_URL', 'Atlas_Build_Proxy_Url']) {
+      const selected = isolatedBuildEnvironment({ [selectedKey]: 'http://127.0.0.1:23456' }, 'workspace', inherited);
+      assert.equal(selected.ATLAS_BUILD_PROXY_URL, 'http://127.0.0.1:23456');
+      assert.deepEqual(Object.keys(selected).filter(name => name.toUpperCase().startsWith('ATLAS_BUILD_')), ['ATLAS_BUILD_PROXY_URL']);
+    }
+  }
+});
+
 test('failed build preserves output, cleans workspace and reports outstanding steps', async (t) => {
   const f = fixture(t);
   await assert.rejects(runIsolatedUpdate({ ...f, buildOverride: () => { throw new Error('fixture failure'); } }), /fixture failure/);
