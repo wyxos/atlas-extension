@@ -122,3 +122,45 @@ exit $LASTEXITCODE
     assert.equal(result.stdout.includes('RECOVERY_CHECKED'), answer === 'y');
   }
 });
+
+test('a locked summary transcript cannot prevent the launcher recovery prompt', options, (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-transcript-lock-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  for (const name of ['rebuild-atlas.ps1', 'update-lock-prompt.ps1']) {
+    fs.copyFileSync(path.join(scripts, name), path.join(directory, name));
+  }
+  fs.appendFileSync(path.join(directory, 'update-lock-prompt.ps1'), `
+$script:checkedRecovery = (Get-Item Function:Confirm-UpdateLockRecovery).ScriptBlock
+function Confirm-UpdateLockRecovery {
+  param([int]$UpdateExitCode, [switch]$DryRun, [switch]$AlreadyRecovered)
+  & $script:checkedRecovery @PSBoundParameters -Interactive $true -RecoverAction { Write-Host 'RECOVERY_CHECKED' }
+}
+`);
+  const runner = path.join(directory, 'runner.ps1');
+  fs.writeFileSync(runner, `
+$ErrorActionPreference = 'Stop'
+$logDirectory = Join-Path $env:LOCALAPPDATA 'AtlasBuild'
+New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+$log = Join-Path $logDirectory 'update-latest.log'
+[IO.File]::WriteAllText($log, 'existing transcript')
+$heldLog = [IO.File]::Open($log, 'Open', 'ReadWrite', 'None')
+function global:node.exe { $global:LASTEXITCODE = 73 }
+try { & ${quote(path.join(directory, 'rebuild-atlas.ps1'))} }
+finally { $heldLog.Dispose() }
+exit $LASTEXITCODE
+`);
+  const local = path.join(directory, 'local');
+  const result = spawnSync('pwsh.exe', ['-NoProfile', '-File', runner], {
+    input: 'y\n', encoding: 'utf8', windowsHide: true, timeout: 10000,
+    env: { ...process.env, LOCALAPPDATA: local },
+  });
+  assert.equal(result.error, undefined);
+  const output = result.stdout + result.stderr;
+  assert.match(output, /RECOVERY_CHECKED/);
+  assert.equal(result.status, 73, output);
+  assert.doesNotMatch(output, /Transcription cannot be started|not currently transcribing/);
+  assert.equal(fs.readFileSync(path.join(local, 'AtlasBuild', 'update-latest.log'), 'utf8'), 'existing transcript');
+  const fallback = fs.readdirSync(path.join(local, 'AtlasBuild')).find(name => /^update-.*\.log$/.test(name) && name !== 'update-latest.log');
+  assert.ok(fallback, 'the concurrent launcher must have its own transcript');
+  assert.match(fs.readFileSync(path.join(local, 'AtlasBuild', fallback), 'utf8'), /RECOVERY_CHECKED/);
+});
