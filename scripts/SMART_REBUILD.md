@@ -110,6 +110,9 @@ isolated checkout, using the configured Codex CLI and model. The updater supplie
 the failed command's diagnostics and allows up to two repair attempts per repository.
 Codex is instructed to fix the cause while preserving the intended behavior and
 validation checks. Repair uses workspace-write access; it cannot start another updater.
+On Windows it prefers Codex's compatible native MXC sandbox, preserving the same
+workspace and approval boundaries. Codex retains its policy and compatibility
+fallback; the updater does not change saved sandbox settings.
 
 After a change, the updater runs that repository's complete check sequence again.
 Dependency changes reinstall npm dependencies before checks. A changed Cargo manifest

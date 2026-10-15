@@ -56,6 +56,22 @@ test('repair uses tool-enabled Codex in the isolated checkout with configured mo
   assert.equal(fs.readFileSync(result.messageFile, 'utf8'), 'Fixed preview assertion.');
 });
 
+test('Windows repair prefers compatible MXC while preserving workspace, approval and model boundaries', async (t) => {
+  for (const platform of ['win32', 'linux']) {
+    const options = fixture(t);
+    await repairSnapshot({ ...options, platform, execute: async (_executable, args) => {
+      assert.equal(args.includes('features.prefer_mxc=true'), platform === 'win32');
+      if (platform === 'win32') assert.equal(args[args.indexOf('features.prefer_mxc=true') - 1], '-c');
+      assert.equal(args[args.indexOf('--sandbox') + 1], 'workspace-write');
+      assert.equal(args[args.indexOf('-C') + 1], options.repo.snapshot);
+      for (const forbidden of ['--model', '--ask-for-approval', '--dangerously-bypass-approvals-and-sandbox', '--add-dir']) {
+        assert.equal(args.includes(forbidden), false);
+      }
+      assert.equal(args.some(value => value.includes('windows.sandbox=') || value.includes('sandbox_mode=')), false);
+    } });
+  }
+});
+
 test('repair input, diagnostic output and final message redact credentials without losing the failure', async (t) => {
   const options = fixture(t);
   options.env.OPENAI_API_KEY = 'synthetic-environment-key';
