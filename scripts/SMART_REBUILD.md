@@ -181,6 +181,13 @@ Only original or planned version contents are accepted during recovery. A leftov
 Git index lock is never forcibly removed by version recovery.
 
 `AtlasBuild\update.lock` prevents overlapping unified updates. When the interactive launcher finds an existing lock, it asks **Recover interrupted update and retry? [y/N]** before the final Enter-to-exit prompt. Enter or No leaves the lock in place. Yes runs the checked recovery and retries the update once. Recovery refuses a live lock owner, surviving isolated-build or installer processes, or processes it cannot inspect, and checks the lock again before removing it. There is no unconditional force-unlock option. Redirected/unattended runs do not prompt; use `-RecoverLock` explicitly after an interruption. Dry runs do not recover locks. The storage manager removes abandoned registered workspaces after their OS leases end; legacy workspaces require its verified migration.
+
+Recovery follows Atlas process ancestry, including surviving children of the stale
+owner. Recognized Git read operations outside that ancestry and the verified system
+Windows Installer service do not block recovery; Atlas installs with NSIS. Mutating
+or unknown Git commands, other installer clients and uncertain build processes still
+block, with process names and reasons shown beside their PIDs.
+
 Cleanup failures are reported and retried on a later build. The updater obtains its
 storage scope from Desktop's maintained controller before executing commands. Its
 processes are supervised even when a captured revision predates the manager. Nested

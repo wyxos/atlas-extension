@@ -9,7 +9,8 @@ const scripts = path.resolve(import.meta.dirname, '../scripts');
 const quote = (value) => `'${value.replaceAll("'", "''")}'`;
 
 function runPrompt(t, { answer = 'y', code = 73, interactive = true, dryRun = false,
-  recovered = false, processes = [], replaceLock = false, inspectionError = false } = {}) {
+  recovered = false, processes = [], services = [], replaceLock = false, inspectionError = false,
+  serviceInspectionError = false } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-lock-prompt-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const local = path.join(directory, 'local');
@@ -23,6 +24,11 @@ $ErrorActionPreference = 'Stop'
 # A controlled process census lets the real recovery script operate only on this
 # disposable lock, without depending on other builds running on the workstation.
 function Get-CimInstance {
+  param([string]$ClassName)
+  if ($ClassName -eq 'Win32_Service') {
+    if ($env:ATLAS_TEST_SERVICE_INSPECTION_ERROR -eq 'true') { throw 'Service inspection unavailable' }
+    return (ConvertFrom-Json $env:ATLAS_TEST_SERVICES)
+  }
   if ($env:ATLAS_TEST_INSPECTION_ERROR -eq 'true') { throw 'Inspection unavailable' }
   if ($env:ATLAS_TEST_REPLACE_LOCK -eq 'true') {
     [IO.File]::WriteAllText((Join-Path $env:LOCALAPPDATA 'AtlasBuild/update.lock'), '654321')
@@ -36,7 +42,10 @@ Write-Host "RETRY=$retry"
   const result = spawnSync('pwsh.exe', ['-NoProfile', '-File', script], {
     input: `${answer}\n`, encoding: 'utf8', windowsHide: true, timeout: 10000,
     env: { ...process.env, LOCALAPPDATA: local,
-      ATLAS_TEST_PROCESSES: JSON.stringify(processes),
+      ATLAS_TEST_PROCESSES: JSON.stringify(processes.map(entry => ({ ...entry,
+        CommandLine: entry.CommandLine?.replaceAll('ATLAS_TEST_LOCAL', local) ?? null }))),
+      ATLAS_TEST_SERVICES: JSON.stringify(services),
+      ATLAS_TEST_SERVICE_INSPECTION_ERROR: String(serviceInspectionError),
       ATLAS_TEST_REPLACE_LOCK: String(replaceLock), ATLAS_TEST_INSPECTION_ERROR: String(inspectionError) },
   });
   assert.equal(result.error, undefined);
@@ -51,6 +60,70 @@ test('interactive confirmation checks and removes a stale lock before allowing a
   assert.match(result.output, /Recovered interrupted update/);
   assert.match(result.output, /RETRY=True/);
   assert.equal(fs.existsSync(result.lock), false);
+});
+
+test('unrelated Git read operations do not prevent recovery', options, (t) => {
+  for (const command of ['git.exe status --porcelain=v2',
+    '"C:\\Program Files\\Git\\cmd\\git.exe" --no-optional-locks --no-pager log -1',
+    'git.exe -c core.quotepath=false rev-parse --git-dir']) {
+    const result = runPrompt(t, { processes: [{ ProcessId: 654321, Name: 'git.exe', CommandLine: command }] });
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /RETRY=True/);
+    assert.equal(fs.existsSync(result.lock), false);
+  }
+});
+
+const installerServiceProcesses = [
+  { ProcessId: 20, Name: 'services.exe', SessionId: 0 },
+  { ProcessId: 30, Name: 'msiexec.exe', ParentProcessId: 20, SessionId: 0, CommandLine: null },
+];
+const installerService = { Name: 'msiserver', ProcessId: 30, State: 'Running', StartName: 'LocalSystem',
+  PathName: `${process.env.SystemRoot}\\system32\\msiexec.exe /V` };
+
+test('an attested Windows Installer service is unrelated to Atlas NSIS installation', options, (t) => {
+  const result = runPrompt(t, { processes: installerServiceProcesses, services: [installerService] });
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /RETRY=True/);
+  assert.equal(fs.existsSync(result.lock), false);
+});
+
+test('unattested installers, unknown tools and mutating Git commands remain blocked', options, (t) => {
+  for (const args of [
+    { processes: installerServiceProcesses },
+    { processes: installerServiceProcesses, services: [installerService], serviceInspectionError: true },
+    { processes: installerServiceProcesses, services: [{ ...installerService, ProcessId: 31 }] },
+    { processes: installerServiceProcesses, services: [{ ...installerService, PathName: 'C:\\other\\msiexec.exe /V' }] },
+    { processes: installerServiceProcesses, services: [{ ...installerService, StartName: 'OtherAccount' }] },
+    { processes: [{ ...installerServiceProcesses[1], SessionId: 1 }], services: [installerService] },
+    { processes: [{ ProcessId: 654321, Name: 'git.exe', CommandLine: 'git.exe fetch origin' }] },
+    { processes: [{ ProcessId: 654321, Name: 'git.exe', CommandLine: 'git.exe log --output=build.log' }] },
+    { processes: [{ ProcessId: 654321, Name: 'git.exe', CommandLine: 'git.exe custom-command' }] },
+    { processes: [{ ProcessId: 654321, Name: 'git.exe', CommandLine: null }] },
+    { processes: [{ ProcessId: 654321, Name: 'cargo.exe', CommandLine: 'cargo build' }] },
+  ]) {
+    const result = runPrompt(t, args);
+    assert.notEqual(result.status, 0, result.output);
+    assert.equal(fs.readFileSync(result.lock, 'utf8'), '123456');
+  }
+});
+
+test('Atlas ancestry and orphan owner children remain blocked even for read operations', options, (t) => {
+  for (const processes of [
+    [{ ProcessId: 654321, ParentProcessId: 123456, Name: 'git.exe', CommandLine: 'git.exe status' }],
+    [{ ProcessId: 654320, Name: 'node.exe', CommandLine: 'node scripts/smart-rebuild.mjs' },
+      { ProcessId: 654321, ParentProcessId: 654320, Name: 'git.exe', CommandLine: 'git.exe status' }],
+    [{ ProcessId: 654322, ParentProcessId: 654321, Name: 'helper.exe', CommandLine: null },
+      { ProcessId: 654321, ParentProcessId: 654320, Name: 'helper.exe', CommandLine: null },
+      { ProcessId: 654320, Name: 'node.exe', CommandLine: 'node scripts/smart-rebuild.mjs' }],
+    [{ ProcessId: 654321, Name: 'Atlas_2.21.1_x64-setup.exe', CommandLine: null }],
+    [...installerServiceProcesses, { ProcessId: 123456 + 1, ParentProcessId: 123456, Name: 'helper.exe' },
+      { ...installerServiceProcesses[1], ParentProcessId: 123456 + 1 }],
+    [{ ProcessId: 654321, Name: 'git.exe', CommandLine: 'git.exe status -- ATLAS_TEST_LOCAL\\AtlasBuild\\workspaces\\run-123' }],
+  ]) {
+    const result = runPrompt(t, { processes });
+    assert.notEqual(result.status, 0, result.output);
+    assert.equal(fs.readFileSync(result.lock, 'utf8'), '123456');
+  }
 });
 
 test('declining or pressing Enter leaves the lock in place', options, (t) => {
