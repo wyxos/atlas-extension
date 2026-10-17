@@ -20,7 +20,7 @@ export function createOpenTabRegistry() {
         continue;
       }
 
-      setTabRecord(tabId, tabRecordFrom(tab.url, tab.windowId));
+      setTabRecord(tabId, tabRecordFrom(openTabUrl(tab), tab.windowId));
     }
   }
 
@@ -183,6 +183,10 @@ export function createOpenTabRegistry() {
     replaceTabs,
     updateTab,
   };
+}
+
+export function openTabUrl(tab) {
+  return tab?.url || tab?.pendingUrl;
 }
 
 function tabRecordFrom(url, windowId) {

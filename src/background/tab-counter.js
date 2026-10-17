@@ -6,6 +6,7 @@ export function handleTabCounterSnapshotRequest({
   message,
   openTabs,
   sender,
+  refreshSender = true,
 } = {}) {
   const tabId = Number(sender?.tab?.id);
 
@@ -13,9 +14,13 @@ export function handleTabCounterSnapshotRequest({
     return null;
   }
 
-  openTabs.updateTab(tabId, currentTabUrl(message, sender), {
-    windowId: sender?.tab?.windowId,
-  });
+  // A request held during startup may outlive its tab or navigation. The
+  // initialized event-driven registry is authoritative for those requests.
+  if (refreshSender) {
+    openTabs.updateTab(tabId, currentTabUrl(message, sender), {
+      windowId: sender?.tab?.windowId,
+    });
+  }
 
   return openTabs.getTabCounter(tabId);
 }

@@ -19,6 +19,7 @@ export function createStatusCheckQueue({
   const pendingAssetSources = new Set();
   const pendingMatchItems = new Map();
   const pendingOpenReferrerUrls = new Set();
+  const requestedOpenReferrerUrls = new Set();
   const pendingReferrerUrls = new Set();
   let scheduledStatusCheck = null;
   let generation = 0;
@@ -57,8 +58,13 @@ export function createStatusCheckQueue({
       shouldSchedule = true;
     }
 
-    if (options.refreshOpenCounts === true && !pendingOpenReferrerUrls.has(referrerUrl)) {
+    // A startup policy/preferences reset can cancel the first lookup after the
+    // badge manager already knows the link. Ensure one lookup per generation
+    // even when that manager's unchanged-link rescan does not request a refresh.
+    if ((options.refreshOpenCounts === true || !requestedOpenReferrerUrls.has(referrerUrl))
+      && !pendingOpenReferrerUrls.has(referrerUrl)) {
       pendingOpenReferrerUrls.add(referrerUrl);
+      requestedOpenReferrerUrls.add(referrerUrl);
       shouldSchedule = true;
     }
 
@@ -101,6 +107,7 @@ export function createStatusCheckQueue({
     pendingAssetSources.clear();
     pendingMatchItems.clear();
     pendingOpenReferrerUrls.clear();
+    requestedOpenReferrerUrls.clear();
     pendingReferrerUrls.clear();
 
     if (scheduledStatusCheck !== null) {
@@ -169,6 +176,7 @@ export function createStatusCheckQueue({
     if (openCountResult.status === 'fulfilled') {
       applyOpenCounts(openReferrerUrls, openCountResult.value.counts ?? {});
     } else {
+      for (const referrerUrl of openReferrerUrls) requestedOpenReferrerUrls.delete(referrerUrl);
       reportFailure('Could not check open tabs. Duplicate-tab information may be out of date.');
     }
 

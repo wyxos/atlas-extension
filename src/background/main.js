@@ -19,6 +19,7 @@ import {
 } from './extension-reload.js';
 import { reloadAllExtensionTabs } from './extension-tabs.js';
 import { createOpenTabRegistry } from './tab-state.js';
+import { replyWithOpenTabCounts, trackOpenTabs } from './open-tab-tracking.js';
 import {
   broadcastTabCounterSnapshots,
   handleTabCounterSnapshotRequest,
@@ -113,13 +114,8 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     return true;
   }
   if (message?.type === 'atlas-extension.open-referrer-counts') {
-    sendResponse({
-      ok: true,
-      payload: {
-        counts: openTabs.getCounts(message.referrerUrls),
-      },
-    });
-    return false;
+    void replyWithOpenTabCounts({ ready: openTabsReady, openTabs, message, sendResponse });
+    return true;
   }
   if (message?.type === 'atlas-extension.open-referrer-url') {
     return handleOpenReferrerUrlMessage(message, sendResponse);
@@ -154,11 +150,13 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     return true;
   }
   if (message?.type === tabCounterSnapshotRequestType) {
-    sendResponse({
-      ok: true,
-      payload: handleTabCounterSnapshotRequest({ message, openTabs, sender }),
+    void openTabsReady.then(() => {
+      sendResponse({
+        ok: true,
+        payload: handleTabCounterSnapshotRequest({ message, openTabs, sender, refreshSender: false }),
+      });
     });
-    return false;
+    return true;
   }
   if (message?.type === loadNextTabsRequestType) {
     void loadNextTabsFromActive({
@@ -211,7 +209,7 @@ globalThis.chrome?.runtime?.onMessage?.addListener?.((message, sender, sendRespo
     });
   return true;
 });
-bindOpenTabTracking();
+const openTabsReady = bindOpenTabTracking();
 globalThis.chrome?.webNavigation?.onCommitted?.addListener?.(({ tabId, frameId }) => {
   void contentInterests.ready.then(() => {
     if (frameId === 0) contentInterests.remove(tabId);
@@ -351,51 +349,22 @@ function deliverTargetedResync(tabId, providerChanged = true) {
   return deliverContentResync({ registry: contentInterests, sendMessage: sendTabMessage, tabId, providerChanged });
 }
 function bindOpenTabTracking() {
-  const tabsApi = globalThis.chrome?.tabs;
-  if (!tabsApi) {
-    return;
-  }
-  tabsApi.query?.({}, (tabs) => {
-    openTabs.replaceTabs(tabs);
-    void contentInterests.ready.then(() => contentInterests.reconcileTabs(tabs));
-  });
-  tabsApi.onCreated?.addListener?.((tab) => {
-    const tabId = Number(tab?.id);
-    broadcastOpenTabCountChanges(openTabs.updateTab(tabId, tab?.url, {
-      windowId: tab?.windowId,
-    }));
-    broadcastTabCounterChanges([tab?.windowId]);
-  });
-  tabsApi.onUpdated?.addListener?.((tabId, changeInfo, tab) => {
-    void contentInterests.ready.then(() => {
-      const { shouldResync } = contentInterests.updateLifecycle(tabId, changeInfo, tab);
-      if (shouldResync) void deliverTargetedResync(tabId, false);
-    });
-    const url = typeof changeInfo?.url === 'string' ? changeInfo.url : tab?.url;
-    if (typeof url === 'string') {
-      const previousWindowId = openTabs.getWindowId(tabId);
-      broadcastOpenTabCountChanges(openTabs.updateTab(tabId, url, {
-        windowId: tab?.windowId,
-      }));
-      broadcastTabCounterChanges([previousWindowId, openTabs.getWindowId(tabId)]);
-    }
-  });
-  tabsApi.onRemoved?.addListener?.((tabId) => {
-    const previousWindowId = openTabs.getWindowId(tabId);
-    closeTabIntents.removeTab(tabId);
-    postPreparedReactionBatch.removeTab(tabId);
-    void contentInterests.ready.then(() => contentInterests.remove(tabId));
-    broadcastOpenTabCountChanges(openTabs.removeTab(tabId));
-    broadcastTabCounterChanges([previousWindowId]);
-  });
-  tabsApi.onDetached?.addListener?.((tabId, detachInfo) => {
-    openTabs.moveTab(tabId, null);
-    broadcastTabCounterChanges([detachInfo?.oldWindowId]);
-  });
-  tabsApi.onAttached?.addListener?.((tabId, attachInfo) => {
-    const previousWindowId = openTabs.getWindowId(tabId);
-    openTabs.moveTab(tabId, attachInfo?.newWindowId);
-    broadcastTabCounterChanges([previousWindowId, attachInfo?.newWindowId]);
+  return trackOpenTabs({
+    openTabs,
+    onCountsChanged: broadcastOpenTabCountChanges,
+    onCountersChanged: broadcastTabCounterChanges,
+    onSnapshot: tabs => { void contentInterests.ready.then(() => contentInterests.reconcileTabs(tabs)); },
+    onUpdated: (tabId, changeInfo, tab) => {
+      void contentInterests.ready.then(() => {
+        const { shouldResync } = contentInterests.updateLifecycle(tabId, changeInfo, tab);
+        if (shouldResync) void deliverTargetedResync(tabId, false);
+      });
+    },
+    onRemoved: tabId => {
+      closeTabIntents.removeTab(tabId);
+      postPreparedReactionBatch.removeTab(tabId);
+      void contentInterests.ready.then(() => contentInterests.remove(tabId));
+    },
   });
 }
 function broadcastOpenTabCountChanges(changedUrls) {
@@ -403,8 +372,8 @@ function broadcastOpenTabCountChanges(changedUrls) {
     return;
   }
   const tabsApi = globalThis.chrome?.tabs;
-  const counts = openTabs.getCounts(changedUrls);
   tabsApi?.query?.({}, (tabs) => {
+    const counts = openTabs.getCounts(changedUrls);
     for (const tab of tabs ?? []) {
       if (!Number.isInteger(tab.id)) {
         continue;
