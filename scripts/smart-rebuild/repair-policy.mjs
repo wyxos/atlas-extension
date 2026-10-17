@@ -72,6 +72,12 @@ export function assertRepairContract(repo, original) {
 
 export function canRepairFailure(error) {
   if (!(error.exitCode > 0) || error.signal) return false;
+  // A broker can end during a long command; its failed post-command checkpoint
+  // is infrastructure failure even when every Rust assertion passed. Source
+  // repair cannot restore that scope's leases or authenticate a replacement.
+  const diagnostics = error.diagnostics ?? '';
+  if (/^(?:Error: )?connect (?:ENOENT|ECONNREFUSED|EACCES|EPERM) \\\\\.\\pipe\\atlas-build-[a-f0-9]{24}\r?$/m.test(diagnostics)
+    || /^(?:Incompatible build storage (?:connection|manager)\.|Build storage (?:disconnected|request timed out|response is (?:incomplete|invalid))\.|Build session (?:lease is unavailable|is not supervised)\.)\r?$/m.test(diagnostics)) return false;
   // sccache's own error/fatal prefix identifies compiler-cache infrastructure
   // failures (including Windows socket buffer exhaustion, os error 10055).
   // Ordinary compiler output and a successful cache fallback remain repairable.

@@ -312,13 +312,14 @@ test('Codex reviews prefer the desktop app CLI over a global npm CLI', () => {
   const vendor = path.join('C:', 'Roaming', 'npm', 'node_modules', '@openai', 'codex', 'node_modules', '@openai',
     'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
   const env = { APPDATA: path.join('C:', 'Roaming') };
+  const options = { env, locateNpmRoot: () => null };
   const present = (...files) => (file) => files.includes(file);
-  assert.equal(resolveCodex({ env, locate: () => app, exists: present(bundled, vendor) }), bundled);
+  assert.equal(resolveCodex({ ...options, locate: () => app, exists: present(bundled, vendor) }), bundled);
   assert.equal(resolveCodex({ env: { ...env, CODEX_EXECUTABLE: 'C:\\override\\codex.exe' }, locate: () => app,
     exists: present(bundled) }), 'C:\\override\\codex.exe');
-  assert.equal(resolveCodex({ env, locate: () => null, exists: present(vendor) }), vendor);
-  assert.equal(resolveCodex({ env, locate: () => app, exists: present(vendor) }), vendor);
-  assert.equal(resolveCodex({ env, locate: () => null, exists: present() }), 'codex.exe');
+  assert.equal(resolveCodex({ ...options, locate: () => null, exists: present(vendor) }), vendor);
+  assert.equal(resolveCodex({ ...options, locate: () => app, exists: present(vendor) }), vendor);
+  assert.equal(resolveCodex({ ...options, locate: () => null, exists: present() }), 'codex.exe');
 });
 
 test('Cursor envelope text and fenced JSON still yield a structured decision', () => {

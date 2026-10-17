@@ -60,29 +60,42 @@ export function resolveCursorAgent({ env = process.env, exists = fs.existsSync }
   return { executable: candidates.find((candidate) => exists(candidate)) ?? 'agent' };
 }
 
-let appLocation;
-
 // Windows keeps the Codex desktop app in a versioned package folder.
 function codexAppLocation() {
   if (process.platform !== 'win32') return null;
-  if (appLocation !== undefined) return appLocation;
+  // A review and a later repair can be separated by lengthy native checks.
+  // Query again for each invocation: Store updates retire the old directory.
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
     "(Get-AppxPackage -Name 'OpenAI.Codex' | Sort-Object Version -Descending | Select-Object -First 1).InstallLocation"],
   { encoding: 'utf8', windowsHide: true, timeout: 30 * 1000 });
-  appLocation = result.status === 0 ? result.stdout.trim() || null : null;
-  return appLocation;
+  return result.status === 0 ? result.stdout.trim() || null : null;
+}
+
+function globalNpmRoot() {
+  if (process.platform !== 'win32') return null;
+  // npm.cmd needs a Windows command host; only the fixed read-only npm query
+  // runs there. Return its native codex.exe below for shell-free CLI execution.
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    '& npm.cmd root -g; exit $LASTEXITCODE'],
+  { encoding: 'utf8', windowsHide: true, timeout: 30 * 1000 });
+  return result.status === 0 ? result.stdout.trim() || null : null;
 }
 
 // Prefer the CLI bundled with the Codex desktop app: it updates with the app
 // and supports the models the app configures. A global npm CLI can fall behind.
-export function resolveCodex({ env = process.env, exists = fs.existsSync, locate = codexAppLocation } = {}) {
+export function resolveCodex({ env = process.env, exists = fs.existsSync, locate = codexAppLocation,
+  locateNpmRoot = globalNpmRoot } = {}) {
   if (env.CODEX_EXECUTABLE) return env.CODEX_EXECUTABLE;
   const location = locate();
   const bundled = location ? path.join(location, 'app', 'resources', 'codex.exe') : null;
   if (bundled && exists(bundled)) return bundled;
-  const vendor = path.join(env.APPDATA ?? '', 'npm', 'node_modules', '@openai', 'codex',
+  const npmBinary = root => path.join(root, '@openai', 'codex',
     'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
-  return exists(vendor) ? vendor : 'codex.exe';
+  const vendor = npmBinary(path.join(env.APPDATA ?? '', 'npm', 'node_modules'));
+  if (exists(vendor)) return vendor;
+  const npmRoot = locateNpmRoot();
+  const custom = npmRoot ? npmBinary(npmRoot) : null;
+  return custom && exists(custom) ? custom : 'codex.exe';
 }
 
 function isWindowsCmd(executable) {

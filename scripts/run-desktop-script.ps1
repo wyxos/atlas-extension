@@ -7,24 +7,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $scriptExitCode = 1
 try {
-    if (-not $env:CODEX_EXECUTABLE) {
-        # Prefer the Codex desktop app's own CLI; it updates with the app and
-        # supports the models the app configures. The npm CLI is a fallback.
-        $codexApp = Get-AppxPackage -Name 'OpenAI.Codex' -ErrorAction SilentlyContinue |
-            Sort-Object Version -Descending | Select-Object -First 1
-        if ($codexApp) {
-            $bundled = Join-Path $codexApp.InstallLocation 'app\resources\codex.exe'
-            if (Test-Path -LiteralPath $bundled) { $env:CODEX_EXECUTABLE = $bundled }
-        }
-    }
-    if (-not $env:CODEX_EXECUTABLE) {
-        $npmRoot = (& npm.cmd root -g).Trim()
-        $codexPackage = Join-Path $npmRoot '@openai\codex'
-        if (Test-Path -LiteralPath $codexPackage) {
-            $candidates = @(Get-ChildItem -LiteralPath $codexPackage -Filter codex.exe -Recurse)
-            if ($candidates.Count -eq 1) { $env:CODEX_EXECUTABLE = $candidates[0].FullName }
-        }
-    }
+    # Resolve the CLI only when review or repair starts. Store updates can
+    # remove versioned package paths during lengthy validation. Preserve only
+    # an explicit user CODEX_EXECUTABLE override in the inherited environment.
     & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $ScriptPath @ScriptArguments
     $scriptExitCode = $LASTEXITCODE
 }

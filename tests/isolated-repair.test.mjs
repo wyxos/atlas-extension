@@ -171,6 +171,7 @@ test('storage, compiler-cache failures, managed cancellation and recursive calls
   const f = fixture(t);
   for (const diagnostic of ['Atlas build stopped: disk capacity is exhausted.', 'Atlas runtime interrupted.',
     'Build storage ownership could not be verified.', 'Updater build scope cleanup failed.',
+    'connect ENOENT \\\\.\\pipe\\atlas-build-4e37fb19f3bd5aa0f2532664', 'Incompatible build storage connection.',
     'spawn missing-tool.exe ENOENT', 'spawn blocked-tool.exe EACCES', 'spawn denied-tool.exe EPERM',
     'sccache: error: An operation on a socket could not be performed because the system lacked sufficient buffer space or because a queue was full. (os error 10055)',
     'sccache: error: failed to connect to the compiler cache server']) {
@@ -204,6 +205,24 @@ test('bounded Git ownership launch diagnostics do not trigger source repair', ()
     'Atlas could not start Git to resolve runtime ownership (source assertion).']) {
     assert.equal(canRepairFailure(failure(diagnostics)), true);
   }
+});
+
+test('lost build-storage connections never trigger source repair', () => {
+  const failure = diagnostics => new CommandFailure('node', ['runtime-launcher.mjs'], 1, null, diagnostics);
+  for (const diagnostic of [
+    'connect ENOENT \\\\.\\pipe\\atlas-build-4e37fb19f3bd5aa0f2532664',
+    'Error: connect ECONNREFUSED \\\\.\\pipe\\atlas-build-4e37fb19f3bd5aa0f2532664',
+    'Incompatible build storage connection.',
+    'Build storage disconnected.',
+    'Build storage request timed out.',
+    'Build storage response is incomplete.',
+    'Build session lease is unavailable.',
+  ]) assert.equal(canRepairFailure(failure(`runtime banner\n${diagnostic}\n`)), false, diagnostic);
+  for (const diagnostic of [
+    'AssertionError: connect ENOENT \\\\.\\pipe\\atlas-build-synthetic',
+    'Error: ENOENT opening required source file',
+    'connect ECONNREFUSED 127.0.0.1:1234',
+  ]) assert.equal(canRepairFailure(failure(diagnostic)), true, diagnostic);
 });
 
 test('a cache fallback message does not hide an application compile failure', () => {
