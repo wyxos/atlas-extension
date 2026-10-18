@@ -235,7 +235,21 @@ retries use `rust-test-timings-2.json` and subsequent numbered files. Each attem
 uses only a newly written report. Older Desktop revisions retain combined Cargo
 timings and explicitly report that the compilation/execution split is unavailable.
 Missing or invalid native reports do not change the original command's result.
-Both reports survive removal of the temporary source checkout. The updater report
+The installer step also retains its combined duration. Its nested `installer`
+details separate importer preparation, native compilation, packaging/finalization,
+graceful shutdown and installation. Cargo's reported release-build duration
+measures native compilation; Tauri's pinned **Built application** message marks
+the start of packaging/finalization. Frontend hooks and other preceding work stay
+in preparation. Missing or changed messages leave those durations unknown.
+The content-free `installer-timings.json` and `installer-build-timings.json` reports
+are retained alongside the build diagnostics.
+
+Reopening happens after build-scope cleanup. A separate
+`installer-reopen-timings.json` report measures starting the installed process,
+and is nested under the updater's existing cleanup stage as `installedReopen`.
+It does not measure when the app finishes loading. These nested measurements
+are parts of the existing step totals; do not add them again to the total run.
+The reports survive removal of the temporary source checkout. The updater report
 starts after build-scope acquisition; use the outer transcript for total elapsed
 time including version review and initial storage setup. Compare cold and warm
 builds separately: retaining a compiler cache does not eliminate the first build.

@@ -45,6 +45,62 @@ function fixture(t) {
     } };
 }
 
+test('installer and actual deferred reopen details attach to their existing stages', async t => {
+  const f = fixture(t);
+  fs.mkdirSync(f.stateDirectory);
+  const reopenFile = path.join(f.stateDirectory, 'reopen.json');
+  const timingFile = path.join(f.stateDirectory, 'installer-timings.json');
+  await runIsolatedUpdate({ ...f, scopeFactory: async () => ({
+    environment: { CARGO_TARGET_DIR: path.join(f.root, 'target'), ATLAS_BUILD_REOPEN_REQUEST: reopenFile },
+    close: async () => fs.writeFileSync(path.join(f.stateDirectory, 'installer-reopen-timings.json'),
+      JSON.stringify({ version: 1, elapsedMs: 5, outcome: 'passed', boundary: 'process-spawn', applicationReadyMeasured: false })),
+  }), buildOverride: async (repo, plans) => {
+    await f.buildOverride(repo, plans);
+    if (repo.kind === 'desktop') fs.writeFileSync(timingFile, JSON.stringify({ version: 1, elapsedMs: 10,
+      outcome: 'passed', stages: [{ name: 'installation', elapsedMs: 5, outcome: 'passed' }], buildDetailFresh: false }));
+  } });
+  const report = JSON.parse(fs.readFileSync(path.join(f.stateDirectory, 'updater-timings.json')));
+  assert.equal(report.stages.find(stage => stage.name.includes('build installer')).installer.stages[0].elapsedMs, 5);
+  assert.equal(report.stages.find(stage => stage.name === 'cleanup').installedReopen.elapsedMs, 5);
+  assert.ok(f.logs.some(line => line.includes('process spawn only')));
+  assert.equal(report.stages.filter(stage => stage.name.includes('build installer')).length, 1);
+});
+
+test('installer command carries an explicit timing destination across nested runtime artifact directories', async t => {
+  const f = fixture(t);
+  fs.mkdirSync(f.stateDirectory);
+  const reopen = path.join(f.stateDirectory, 'reopen.json');
+  const target = path.join(f.root, 'target');
+  let called = false;
+  await runIsolatedUpdate({ ...f, buildOverride: undefined,
+    scopeFactory: async () => ({ environment: { CARGO_TARGET_DIR: target, ATLAS_BUILD_REOPEN_REQUEST: reopen }, close: async () => {} }),
+    execute: async (name, args, options) => {
+      if (name === 'pwsh.exe' && args.includes('-File')) {
+        const kind = path.basename(options.cwd);
+        const repo = { ...f.repos.find(repo => repo.kind === kind), snapshot: options.cwd };
+        await f.buildOverride(repo, [{ snapshot: path.join(path.dirname(options.cwd), 'extension') }]);
+        if (kind === 'desktop') {
+          called = true;
+          assert.equal(options.env.ATLAS_INSTALLER_TIMING_DIRECTORY, f.stateDirectory);
+          // runtime:external changes ATLAS_ARTIFACT_DIR to a child run; the
+          // dedicated destination must still point at the parent updater log.
+          const childArtifacts = path.join(f.root, 'child-runtime-artifacts');
+          assert.notEqual(options.env.ATLAS_INSTALLER_TIMING_DIRECTORY, childArtifacts);
+          fs.writeFileSync(path.join(options.env.ATLAS_INSTALLER_TIMING_DIRECTORY, 'installer-timings.json'),
+            JSON.stringify({ version: 1, elapsedMs: 10, outcome: 'passed', stages: [] }));
+          fs.mkdirSync(path.join(target, 'release'), { recursive: true });
+          fs.copyFileSync(repo.artifact, path.join(target, 'release', 'atlas-desktop.exe'));
+          fs.writeFileSync(reopen, JSON.stringify({ executable: repo.artifact }));
+        }
+      }
+      return f.execute(name, args, options);
+    },
+  });
+  assert.equal(called, true);
+  const report = JSON.parse(fs.readFileSync(path.join(f.stateDirectory, 'updater-timings.json')));
+  assert.equal(report.stages.find(stage => stage.name.includes('build installer')).installer.status, 'available');
+});
+
 test('builds captured main, preserves live index/branch/edits, skips success and restores missing output', async (t) => {
   const f = fixture(t);
   const before = f.repos.map((repo) => [git(repo.root, ['status', '--porcelain']), git(repo.root, ['write-tree']), git(repo.root, ['symbolic-ref', 'HEAD'])]);

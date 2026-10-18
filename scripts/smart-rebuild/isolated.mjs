@@ -15,6 +15,7 @@ import { captureRepairContract, assertRepairContract, canRepairFailure, cargoWor
 import { documentationOnlyChanges } from './documentation.mjs';
 import { updateTimings } from './timings.mjs';
 import { readRustTestTimings } from './rust-test-timings.mjs';
+import { clearInstallerTimingReports, readInstallerTimings, readInstalledReopenTiming } from './installer-timings.mjs';
 
 export function removeWorkspace(parent, directory) {
   const base = fs.realpathSync(parent);
@@ -138,7 +139,7 @@ export function isolatedBuildEnvironment(scopeEnvironment, workspace, inherited 
   // caller's log, native ownership, compiler target or runtime identity. Only
   // the selected scope can supply these; ordinary user/tool configuration stays.
   const owned = new Set(['ATLAS_CHECKOUT_INFO', 'ATLAS_ARTIFACT_DIR', 'ATLAS_RUN_ID',
-    'CARGO_TARGET_DIR', 'CARGO_INCREMENTAL', 'RUSTC_WRAPPER']);
+    'CARGO_TARGET_DIR', 'CARGO_INCREMENTAL', 'RUSTC_WRAPPER', 'ATLAS_INSTALLER_TIMING_DIRECTORY', 'ATLAS_INSTALLER_BUILD_TIMINGS']);
   const environment = Object.fromEntries(Object.entries(inherited).filter(([key]) => {
     const name = key.toUpperCase();
     return !/^(ATLAS_BUILD_|ATLAS_RUNTIME_|ATLAS_COMMAND_|SCCACHE_)/.test(name) && !owned.has(name);
@@ -207,6 +208,10 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   const timings = updateTimings(timingFile, plans.map(({ kind, head, tree, needed }) => ({ kind, head, tree, needed })));
   fs.writeFileSync(logFile, plans.map((repo) => `${repo.name}: main ${repo.head}`).join('\n') + '\n');
   const steps = [];
+  const installerDirectory = environment.ATLAS_ARTIFACT_DIR || path.dirname(logFile);
+  const reopenTimingFile = environment.ATLAS_BUILD_REOPEN_REQUEST
+    ? path.join(path.dirname(environment.ATLAS_BUILD_REOPEN_REQUEST), 'installer-reopen-timings.json') : undefined;
+  let installerAttempted = false, installerFresh = false;
   const run = (name, args, cwd, options = {}) => execute(name, args, { cwd, env: environment, logFile,
     status: (message) => display.status(message.replace(/^Desktop: /, '')), ...options });
   let rustAttempt = 0;
@@ -286,7 +291,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       steps.push(step);
     }
     steps.push({ title: repo.kind === 'desktop' ? 'Desktop: build installer, install and reopen' : 'Extension: build',
-      repo, repairable: repo.kind === 'extension' && !buildOverride, action: async () => {
+      repo, installerStep: repo.kind === 'desktop', repairable: repo.kind === 'extension' && !buildOverride, action: async () => {
       if (buildOverride) {
         await buildOverride(repo, plans);
         if (repo.kind === 'extension') await saveRepair(repo);
@@ -297,7 +302,8 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       // are explicitly the captured checkout, never the live source tree.
       const scriptRoot = repo.kind === 'desktop' ? repo.root : repo.snapshot;
       const parameters = repo.kind === 'desktop' ? ['-RepositoryRoot', repo.snapshot] : [];
-      await run('pwsh.exe', ['-NoProfile', '-File', path.join(scriptRoot, 'scripts', script), ...parameters], repo.snapshot);
+      await run('pwsh.exe', ['-NoProfile', '-File', path.join(scriptRoot, 'scripts', script), ...parameters], repo.snapshot,
+        repo.kind === 'desktop' ? { env: { ...environment, ATLAS_INSTALLER_TIMING_DIRECTORY: installerDirectory } } : {});
       if (repo.kind === 'extension') await saveRepair(repo);
       if (repo.kind === 'desktop') {
         const receipt = environment.ATLAS_BUILD_REOPEN_REQUEST;
@@ -324,9 +330,21 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       display.start(step.title, completed, steps.length);
       appendLogFile(logFile, `\nStep ${completed + 1}/${steps.length}: ${step.title}\n`);
       const timer = setInterval(display.tick, 1000);
-      try { await timings.stage(step.title, step.action, () => step.rustTests); } catch (error) {
+      try { await timings.stage(step.title, async () => {
+        const started = performance.now();
+        if (step.installerStep) {
+          installerAttempted = true;
+          installerFresh = clearInstallerTimingReports(installerDirectory, reopenTimingFile);
+        }
+        try { return await step.action(); }
+        finally {
+          if (step.installerStep) step.installer = installerFresh ? readInstallerTimings(installerDirectory,
+            { elapsedMs: performance.now() - started }) : { status: 'unavailable' };
+        }
+      }, () => ({ rustTests: step.rustTests, installer: step.installer })); } catch (error) {
         display.fail();
         if (step.rustTests) display.rustTests(step.rustTests);
+        if (step.installer) display.installer(step.installer);
         const repo = step.repo;
         // Only completed development/code commands are candidates. Spawn errors,
         // cancellation, dependency installation and installation/publication
@@ -369,6 +387,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       completed++;
       display.done();
       if (step.rustTests) display.rustTests(step.rustTests);
+      if (step.installer) display.installer(step.installer);
     }
   } catch (error) { failure = error; }
   finally {
@@ -377,8 +396,16 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     // Closing the scope can release a target before its snapshot is reclaimed;
     // direct deletion could remove a pinned source or a subsequent owner's tree.
     let scopeClosed = false;
-    try { await timings.stage('cleanup', async () => { await scope.close(); scopeClosed = true; }); }
+    let installedReopen;
+    try { await timings.stage('cleanup', async () => {
+      try { await scope.close(); scopeClosed = true; }
+      finally {
+        if (installerAttempted && reopenTimingFile) installedReopen = installerFresh
+          ? readInstalledReopenTiming(reopenTimingFile) : { status: 'unavailable' };
+      }
+    }, () => ({ installedReopen })); }
     catch (error) { failure ??= error; }
+    if (installedReopen) display.installedReopen(installedReopen);
     // Older Desktop controllers identify their managed parent scope through the
     // inherited environment rather than the explicit workspace ownership flag.
     const managedWorkspaces = scope.managedWorkspaces === true

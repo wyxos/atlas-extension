@@ -36,7 +36,7 @@ test('Rust phase details remain nested and updater overhead is part of the origi
   const timings = updateTimings(file, [], { now: () => now });
   const rustTests = { status: 'available', elapsedMs: 30, compilationMs: 10,
     executionMs: 10, preparationMs: 5, unknownMs: 5 };
-  await timings.stage('Desktop: run Rust tests', () => { now = 40; }, () => rustTests);
+  await timings.stage('Desktop: run Rust tests', () => { now = 40; }, () => ({ rustTests }));
   const report = timings.finish('passed');
   assert.equal(report.stages.length, 1);
   assert.equal(report.elapsedMs, 40);

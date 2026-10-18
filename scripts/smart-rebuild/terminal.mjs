@@ -1,4 +1,5 @@
 import { rustTestTimingLines } from './rust-test-timings.mjs';
+import { installerTimingLines, installedReopenTimingLine } from './installer-timings.mjs';
 const codes = { blue: 36, green: 32, yellow: 33, red: 31, dim: 90 };
 
 export function createTerminal({ stream = process.stdout, env = process.env, log,
@@ -43,6 +44,8 @@ export function createTerminal({ stream = process.stdout, env = process.env, log
     done() { line(`  OK  ${active.title} (${elapsed()})`, 'green'); active = undefined; },
     fail() { if (active) line(`  FAILED  ${active.title} (${elapsed()})`, 'red'); active = undefined; },
     rustTests(timing) { for (const detail of rustTestTimingLines(timing)) line(`      ${detail}`, 'dim'); },
+    installer(timing) { for (const detail of installerTimingLines(timing)) line(`      ${detail}`, 'dim'); },
+    installedReopen(timing) { line(`  ${installedReopenTimingLine(timing)}`, 'dim'); },
   };
 }
 
