@@ -206,8 +206,32 @@ function buildAssetMetadata(asset) {
       top_page_url: asset.topPageUrl,
       resolution: asset.resolution,
       ...(validDimensions ? { width, height } : {}),
+      // Additive capture details (drop zone). Desktop's AssetMetadata accepts
+      // unknown fields, so older Desktop builds ignore them safely.
+      ...captureMetadata(asset),
     }).filter(([, value]) => value !== null && value !== undefined && value !== ''),
   );
+}
+
+const captureMetadataFields = Object.freeze({
+  alt_text: 'altText',
+  capture_method: 'captureMethod',
+  element_url: 'elementUrl',
+  filename: 'filename',
+  link_text: 'linkText',
+  page_title: 'pageTitle',
+  page_url: 'pageUrl',
+  title_text: 'titleText',
+});
+const maxCaptureMetadataLength = 1000;
+const maxCaptureUrlLength = 16384;
+
+function captureMetadata(asset) {
+  return Object.fromEntries(Object.entries(captureMetadataFields).map(([field, key]) => {
+    const value = typeof asset[key] === 'string' ? asset[key].trim() : '';
+    const limit = field.endsWith('_url') ? maxCaptureUrlLength : maxCaptureMetadataLength;
+    return [field, value === '' || (field.endsWith('_url') && value.length > limit) ? undefined : value.slice(0, limit)];
+  }));
 }
 
 function normalizeBatchItems(items, preferences) {
