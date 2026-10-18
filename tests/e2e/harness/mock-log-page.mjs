@@ -11,6 +11,7 @@ export function renderMockLog(state) {
     const rows = [
       ['asset_url', file.url], ['referrer_url', file.referrer_url], ['source', file.source], ['reaction', file.reaction],
       ['download', `${file.download?.status ?? '—'} ${file.download?.progress_percent ?? ''}%`],
+      ['Desktop transfer', file.transfer ? `${file.transfer.source_type} → ${file.transfer.url}` : '—'],
       ['stored file', file.stored ? `${file.filename}${file.stored.path.slice(file.stored.path.lastIndexOf('.'))} · ${file.stored.bytes} bytes · ${file.stored.content_type}` : '—'],
       ...Object.entries(file.received_metadata ?? {}).map(([key, value]) => [`metadata.${key}`, value]),
       ['Desktop persists today', JSON.stringify(file.listing_metadata)],

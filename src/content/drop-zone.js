@@ -137,12 +137,15 @@ export function initializeDropZone({
     const { box, toast } = ensureUi();
     toast.hidden = true;
     const unsupported = Boolean(item.unsupported);
+    const streamed = item.asset?.streamFallback === true;
     box.querySelector('.atlas-drop-zone-title').textContent = unsupported
-      ? `Can't save this ${kindLabels[item.kind]?.toLowerCase() ?? 'item'}` : 'Drop to save to Atlas';
+      ? `Can't save this ${kindLabels[item.kind]?.toLowerCase() ?? 'item'}`
+      : streamed ? 'Drop to save the page video' : 'Drop to save to Atlas';
     box.querySelector('.atlas-drop-zone-kind').textContent = kindLabels[item.kind] ?? item.kind;
-    box.querySelector('.atlas-drop-zone-detail').textContent = unsupported ? unsupportedMessage(item) : item.label;
+    box.querySelector('.atlas-drop-zone-detail').textContent = unsupported ? unsupportedMessage(item)
+      : streamed ? `Streamed video · Atlas saves it from ${hostOf(item.asset.source)} via yt-dlp` : item.label;
     box.setAttribute('data-atlas-drop-kind', item.kind);
-    box.setAttribute('data-atlas-drop-state', unsupported ? 'unsupported' : 'ready');
+    box.setAttribute('data-atlas-drop-state', unsupported ? 'unsupported' : streamed ? 'stream-fallback' : 'ready');
     box.classList.remove('is-over');
     box.hidden = false;
   }
@@ -164,7 +167,8 @@ export function initializeDropZone({
       return;
     }
     try {
-      const result = await submit(item, { onSaving: () => notify('pending', `Saving ${item.label} to Atlas…`) });
+      const saving = item.asset?.streamFallback === true ? 'Saving the page video via Atlas…' : `Saving ${item.label} to Atlas…`;
+      const result = await submit(item, { onSaving: () => notify('pending', saving) });
       if (result?.skipped === 'blacklisted') {
         notify('error', 'This item is blacklisted in Atlas and was not downloaded.');
         return;
@@ -194,8 +198,16 @@ export function initializeDropZone({
 function unsupportedMessage(item) {
   const kind = kindLabels[item.kind]?.toLowerCase() ?? 'item';
   return item.unsupported === 'stream'
-    ? `This ${kind} plays from a browser stream (blob:, data: or MediaSource) with no downloadable URL.`
+    ? `This ${kind} plays from a browser stream (blob:, data: or MediaSource) with no downloadable URL, and only videos can be saved from the page.`
     : `This ${kind} has no source URL to download.`;
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'the page';
+  }
 }
 
 function span(documentContext, className, text = '') {

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>Atlas E2E · Media fixture</title>
+  <link rel="canonical" href="/media.html?view=canonical">
   <style>
     body { margin: 0; padding: 24px 32px; background: #f4f5f7; color: #111827; font: 15px/1.5 system-ui, sans-serif; }
     h1 { font-size: 22px; margin: 0 0 4px; }
@@ -14,6 +15,7 @@
     .player button { width: 36px; height: 36px; border-radius: 50%; border: 0; background: #f9fafb; color: #1f2937; }
     figcaption { font-size: 13px; color: #4b5563; margin-top: 6px; }
     .covered { position: relative; }
+    iframe { display: block; width: 280px; height: 158px; border: 0; }
     .covered .overlay { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,.45)); }
     .links { margin-top: 20px; display: flex; gap: 24px; }
     .links a { color: #1d4ed8; font-weight: 600; }
@@ -35,8 +37,8 @@
       <figcaption>&lt;video&gt;&lt;source&gt; under a link overlay</figcaption>
     </figure>
     <figure>
-      <video id="stream-video" muted preload="metadata"></video>
-      <figcaption>Stream (blob:) video</figcaption>
+      <video id="stream-video" title="Streamed bars" muted autoplay loop></video>
+      <figcaption>Streamed (MediaSource blob:) video (Alt+drag)</figcaption>
     </figure>
     <figure>
       <div id="audio-player" class="player">
@@ -46,15 +48,21 @@
       </div>
       <figcaption>Custom player around a hidden &lt;audio&gt; (Alt+drag)</figcaption>
     </figure>
+    <figure>
+      <div class="covered">
+        <iframe id="player-frame" src="/pages/player.html" title="Bars player" allow="autoplay; fullscreen"></iframe>
+        <a id="frame-overlay" class="overlay" href="/pages/about.html" aria-label="Open the player page"></a>
+      </div>
+      <figcaption>Embedded player iframe under a link overlay</figcaption>
+    </figure>
   </main>
   <div class="links">
     <a id="video-link" href="/media/clip.mp4">Watch the clip (MP4)</a>
     <a id="audio-link" href="/media/tone.mp3">Listen to the tone (MP3)</a>
   </div>
-  <script>
-    fetch('/media/bars.webm').then(response => response.blob()).then(blob => {
-      document.getElementById('stream-video').src = URL.createObjectURL(blob);
-    });
+  <script type="module">
+    import { playAsStream } from '/stream-player.js';
+    playAsStream(document.getElementById('stream-video'), '/media/bars.webm');
   </script>
 </body>
 </html>

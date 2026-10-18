@@ -23,6 +23,8 @@ import { renderMockLog } from './mock-log-page.mjs';
 //   src-tauri/src/extension_assets/download.rs       download.queued / download.progress frames
 //   src-tauri/src/extension_api/events.rs            tickets (201) and websocket_url, "ready" frame
 //   src-tauri/src/extension_bridge.rs                ExtensionEvent { sequence, type, occurred_at, data }
+//   src-tauri/src/downloads/model.rs (source_type)   video/iframe asset_type -> "yt-dlp", else "direct"
+//   src-tauri/src/downloads/engine.rs + engine/ytdlp.rs  yt-dlp transfer URL: top_page_url -> referrer_url -> url
 // Native-only behavior (approval dialogs, MariaDB persistence, provider
 // plugins, VPN routing, managed storage swaps) is not modeled.
 
@@ -178,6 +180,7 @@ export async function startDesktopMock({ runtimeId = randomBytes(12).toString('h
         listing_metadata: listingMetadata, download: null, reaction: null, blacklisted_at: null, received_metadata: metadata };
       files.set(file.id, file);
     } else {
+      if (body.referrer_url) file.referrer_url = body.referrer_url;
       file.listing_metadata = listingMetadata;
       file.received_metadata = metadata;
     }
@@ -223,7 +226,17 @@ export async function startDesktopMock({ runtimeId = randomBytes(12).toString('h
   // Stand-in for Desktop's download engine: fetch the asset like a plain
   // HTTP client and store it under a 40-character basename
   // (docs/MANAGED_DOWNLOAD_STORAGE.md), publishing the same frames.
+  // Desktop's download routing, recorded on the file as `transfer`. The mock
+  // cannot run yt-dlp; it always fetches asset_url (Desktop's native fallback).
+  function transferFor(file, metadata = {}) {
+    const assetType = String(metadata.asset_type ?? '').toLowerCase();
+    const sourceType = ['video', 'iframe'].includes(assetType) ? 'yt-dlp' : 'direct';
+    const topPage = assetType === 'video' ? httpPage(metadata.top_page_url) : null;
+    return { source_type: sourceType, url: sourceType === 'yt-dlp' ? topPage ?? file.referrer_url ?? file.url : file.url };
+  }
+
   async function simulateDownload(file, body) {
+    file.transfer = transferFor(file, body.metadata);
     publish('download.queued', file);
     await delay(downloadDelayMs);
     file.download = { ...file.download, status: 'downloading', progress_percent: 50 };
@@ -344,4 +357,14 @@ function extensionFor(contentType, url) {
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function httpPage(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value.trim());
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? value.trim() : null;
+  } catch {
+    return null;
+  }
 }

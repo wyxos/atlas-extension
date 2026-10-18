@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  canonicalPageUrl,
   containedMediaFor,
   describeDragSource,
   dropEffectFor,
@@ -135,6 +136,15 @@ test('dropped items keep an existing reaction and never override a blacklist', a
   assert.equal(posted.length, count);
 });
 
+test('an embed drop overrides the referrer with the embed page', async () => {
+  let sent;
+  await submitDroppedItem({ asset: { source: 'https://p.test/embed/1', type: 'video' }, referrerUrl: 'https://p.test/embed/1' }, {
+    chooseReaction: async () => 'like', fetchStatuses: async () => ({}), locationContext: page.locationContext,
+    post: async (body) => { sent = body; return {}; },
+  });
+  assert.equal(sent.referrerUrl, 'https://p.test/embed/1');
+});
+
 test('the picker choice is sent once, and the status lookup is shared with the picker', async () => {
   const asset = { source: 'https://cdn.example.test/a.png', type: 'image' };
   const posted = [];
@@ -193,12 +203,52 @@ test('video and audio elements resolve currentSrc or <source> and capture durati
   assert.equal(audioItem.asset.resolution, undefined);
 });
 
-test('blob, data and MediaStream playback is reported as unsupported instead of sent', () => {
-  const blob = element('VIDEO', {}, { props: { currentSrc: 'blob:https://a.test/1234', src: 'blob:https://a.test/1234' } });
-  assert.deepEqual(describeDragSource(blob, page), { asset: null, kind: 'video', label: 'Video', unsupported: 'stream' });
-  const live = element('VIDEO', {}, { props: { currentSrc: '', src: '', srcObject: {} } });
-  assert.equal(describeDragSource(live, page).unsupported, 'stream');
+test('streamed video (blob:/MediaStream) falls back to the page URL as a video; streamed audio stays unsupported', () => {
+  const blob = element('VIDEO', { poster: '/p.png' }, { props: { currentSrc: 'blob:https://gallery.example.test/1234',
+    src: 'blob:https://gallery.example.test/1234', poster: 'https://gallery.example.test/p.png', duration: 12.5, videoWidth: 640, videoHeight: 360 } });
+  assert.deepEqual(describeDragSource(blob, page), {
+    asset: { captureMethod: 'drop-zone', duration: 12.5, pageTitle: 'Drop fixture', pageUrl: page.locationContext.href,
+      posterUrl: 'https://gallery.example.test/p.png', resolution: '640x360', source: page.locationContext.href,
+      streamFallback: true, type: 'video' },
+    kind: 'video', label: 'Page video · gallery.example.test',
+  });
+  const live = element('VIDEO', {}, { props: { currentSrc: '', src: '', srcObject: {}, duration: Infinity } });
+  const liveItem = describeDragSource(live, page);
+  assert.equal(liveItem.asset.streamFallback, true);
+  assert.equal(liveItem.asset.duration, undefined);
+  assert.equal(describeDragSource(element('AUDIO', {}, { props: { currentSrc: 'blob:https://a.test/1', src: '' } }), page).unsupported, 'stream');
   assert.equal(describeDragSource(element('AUDIO', {}, { props: { currentSrc: '', src: '' } }), page).unsupported, 'no-source');
+  assert.equal(describeDragSource(element('VIDEO', {}, { props: { currentSrc: '', src: '' } }), page).unsupported, 'no-source');
+});
+
+test('the page video URL prefers a same-site canonical link, then og:url, then location.href', () => {
+  const head = (canonical, ogUrl) => ({
+    querySelector: (selector) => {
+      if (selector.startsWith('link') && canonical) return { getAttribute: () => canonical };
+      if (selector.startsWith('meta') && ogUrl) return { getAttribute: () => ogUrl };
+      return null;
+    },
+  });
+  const location = { href: 'https://www.videos.test/watch?v=1&utm_source=x' };
+  assert.equal(canonicalPageUrl(head('/watch?v=1'), location), 'https://www.videos.test/watch?v=1');
+  assert.equal(canonicalPageUrl(head(null, 'https://videos.test/v/1'), location), 'https://videos.test/v/1');
+  assert.equal(canonicalPageUrl(head('https://m.videos.test/v/1'), location), 'https://m.videos.test/v/1');
+  assert.equal(canonicalPageUrl(head('https://evil.test/v/1', 'javascript:alert(1)'), location), location.href);
+  assert.equal(canonicalPageUrl(head(null, null), location), location.href);
+  assert.equal(canonicalPageUrl(head(null, null), { href: 'file:///x.html' }), null);
+});
+
+test('a text-less overlay above a player iframe saves the embed page as the asset and referrer', () => {
+  const frame = element('IFRAME', { allow: 'autoplay; encrypted-media', title: 'Clip player' }, { props: { src: 'https://player.videos.test/embed/1' } });
+  const overlay = element('A', { href: '/watch/1' }, { props: { href: 'https://gallery.example.test/watch/1' } });
+  const item = describeDragSource(overlay, { ...page, point: { x: 1, y: 1 }, elementsFromPoint: () => [overlay, frame] });
+  assert.equal(item.kind, 'video');
+  assert.equal(item.referrerUrl, 'https://player.videos.test/embed/1');
+  assert.equal(item.asset.source, 'https://player.videos.test/embed/1');
+  assert.equal(item.asset.embedUrl, 'https://player.videos.test/embed/1');
+  assert.equal(item.asset.streamFallback, true);
+  const ad = element('IFRAME', {}, { props: { src: 'https://ads.test/slot' } });
+  assert.equal(describeDragSource(overlay, { ...page, point: { x: 1, y: 1 }, elementsFromPoint: () => [overlay, ad] }).kind, 'link');
 });
 
 test('overlays resolve the media or image stacked underneath; text links stay links', () => {

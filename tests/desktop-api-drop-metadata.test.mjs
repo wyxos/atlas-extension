@@ -55,3 +55,19 @@ test('media drops add duration, poster and MIME type', async () => {
   assert.deepEqual(sent.metadata, { asset_type: 'video', resolution: '320x180', width: 320, height: 180,
     capture_method: 'drop-zone', duration: 2.5, mime_type: 'video/webm', poster_url: 'https://cdn.a.test/p.png' });
 });
+
+test('stream fallback drops mark stream_fallback and embed_url', async () => {
+  let sent;
+  await postAssetReaction({
+    asset: { source: 'https://a.test/watch/1', type: 'video', streamFallback: true, embedUrl: 'https://p.test/embed/1', captureMethod: 'drop-zone' },
+    credentials: {}, preferences, reactionType: 'like', referrerUrl: 'https://a.test/watch/1', source: 'a.test',
+    transport: { reaction: async (_, body) => { sent = body; return {}; } },
+  });
+  assert.deepEqual(sent.metadata, { asset_type: 'video', capture_method: 'drop-zone', embed_url: 'https://p.test/embed/1', stream_fallback: true });
+  await postAssetReaction({
+    asset: { source: 'https://a.test/v.mp4', type: 'video', streamFallback: 'yes' },
+    credentials: {}, preferences, reactionType: 'like', referrerUrl: 'https://a.test/', source: 'a.test',
+    transport: { reaction: async (_, body) => { sent = body; return {}; } },
+  });
+  assert.equal('stream_fallback' in sent.metadata, false);
+});

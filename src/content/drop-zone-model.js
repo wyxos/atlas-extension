@@ -34,7 +34,7 @@ export function describeDragSource(target, {
     pageUrl: httpUrl(locationContext?.href) ?? undefined,
     captureMethod: dropZoneCaptureMethod,
   };
-  const context = { elementUrl, locationContext, page, resolveImageTarget };
+  const context = { documentContext, elementUrl, locationContext, page, resolveImageTarget };
 
   const media = mediaElementFor(element);
   if (media) return describeMedia(media, context);
@@ -45,8 +45,9 @@ export function describeDragSource(target, {
   const linkText = anchor ? text(anchor.textContent) : undefined;
   if (!anchor || !linkText) {
     const underneath = point ? [...elementsFromPoint(point.x, point.y)]
-      .find(candidate => mediaTags.has(tagOf(candidate)) || tagOf(candidate) === 'IMG') : null;
+      .find(candidate => mediaTags.has(tagOf(candidate)) || tagOf(candidate) === 'IMG' || isPlayerFrame(candidate)) : null;
     if (underneath) {
+      if (tagOf(underneath) === 'IFRAME') return describeEmbed(underneath, context);
       return mediaTags.has(tagOf(underneath))
         ? describeMedia(underneath, context)
         : describeImage(underneath, context);
@@ -110,7 +111,7 @@ export async function submitDroppedItem(dropped, {
   const result = await post({
     asset,
     reactionType: decision.reactionType,
-    referrerUrl: locationContext.href,
+    referrerUrl: dropped.referrerUrl ?? locationContext.href,
     source: locationContext.hostname,
     timeoutMs: 30000,
   });
@@ -188,7 +189,7 @@ function describeImage(image, { elementUrl, locationContext, page, resolveImageT
 
 // currentSrc first (what the browser plays), then <source> children, then src.
 // blob:, data: and MediaStream/MSE playback have no fetchable URL.
-function describeMedia(media, { elementUrl, page }) {
+function describeMedia(media, { documentContext, elementUrl, locationContext, page }) {
   const kind = tagOf(media) === 'AUDIO' ? 'audio' : 'video';
   const sources = [...(media.querySelectorAll?.('source') ?? [])];
   const candidates = [media.currentSrc, ...sources.map(source => source.src || source.getAttribute('src')), media.src || media.getAttribute('src')]
@@ -197,6 +198,8 @@ function describeMedia(media, { elementUrl, page }) {
   const label = text(media.getAttribute('title')) ?? text(media.getAttribute('aria-label'));
   if (!source) {
     const stream = media.srcObject || candidates.some(value => /^(blob|data|mediastream):/i.test(value.trim()));
+    const pageUrl = stream && kind === 'video' ? canonicalPageUrl(documentContext, locationContext) : null;
+    if (pageUrl) return describeStreamFallback(media, pageUrl, { elementUrl, label, page });
     return {
       asset: null, kind, label: label ?? (kind === 'audio' ? 'Audio' : 'Video'),
       unsupported: stream ? 'stream' : 'no-source',
@@ -216,6 +219,94 @@ function describeMedia(media, { elementUrl, page }) {
     titleText: text(media.getAttribute('title')),
     type: kind,
   });
+}
+
+// Streamed playback (MSE blob:, MediaStream) has no fetchable media URL.
+// Like the badges' media page fallback (assets.js getAssetTarget), the page is
+// saved as a `video`: Desktop routes video assets to yt-dlp and downloads
+// top_page_url → referrer_url → asset_url (atlas-desktop
+// src-tauri/src/downloads/engine.rs, downloads/model.rs source_type).
+function describeStreamFallback(media, pageUrl, { elementUrl, label, page }) {
+  return item('video', label ?? `Page video · ${hostOf(pageUrl)}`, {
+    ...page,
+    duration: Number.isFinite(media.duration) && media.duration > 0 ? Math.round(media.duration * 1000) / 1000 : undefined,
+    elementUrl: elementUrl ?? undefined,
+    posterUrl: httpUrl(media.poster || media.getAttribute('poster')) ?? undefined,
+    resolution: dimensions(media.videoWidth, media.videoHeight),
+    source: pageUrl,
+    streamFallback: true,
+    titleText: text(media.getAttribute('title')),
+    type: 'video',
+  });
+}
+
+// A text-less overlay above a cross-origin player iframe: the embed page is
+// what yt-dlp can resolve, so it is both the asset and the referrer (Desktop
+// starts yt-dlp at referrer_url when no top_page_url is set).
+function describeEmbed(frame, { elementUrl, page }) {
+  const embedUrl = httpUrl(frame.src || frame.getAttribute('src'));
+  return {
+    ...item('video', text(frame.getAttribute('title')) ?? `Embedded video · ${hostOf(embedUrl)}`, {
+      ...page,
+      elementUrl: elementUrl ?? undefined,
+      embedUrl,
+      source: embedUrl,
+      streamFallback: true,
+      titleText: text(frame.getAttribute('title')),
+      type: 'video',
+    }),
+    referrerUrl: embedUrl,
+  };
+}
+
+// Player iframes declare fullscreen/autoplay/encrypted-media; ads and widgets
+// without those are ignored.
+function isPlayerFrame(element) {
+  if (tagOf(element) !== 'IFRAME' || !httpUrl(element.src || element.getAttribute?.('src'))) return false;
+  const allow = String(element.getAttribute?.('allow') ?? '').toLowerCase();
+  return element.hasAttribute?.('allowfullscreen') || /\b(autoplay|encrypted-media|fullscreen)\b/.test(allow);
+}
+
+// Canonical page URL for a page-level video save: <link rel=canonical>, then
+// og:url, then location.href. A declared URL is used only on the same site
+// (same host, ignoring www., or a subdomain of it) so a page cannot point
+// the save at an unrelated origin; Desktop still starts yt-dlp at the
+// referrer (location.href).
+export function canonicalPageUrl(documentContext, locationContext) {
+  const href = httpUrl(locationContext?.href);
+  if (!href) return null;
+  const declared = [
+    documentContext?.querySelector?.('link[rel~="canonical"][href]')?.getAttribute('href'),
+    documentContext?.querySelector?.('meta[property="og:url"][content]')?.getAttribute('content'),
+  ];
+  for (const value of declared) {
+    const url = httpUrl(resolveUrl(value, href));
+    if (url && sameSite(url, href)) return url;
+  }
+  return href;
+}
+
+function resolveUrl(value, base) {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  try {
+    return new URL(value.trim(), base).href;
+  } catch {
+    return null;
+  }
+}
+
+function sameSite(left, right) {
+  const host = (value) => new URL(value).hostname.toLowerCase().replace(/^www\./, '');
+  const [a, b] = [host(left), host(right)];
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'page';
+  }
 }
 
 function item(kind, label, asset) {

@@ -217,6 +217,7 @@ const captureMetadataFields = Object.freeze({
   alt_text: 'altText',
   capture_method: 'captureMethod',
   element_url: 'elementUrl',
+  embed_url: 'embedUrl',
   filename: 'filename',
   link_text: 'linkText',
   mime_type: 'mimeType',
@@ -238,6 +239,8 @@ function captureMetadata(asset) {
     })),
     // Media duration in seconds, as reported by the page's media element.
     ...(asset.duration !== undefined && Number.isFinite(duration) && duration > 0 ? { duration } : {}),
+    // The asset URL is the page (streamed playback), resolved by Desktop's yt-dlp path.
+    ...(asset.streamFallback === true ? { stream_fallback: true } : {}),
   };
 }
 

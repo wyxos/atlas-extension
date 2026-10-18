@@ -80,7 +80,8 @@ export function getDropZoneStyles() {
     .atlas-drop-zone-toast[data-state="error"] { border-left-color: var(--destructive); }
     .atlas-drop-zone[data-atlas-drop-state="unsupported"] { border-color: var(--destructive); }
     .atlas-drop-zone[data-atlas-drop-state="unsupported"] svg { color: var(--destructive); }
-    .atlas-drop-zone[data-atlas-drop-state="unsupported"] .atlas-drop-zone-detail { white-space: normal; }
+    .atlas-drop-zone[data-atlas-drop-state="unsupported"] .atlas-drop-zone-detail,
+    .atlas-drop-zone[data-atlas-drop-state="stream-fallback"] .atlas-drop-zone-detail { white-space: normal; }
     .atlas-drop-picker {
       backdrop-filter: blur(6px);
       background: color-mix(in srgb, var(--card) 96%, transparent);

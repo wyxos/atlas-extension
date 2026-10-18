@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-// npm run test:e2e [-- --headed] [-- --proof] [-- --proof-dir=<dir>] [-- <file filter>]
+// npm run test:e2e [-- --headed] [-- --proof] [-- --proof-dir=<dir>] [-- --test-name-pattern=<regex>] [-- <file filter>]
 // Headless Chromium by default. --headed uses a real window (wrapped in
 // xvfb-run on Linux without a display). --proof records video/screenshots
 // at a watchable pace and converts the video to MP4 when ffmpeg exists.
@@ -26,7 +26,9 @@ const directory = path.join(root, 'tests', 'e2e');
 const files = fs.readdirSync(directory).filter(name => name.endsWith('.e2e.test.mjs'))
   .filter(name => filters.length === 0 || filters.some(filter => name.includes(filter)))
   .map(name => path.join(directory, name));
-const command = [process.execPath, '--test', '--test-concurrency=1', ...files];
+// --test-name-pattern=<regex> is forwarded to node:test (e.g. a short proof clip).
+const namePatterns = argv.filter(value => value.startsWith('--test-name-pattern='));
+const command = [process.execPath, '--test', '--test-concurrency=1', ...namePatterns, ...files];
 const useXvfb = headed && process.platform === 'linux' && !env.DISPLAY && hasCommand('xvfb-run');
 const result = useXvfb
   ? spawnSync('xvfb-run', ['-a', '-s', '-screen 0 1920x1080x24', ...command], { cwd: root, env, stdio: 'inherit' })

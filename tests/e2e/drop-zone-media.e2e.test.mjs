@@ -5,7 +5,7 @@ import { after, before, test } from 'node:test';
 
 import { e2eSettings, launchAtlas } from './harness/atlas.mjs';
 import { dropOnZone, dropToast, dropZone, reactionPicker } from './harness/drop-zone.mjs';
-import { startDrag, wait } from './harness/visual.mjs';
+import { wait } from './harness/visual.mjs';
 
 const settings = e2eSettings();
 const { pause } = settings;
@@ -24,7 +24,8 @@ before(async () => {
   // Metadata (duration, dimensions) must be loaded before it can be captured.
   await page.waitForFunction(() => ['plain-video', 'covered-video', 'audio-el']
     .every(id => document.getElementById(id).readyState >= 1)
-    && document.getElementById('stream-video').src.startsWith('blob:'));
+    && document.getElementById('stream-video').dataset.stream
+    && document.getElementById('stream-video').currentSrc.startsWith('blob:'));
   await wait(page, pause);
 });
 
@@ -150,20 +151,42 @@ test('an existing reaction is the picker default and is kept on timeout', async 
   assert.equal(body.type, 'love');
 });
 
-test('a blob: stream video shows a clear notice and sends nothing', async () => {
-  const before = atlas.desktop.reactions().length;
-  const drag = await startDrag(page, page.locator('#stream-video'), { pause, alt: true });
-  await drag.moveTo({ x: 760, y: 420 });
-  await dropZone(page).waitFor({ state: 'visible' });
-  assert.equal(await dropZone(page).getAttribute('data-atlas-drop-state'), 'unsupported');
-  assert.match(await dropZone(page).textContent(), /Can't save this video.*browser stream/);
-  await drag.moveTo(dropZone(page));
-  await atlas.screenshot(page, 'screenshots/08-stream-unsupported.png');
-  await drag.drop();
-  await dropToast(page).filter({ hasText: 'Nothing was sent to Atlas.' }).waitFor();
-  assert.equal(await reactionPicker(page).isVisible(), false);
-  await wait(page, 500);
-  assert.equal(atlas.desktop.reactions().length, before);
+test('a MediaSource (blob:) video is saved as the canonical page URL through Desktop\'s yt-dlp path', async () => {
+  const canonical = atlas.fixtures.url('/media.html?view=canonical');
+  const downloaded = storedFile(file => file.url === canonical);
+  const { body } = await dropOnZone(atlas, page, page.locator('#stream-video'), {
+    alt: true, pick: 'like', pause,
+    beforeDrop: async () => {
+      assert.equal(await dropZone(page).getAttribute('data-atlas-drop-state'), 'stream-fallback');
+      assert.match(await dropZone(page).textContent(), /Drop to save the page video.*Streamed video · Atlas saves it from 127\.0\.0\.1 via yt-dlp/);
+      await atlas.screenshot(page, 'screenshots/11-stream-fallback-over-zone.png');
+    },
+  });
+  assert.equal(await page.locator('#stream-video').getAttribute('data-stream'), 'mse');
+  assert.equal(body.type, 'like');
+  assert.equal(body.asset_url, canonical, 'canonical link wins over location.href');
+  assert.equal(body.referrer_url, pageUrl, 'Desktop starts yt-dlp at the real page');
+  const { duration, ...metadata } = body.metadata;
+  assert.ok(Math.abs(duration - 3) < 0.1, `MediaSource duration (${duration})`);
+  assert.deepEqual(metadata, { ...mediaPage(), asset_type: 'video', height: 180, resolution: '320x180',
+    stream_fallback: true, title_text: 'Streamed bars', width: 320 });
+  await dropToast(page).filter({ hasText: 'Download queued in Atlas · Like · Streamed bars' }).waitFor();
+  await atlas.screenshot(page, 'screenshots/12-stream-fallback-saved.png');
+  const file = await downloaded;
+  if (file) assert.deepEqual(file.transfer, { source_type: 'yt-dlp', url: pageUrl });
   assert.deepEqual(atlas.desktop.unexpected, []);
+});
+
+test('an overlay above a player iframe saves the embed page as a video', async () => {
+  const embed = atlas.fixtures.url('/pages/player.html');
+  const downloaded = storedFile(file => file.url === embed);
+  const { body } = await dropOnZone(atlas, page, page.locator('#frame-overlay'), { pick: 'love', pause });
+  assert.equal(body.asset_url, embed);
+  assert.equal(body.referrer_url, embed);
+  assert.deepEqual(body.metadata, { ...mediaPage(), asset_type: 'video', element_url: atlas.fixtures.url('/pages/about.html'),
+    embed_url: embed, stream_fallback: true, title_text: 'Bars player' });
+  await dropToast(page).filter({ hasText: 'Download queued in Atlas · Love · Bars player' }).waitFor();
+  const file = await downloaded;
+  if (file) assert.deepEqual(file.transfer, { source_type: 'yt-dlp', url: embed });
   await wait(page, pause);
 });

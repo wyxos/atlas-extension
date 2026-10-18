@@ -34,10 +34,35 @@ Media captures `duration` (seconds, when finite), `width`/`height`/`resolution`
 (`videoWidth`×`videoHeight`), `poster_url` and `mime_type` (from the chosen
 `<source type>` or the link `type`).
 
-**Streams are skipped:** a `blob:`, `data:` or `srcObject` (MediaStream /
-MediaSource) source has no URL Desktop can fetch. The box then shows
-"Can't save this video — This video plays from a browser stream…", dropping
-shows "Nothing was sent to Atlas." and no request is made.
+### Streamed video (blob:, MediaSource, MediaStream)
+
+A `blob:`/`data:` or `srcObject` source has no URL Desktop can fetch. Instead
+of refusing, the drop zone saves the **page** as a `video`, the same
+convention the badges use for media without a source (`src/content/assets.js`
+`getAssetTarget` media page fallback):
+
+- `asset_url`: the canonical page URL: `<link rel="canonical">`, then
+  `og:url`, then `location.href` (`canonicalPageUrl`). A declared URL is only
+  used on the same site (same host ignoring `www.`, or a subdomain), so a page
+  cannot redirect the save to another origin.
+- `referrer_url`: `location.href` of the document that holds the player.
+  Inside an iframe embed (content scripts run in all frames) that is the
+  embed page, and the service worker adds the tab URL as `top_page_url` for
+  video assets (`src/background/reaction-page-context.js`).
+- A text-less overlay in the top page above a player iframe (`allowfullscreen`
+  or `allow` with autoplay/fullscreen/encrypted-media) saves the iframe `src`
+  as both `asset_url` and `referrer_url`, plus `embed_url`.
+- Metadata adds `stream_fallback: true` (and `capture_method: "drop-zone"`,
+  duration/size/poster when known). The box reads "Drop to save the page
+  video · Streamed video · Atlas saves it from <host> via yt-dlp"; the picker
+  flow is unchanged and the pending toast reads "Saving the page video via Atlas…".
+- Desktop: `asset_type: "video"` selects yt-dlp, which starts at
+  `top_page_url` → `referrer_url` → `asset_url` (see the mapping below), so
+  the real page (or the embed after the top page fails) is what yt-dlp resolves.
+
+Streamed **audio** has no page-level path in Desktop (only `video` reaches
+yt-dlp), so it still shows "Can't save this audio" and sends nothing; media
+without any source shows "has no source URL to download".
 
 ## Reaction picker
 
@@ -69,7 +94,8 @@ shows Love / Like / Blacklist / Funny using the same Lucide icons
 - Metadata (`src/background/desktop-api.js`): the existing `asset_type`,
   `resolution`, `width`, `height`, plus additive `page_url`, `page_title`,
   `element_url`, `alt_text`, `title_text`, `link_text`, `filename`,
-  `mime_type`, `poster_url`, `duration` and `capture_method: "drop-zone"`.
+  `mime_type`, `poster_url`, `duration`, `embed_url`, `stream_fallback` and
+  `capture_method: "drop-zone"`.
   `referrer_url` is the page URL and `source` its host, as for badge reactions.
 - Desktop compatibility: Desktop's `AssetMetadata` does not deny unknown
   fields, so current Desktop builds accept the request but only persist
@@ -85,7 +111,7 @@ badges already send `image`, `video` and `audio` (`src/content/assets.js`
 | Drop zone | Sent `asset_type` | Desktop behaviour |
 | --- | --- | --- |
 | image | `image` | direct download |
-| video (element or link) | `video` | `source_type` = `yt-dlp` (`src-tauri/src/downloads/model.rs`), so yt-dlp fetches the URL (its generic extractor handles direct files); `downloads/engine/ytdlp.rs` / `replacements.rs` fall back to a native download |
+| video (element, link, stream fallback, embed) | `video` | `source_type` = `yt-dlp` (`src-tauri/src/downloads/model.rs`). The transfer URL is `top_page_url` (frames only) → `referrer_url` → `asset_url` (`downloads/engine.rs`); on extraction failure `engine/ytdlp.rs` retries the frame page (`iframe_fallback_url`) and then the asset URL natively. A direct `.mp4` drop therefore also starts with yt-dlp on the page and falls back to the file |
 | audio (element or link) | `audio` | direct download (no special handling) |
 | file link | `file` | direct download |
 | page link | `link` | direct download of the URL |
@@ -102,9 +128,13 @@ badges already send `image`, `video` and `audio` (`src/content/assets.js`
 
 - Content type is only read from the link `type` attribute; no `HEAD` request
   is made, so an extension-less media URL without `type` is saved as `link`.
-- `blob:`/MSE/MediaStream playback (most streaming sites) cannot be saved from
-  the element. A possible follow-up is sending the page URL as `video` so
-  Desktop's yt-dlp path resolves it.
+- Stream fallback saves the page: on a page with several videos yt-dlp may
+  pick another (or a playlist); embeds in frames get `--break-match-filters
+  !playlist_index` from Desktop, top-level pages do not. The canonical URL can
+  differ from the `location.href` a badge would send, so the same video saved
+  from a badge and from the drop zone can become two Atlas files.
+- The same-site check for canonical URLs is a host comparison, not a public
+  suffix list.
 - Native `<audio controls>`/`<video controls>` UI consumes mouse events in
   Chromium, so Alt+drag must start on the picture area (videos) or a custom
   player; elements with native controls usually have an Atlas badge already.
