@@ -23,7 +23,7 @@ import { renderMockLog } from './mock-log-page.mjs';
 //   src-tauri/src/extension_assets/download.rs       download.queued / download.progress frames
 //   src-tauri/src/extension_api/events.rs            tickets (201) and websocket_url, "ready" frame
 //   src-tauri/src/extension_bridge.rs                ExtensionEvent { sequence, type, occurred_at, data }
-//   src-tauri/src/downloads/model.rs (source_type)   video/iframe asset_type -> "yt-dlp", else "direct"
+//   src-tauri/src/downloads/model.rs (source_type)   direct .mp4/.webm/.mov/.m4v URL -> "direct"; video/iframe asset_type -> "yt-dlp"
 //   src-tauri/src/downloads/engine.rs + engine/ytdlp.rs  yt-dlp transfer URL: top_page_url -> referrer_url -> url
 // Native-only behavior (approval dialogs, MariaDB persistence, provider
 // plugins, VPN routing, managed storage swaps) is not modeled.
@@ -40,6 +40,44 @@ const downloadActions = new Set(['queue', 'skip', 'force']);
 // AssetMetadata in extension_assets.rs has no deny_unknown_fields: unknown
 // keys are accepted and dropped. The mock records both views.
 const persistedMetadataFields = ['asset_type', 'top_page_url', 'resolution', 'width', 'height'];
+// atlas-desktop feat/extension-drop-metadata: src-tauri/src/extension_assets/capture.rs
+// normalizes drop-zone capture details into the file_browser_captures sidecar;
+// file_persistence.rs adds listing_metadata.extension.stream_fallback.
+const captureTextFields = { page_title: 'page_title', alt_text: 'alt_text', title_text: 'title_text',
+  link_text: 'link_text', filename: 'provided_filename' };
+const captureUrlFields = ['page_url', 'element_url', 'embed_url', 'poster_url'];
+
+export function normalizeCapture(metadata = {}) {
+  const text = (value) => {
+    if (typeof value !== 'string') return null;
+    // eslint-disable-next-line no-control-regex
+    const trimmed = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim();
+    return trimmed ? [...trimmed].slice(0, 1000).join('') : null;
+  };
+  const url = (value) => {
+    if (typeof value !== 'string' || !value.trim() || value.trim().length > 16384) return null;
+    try {
+      const parsed = new URL(value.trim());
+      return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password ? value.trim() : null;
+    } catch {
+      return null;
+    }
+  };
+  const method = typeof metadata.capture_method === 'string' && /^[a-z0-9_-]{1,32}$/.test(metadata.capture_method.trim())
+    ? metadata.capture_method.trim() : null;
+  const mime = typeof metadata.mime_type === 'string' ? metadata.mime_type.trim().toLowerCase() : '';
+  const duration = typeof metadata.duration === 'number' && Number.isFinite(metadata.duration)
+    && metadata.duration > 0 && metadata.duration <= 31536000 ? metadata.duration : null;
+  const capture = {
+    capture_method: method,
+    ...Object.fromEntries(captureUrlFields.map(field => [field, url(metadata[field])])),
+    ...Object.fromEntries(Object.entries(captureTextFields).map(([field, column]) => [column, text(metadata[field])])),
+    mime_type: /^[^/]+\/.+$/.test(mime) && mime.length <= 255 && /^[\x20-\x7e]+$/.test(mime) ? mime : null,
+    duration_seconds: duration,
+    stream_fallback: metadata.stream_fallback === true,
+  };
+  return Object.values(capture).some(value => value !== null && value !== false) ? capture : null;
+}
 
 export async function startDesktopMock({ runtimeId = randomBytes(12).toString('hex'), downloadsDir, autoApprovePairing = true,
   downloadDelayMs = 150 } = {}) {
@@ -173,17 +211,22 @@ export async function startDesktopMock({ runtimeId = randomBytes(12).toString('h
     let file = [...files.values()].find(record => record.url === body.asset_url);
     const metadata = body.metadata ?? {};
     const listingMetadata = { page_url: body.referrer_url ?? null,
-      extension: Object.fromEntries(persistedMetadataFields.map(field => [field, metadata[field] ?? null])) };
+      extension: { ...Object.fromEntries(persistedMetadataFields.map(field => [field, metadata[field] ?? null])),
+        stream_fallback: metadata.stream_fallback === true ? true : null } };
+    const capture = normalizeCapture(metadata);
     if (!file) {
       file = { id: ++nextFileId, url: body.asset_url, referrer_url: body.referrer_url ?? null, preview_url: null,
         source: body.source || new URL(body.asset_url).host, filename: randomBasename(), downloaded_at: null,
-        listing_metadata: listingMetadata, download: null, reaction: null, blacklisted_at: null, received_metadata: metadata };
+        listing_metadata: listingMetadata, download: null, reaction: null, blacklisted_at: null, received_metadata: metadata,
+        browser_capture: null };
       files.set(file.id, file);
     } else {
       if (body.referrer_url) file.referrer_url = body.referrer_url;
       file.listing_metadata = listingMetadata;
       file.received_metadata = metadata;
     }
+    // Badge reactions carry no capture details and keep the previous capture.
+    if (capture) file.browser_capture = capture;
     const action = body.download_action ?? 'queue';
     let downloadRequested = false;
     if (body.type === 'blacklist') {
@@ -230,7 +273,8 @@ export async function startDesktopMock({ runtimeId = randomBytes(12).toString('h
   // cannot run yt-dlp; it always fetches asset_url (Desktop's native fallback).
   function transferFor(file, metadata = {}) {
     const assetType = String(metadata.asset_type ?? '').toLowerCase();
-    const sourceType = ['video', 'iframe'].includes(assetType) ? 'yt-dlp' : 'direct';
+    const directVideo = /\.(mp4|webm|mov|m4v)$/i.test(new URL(file.url).pathname);
+    const sourceType = !directVideo && ['video', 'iframe'].includes(assetType) ? 'yt-dlp' : 'direct';
     const topPage = assetType === 'video' ? httpPage(metadata.top_page_url) : null;
     return { source_type: sourceType, url: sourceType === 'yt-dlp' ? topPage ?? file.referrer_url ?? file.url : file.url };
   }

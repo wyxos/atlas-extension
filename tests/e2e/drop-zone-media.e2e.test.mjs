@@ -76,6 +76,9 @@ test('dropping a video link and picking Love sends one Love reaction and downloa
   assert.equal(atlas.desktop.reactions().length, before + 1, 'exactly one reaction request per drop');
   const file = await downloaded;
   if (file) {
+    assert.deepEqual(file.transfer, { source_type: 'direct', url: body.asset_url }, 'standalone video files use native routing');
+    assert.equal(file.browser_capture.provided_filename, 'clip.mp4');
+    assert.equal(file.browser_capture.link_text, 'Watch the clip (MP4)');
     assert.equal(file.stored.content_type, 'video/mp4');
     assert.deepEqual(await fs.readFile(file.stored.path), await fs.readFile(path.join(fixturesDir, 'media/clip.mp4')));
   }
@@ -173,7 +176,12 @@ test('a MediaSource (blob:) video is saved as the canonical page URL through Des
   await dropToast(page).filter({ hasText: 'Download queued in Atlas · Like · Streamed bars' }).waitFor();
   await atlas.screenshot(page, 'screenshots/12-stream-fallback-saved.png');
   const file = await downloaded;
-  if (file) assert.deepEqual(file.transfer, { source_type: 'yt-dlp', url: pageUrl });
+  if (file) {
+    assert.deepEqual(file.transfer, { source_type: 'yt-dlp', url: pageUrl });
+    assert.equal(file.listing_metadata.extension.stream_fallback, true);
+    assert.equal(file.browser_capture.stream_fallback, true);
+    assert.equal(file.browser_capture.page_url, pageUrl);
+  }
   assert.deepEqual(atlas.desktop.unexpected, []);
 });
 

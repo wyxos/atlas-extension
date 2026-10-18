@@ -14,7 +14,8 @@ export function renderMockLog(state) {
       ['Desktop transfer', file.transfer ? `${file.transfer.source_type} → ${file.transfer.url}` : '—'],
       ['stored file', file.stored ? `${file.filename}${file.stored.path.slice(file.stored.path.lastIndexOf('.'))} · ${file.stored.bytes} bytes · ${file.stored.content_type}` : '—'],
       ...Object.entries(file.received_metadata ?? {}).map(([key, value]) => [`metadata.${key}`, value]),
-      ['Desktop persists today', JSON.stringify(file.listing_metadata)],
+      ['Desktop listing_metadata', JSON.stringify(file.listing_metadata)],
+      ['Desktop file_browser_captures', file.browser_capture ? JSON.stringify(Object.fromEntries(Object.entries(file.browser_capture).filter(([, value]) => value !== null))) : '—'],
     ].map(([key, value]) => `<tr><th>${escape(key)}</th><td>${escape(value ?? '—')}</td></tr>`).join('');
     return `<article data-file-id="${file.id}"><div class="preview">${preview}</div><table>${rows}</table></article>`;
   }).join('') || '<p class="empty">No items captured yet.</p>';

@@ -97,10 +97,17 @@ shows Love / Like / Blacklist / Funny using the same Lucide icons
   `mime_type`, `poster_url`, `duration`, `embed_url`, `stream_fallback` and
   `capture_method: "drop-zone"`.
   `referrer_url` is the page URL and `source` its host, as for badge reactions.
-- Desktop compatibility: Desktop's `AssetMetadata` does not deny unknown
-  fields, so current Desktop builds accept the request but only persist
-  `asset_type`, `top_page_url`, `resolution`, `width`, `height` and
-  `page_url` (from `referrer_url`). Storing the new fields needs a Desktop change.
+- Desktop compatibility: `AssetMetadata` does not deny unknown fields, so every
+  Desktop build accepts these requests. Released builds persist only
+  `asset_type`, `top_page_url`, `resolution`, `width`, `height` and `page_url`
+  (from `referrer_url`). With atlas-desktop `feat/extension-drop-metadata`
+  (https://github.com/wyxos/atlas-desktop/pull/1, see its
+  `docs/EXTENSION_DOWNLOAD_METADATA.md`)
+  Desktop also saves the capture fields in a `file_browser_captures` sidecar
+  (latest drop per file; badge reactions leave it untouched), adds
+  `listing_metadata.extension.stream_fallback`, and never fetches a
+  stream-fallback page natively. Invalid hints are dropped, not rejected, and
+  the page's `filename` is never used as the stored name.
 
 ### `asset_type` mapping
 
@@ -111,7 +118,8 @@ badges already send `image`, `video` and `audio` (`src/content/assets.js`
 | Drop zone | Sent `asset_type` | Desktop behaviour |
 | --- | --- | --- |
 | image | `image` | direct download |
-| video (element, link, stream fallback, embed) | `video` | `source_type` = `yt-dlp` (`src-tauri/src/downloads/model.rs`). The transfer URL is `top_page_url` (frames only) → `referrer_url` → `asset_url` (`downloads/engine.rs`); on extraction failure `engine/ytdlp.rs` retries the frame page (`iframe_fallback_url`) and then the asset URL natively. A direct `.mp4` drop therefore also starts with yt-dlp on the page and falls back to the file |
+| video file URL (`.mp4`, `.webm`, `.mov`, `.m4v`) | `video` | native download: `source_type` checks `is_direct_video_url` first (`src-tauri/src/downloads/model.rs`) |
+| other video (element, stream fallback, embed, `.m3u8`/`.mpd`/…) | `video` | `source_type` = `yt-dlp`. The transfer URL is `top_page_url` (frames only) → `referrer_url` → `asset_url` (`downloads/engine.rs`); on extraction failure `engine/ytdlp.rs` retries the frame page (`iframe_fallback_url`) and then `asset_url` natively (`replacements.rs` `native_fallback_url`, skipped for `stream_fallback` saves with the Desktop PR below) |
 | audio (element or link) | `audio` | direct download (no special handling) |
 | file link | `file` | direct download |
 | page link | `link` | direct download of the URL |
