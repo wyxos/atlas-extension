@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bars player (embed)</title>
+  <style>html, body { margin: 0; height: 100%; background: #000; } video { width: 100%; height: 100%; display: block; }</style>
+</head>
+<body>
+  <video id="embed-video" muted autoplay loop></video>
+  <script type="module">
+    import { playAsStream } from '/stream-player.js';
+    playAsStream(document.getElementById('embed-video'), '/media/bars.webm');
+  </script>
+</body>
+</html>

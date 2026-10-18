@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Atlas E2E · Moodboard fixture</title>
+  <style>
+    body { margin: 0; padding: 24px 32px; background: #f4f5f7; color: #111827; font: 15px/1.5 system-ui, sans-serif; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    p.lead { margin: 0 0 20px; color: #4b5563; }
+    main { display: grid; grid-template-columns: 300px 300px; gap: 20px; }
+    figure { margin: 0; background: #fff; border-radius: 6px; padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    figure img { display: block; width: 280px; height: auto; }
+    figcaption { font-size: 13px; color: #4b5563; margin-top: 6px; }
+    .links { margin-top: 20px; display: flex; gap: 24px; }
+    .links a { color: #1d4ed8; font-weight: 600; }
+    #page-drop-target { margin-top: 20px; width: 620px; height: 70px; border: 2px dashed #9ca3af; border-radius: 6px;
+      display: grid; place-items: center; color: #6b7280; }
+    #page-drop-target.received { border-color: #059669; color: #065f46; background: #ecfdf5; }
+  </style>
+</head>
+<body>
+  <h1>Moodboard fixture</h1>
+  <p class="lead">Drag an image or link — Atlas shows a drop zone in the top-right corner.</p>
+  <main>
+    <figure>
+      <img id="hero-image" src="/media/mandelbrot.png" alt="Mandelbrot fractal in deep blue" title="Fractal study">
+      <figcaption>Plain image</figcaption>
+    </figure>
+    <figure>
+      <a id="linked-image" href="/pages/pattern-detail.html"><img id="pattern-image" src="/media/test-pattern.png" alt="Broadcast test pattern"></a>
+      <figcaption>Image inside a link</figcaption>
+    </figure>
+  </main>
+  <div class="links">
+    <a id="file-link" href="/media/brief.pdf" title="Project brief PDF">Download the project brief</a>
+    <a id="page-link" href="/pages/about.html">About this board</a>
+  </div>
+  <div id="page-drop-target">Page's own drop target (normal page drag &amp; drop)</div>
+  <script>
+    const target = document.getElementById('page-drop-target');
+    window.pageDrops = [];
+    target.addEventListener('dragover', (event) => event.preventDefault());
+    target.addEventListener('drop', (event) => {
+      event.preventDefault();
+      const url = event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain');
+      window.pageDrops.push(url);
+      target.classList.add('received');
+      target.textContent = `Page received: ${url}`;
+    });
+  </script>
+</body>
+</html>

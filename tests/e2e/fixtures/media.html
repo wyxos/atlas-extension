@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Atlas E2E · Media fixture</title>
+  <link rel="canonical" href="/media.html?view=canonical">
+  <style>
+    body { margin: 0; padding: 24px 32px; background: #f4f5f7; color: #111827; font: 15px/1.5 system-ui, sans-serif; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    p.lead { margin: 0 0 20px; color: #4b5563; }
+    main { display: grid; grid-template-columns: repeat(3, 300px); gap: 20px; }
+    figure { margin: 0; background: #fff; border-radius: 6px; padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    video { display: block; width: 280px; height: 158px; background: #111; }
+    .player { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 14px; border-radius: 6px; background: #1f2937; color: #f9fafb; font-weight: 600; }
+    .player button { width: 36px; height: 36px; border-radius: 50%; border: 0; background: #f9fafb; color: #1f2937; }
+    figcaption { font-size: 13px; color: #4b5563; margin-top: 6px; }
+    .covered { position: relative; }
+    iframe { display: block; width: 280px; height: 158px; border: 0; }
+    .covered .overlay { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,.45)); }
+    .links { margin-top: 20px; display: flex; gap: 24px; }
+    .links a { color: #1d4ed8; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Media fixture</h1>
+  <p class="lead">Drag a media link or overlay, or Alt+drag a video/audio element.</p>
+  <main>
+    <figure>
+      <video id="plain-video" src="/media/clip.webm" poster="/media/poster.png" title="Test pattern clip" preload="metadata" muted></video>
+      <figcaption>Plain &lt;video&gt; preview, no controls (Alt+drag)</figcaption>
+    </figure>
+    <figure>
+      <div class="covered">
+        <video id="covered-video" preload="metadata" muted autoplay loop><source src="/media/bars.webm" type="video/webm"></video>
+        <a id="video-overlay" class="overlay" href="/pages/about.html" aria-label="Open the clip page"></a>
+      </div>
+      <figcaption>&lt;video&gt;&lt;source&gt; under a link overlay</figcaption>
+    </figure>
+    <figure>
+      <video id="stream-video" title="Streamed bars" muted autoplay loop></video>
+      <figcaption>Streamed (MediaSource blob:) video (Alt+drag)</figcaption>
+    </figure>
+    <figure>
+      <div id="audio-player" class="player">
+        <audio id="audio-el" src="/media/tone.ogg" title="Sine tone" preload="metadata"></audio>
+        <button type="button" onclick="this.previousElementSibling.paused ? this.previousElementSibling.play() : this.previousElementSibling.pause()">▶</button>
+        <span>Sine tone · 0:02</span>
+      </div>
+      <figcaption>Custom player around a hidden &lt;audio&gt; (Alt+drag)</figcaption>
+    </figure>
+    <figure>
+      <div class="covered">
+        <iframe id="player-frame" src="/pages/player.html" title="Bars player" allow="autoplay; fullscreen"></iframe>
+        <a id="frame-overlay" class="overlay" href="/pages/about.html" aria-label="Open the player page"></a>
+      </div>
+      <figcaption>Embedded player iframe under a link overlay</figcaption>
+    </figure>
+  </main>
+  <div class="links">
+    <a id="video-link" href="/media/clip.mp4">Watch the clip (MP4)</a>
+    <a id="audio-link" href="/media/tone.mp3">Listen to the tone (MP3)</a>
+  </div>
+  <script type="module">
+    import { playAsStream } from '/stream-player.js';
+    playAsStream(document.getElementById('stream-video'), '/media/bars.webm');
+  </script>
+</body>
+</html>

@@ -328,10 +328,13 @@ if (contentOverlay !== null) {
 
 if (contentBadge !== null) {
   expect(contentBadge.includes('@lucide/vue'), 'src/content/AssetBadge.vue must use Lucide Vue icons');
-  expect(contentBadge.includes('Heart'), 'src/content/AssetBadge.vue must render the love icon');
-  expect(contentBadge.includes('ThumbsUp'), 'src/content/AssetBadge.vue must render the like icon');
-  expect(contentBadge.includes('Ban'), 'src/content/AssetBadge.vue must render the blacklist icon');
-  expect(contentBadge.includes('Smile'), 'src/content/AssetBadge.vue must render the funny icon');
+  // Reaction icons live in reaction-options.js, shared with the drop-zone picker.
+  const reactionOptionsSource = readText('src/content/reaction-options.js') ?? '';
+  const reactionIcons = contentBadge.includes('reactionOptions') ? `${contentBadge}\n${reactionOptionsSource}` : contentBadge;
+  expect(reactionIcons.includes('Heart'), 'src/content/AssetBadge.vue must render the love icon');
+  expect(reactionIcons.includes('ThumbsUp'), 'src/content/AssetBadge.vue must render the like icon');
+  expect(reactionIcons.includes('Ban'), 'src/content/AssetBadge.vue must render the blacklist icon');
+  expect(reactionIcons.includes('Smile'), 'src/content/AssetBadge.vue must render the funny icon');
   expect(contentBadge.includes('ExternalLink'), 'src/content/AssetBadge.vue must render the Atlas file link icon');
   expect(contentBadge.includes('Trash2'), 'src/content/AssetBadge.vue must render the delete icon');
   expect(contentBadge.includes('LoaderCircle'), 'src/content/AssetBadge.vue must render loading spinners');
