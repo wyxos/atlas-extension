@@ -43,3 +43,15 @@ test('captured text metadata is trimmed and bounded', async () => {
   assert.equal(sent.metadata.alt_text.length, 1000);
   assert.equal('page_title' in sent.metadata, false);
 });
+
+test('media drops add duration, poster and MIME type', async () => {
+  let sent;
+  await postAssetReaction({
+    asset: { source: 'https://cdn.a.test/v.webm', type: 'video', resolution: '320x180', duration: 2.5,
+      posterUrl: 'https://cdn.a.test/p.png', mimeType: 'video/webm', captureMethod: 'drop-zone' },
+    credentials: {}, preferences, reactionType: 'love', referrerUrl: 'https://a.test/', source: 'a.test',
+    transport: { reaction: async (_, body) => { sent = body; return {}; } },
+  });
+  assert.deepEqual(sent.metadata, { asset_type: 'video', resolution: '320x180', width: 320, height: 180,
+    capture_method: 'drop-zone', duration: 2.5, mime_type: 'video/webm', poster_url: 'https://cdn.a.test/p.png' });
+});

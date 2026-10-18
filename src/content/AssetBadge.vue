@@ -1,19 +1,16 @@
 <script setup>
 import {
-  Ban,
   ExternalLink,
-  Heart,
   ImageIcon,
   LoaderCircle,
   GripHorizontal,
-  Smile,
-  ThumbsUp,
   Trash2,
   Video,
   Volume2,
 } from "@lucide/vue";
 import { reactionFromBadgeShortcutEvent } from "./asset-shortcuts.js";
 import { closeTabModes } from "../shared/close-tab-preferences.js";
+import { reactionOptions } from "./reaction-options.js";
 
 defineProps({
   badge: {
@@ -60,28 +57,7 @@ const assetTypes = {
   },
 };
 
-const reactions = [
-  {
-    icon: Heart,
-    label: "Love",
-    type: "love",
-  },
-  {
-    icon: ThumbsUp,
-    label: "Like",
-    type: "like",
-  },
-  {
-    icon: Ban,
-    label: "Blacklist",
-    type: "blacklist",
-  },
-  {
-    icon: Smile,
-    label: "Funny",
-    type: "funny",
-  },
-];
+const reactions = reactionOptions;
 
 let dragPointerId = null;
 

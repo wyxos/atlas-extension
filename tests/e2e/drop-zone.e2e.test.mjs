@@ -4,6 +4,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 
 import { e2eSettings, launchAtlas } from './harness/atlas.mjs';
+import { dropOnZone as dropItem } from './harness/drop-zone.mjs';
 import { startDrag, wait } from './harness/visual.mjs';
 
 const settings = e2eSettings();
@@ -46,15 +47,10 @@ after(async () => {
 const zone = () => page.locator('[data-atlas-drop-zone]');
 const toast = () => page.locator('[data-atlas-drop-zone-toast]');
 
-async function dropOnZone(selector) {
-  const reaction = atlas.desktop.nextReaction();
-  const drag = await startDrag(page, page.locator(selector), { pause });
-  await drag.moveTo({ x: 760, y: 360 });
-  await assertZoneVisible();
-  await drag.moveTo(zone());
-  await drag.drop();
-  const { body, data } = await reaction;
-  return { body, data };
+// The picker is answered with an explicit Like so these tests stay fast;
+// timeout and other reactions are covered in drop-zone-media.e2e.test.mjs.
+function dropOnZone(selector) {
+  return dropItem(atlas, page, page.locator(selector), { pause });
 }
 
 async function assertZoneVisible() {
@@ -99,7 +95,7 @@ test('dropping an image on the zone downloads it through Desktop with page and e
     page_title: 'Atlas E2E · Moodboard fixture', page_url: pageUrl, title_text: 'Fractal study',
   });
   assert.equal(data.download.status, 'queued');
-  await toast().filter({ hasText: 'Download queued in Atlas · mandelbrot.png' }).waitFor();
+  await toast().filter({ hasText: 'Download queued in Atlas · Like · mandelbrot.png' }).waitFor();
   await atlas.screenshot(page, 'screenshots/02-after-drop.png');
   if (downloaded) {
     const file = await downloaded;

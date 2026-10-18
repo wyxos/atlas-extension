@@ -336,7 +336,8 @@ function randomBasename() {
 
 function extensionFor(contentType, url) {
   const known = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp',
-    'image/svg+xml': '.svg', 'application/pdf': '.pdf', 'text/html': '.html' };
+    'image/svg+xml': '.svg', 'application/pdf': '.pdf', 'text/html': '.html', 'video/webm': '.webm', 'video/mp4': '.mp4',
+    'audio/ogg': '.ogg', 'audio/mpeg': '.mp3' };
   const fromType = known[contentType.split(';')[0].trim()];
   return fromType ?? (path.extname(new URL(url).pathname) || '.bin');
 }

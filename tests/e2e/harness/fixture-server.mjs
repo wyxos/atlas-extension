@@ -3,7 +3,8 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 
 const types = { '.html': 'text/html; charset=utf-8', '.png': 'image/png', '.pdf': 'application/pdf',
-  '.svg': 'image/svg+xml', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+  '.svg': 'image/svg+xml', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.webm': 'video/webm', '.mp4': 'video/mp4', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg' };
 
 // Serves tests/e2e/fixtures on its own loopback port (a separate origin from
 // the Desktop API port).

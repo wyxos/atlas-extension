@@ -1,4 +1,5 @@
 import { atlasDarkThemeCss } from '../shared/theme-tokens.js';
+import { getReactionIconStyles } from './reaction-icon-styles.js';
 
 // Shares the Atlas dark roles and small radius used by the badge overlay.
 export function getDropZoneStyles() {
@@ -77,5 +78,48 @@ export function getDropZoneStyles() {
     }
     .atlas-drop-zone-toast[hidden] { display: none; }
     .atlas-drop-zone-toast[data-state="error"] { border-left-color: var(--destructive); }
+    .atlas-drop-zone[data-atlas-drop-state="unsupported"] { border-color: var(--destructive); }
+    .atlas-drop-zone[data-atlas-drop-state="unsupported"] svg { color: var(--destructive); }
+    .atlas-drop-zone[data-atlas-drop-state="unsupported"] .atlas-drop-zone-detail { white-space: normal; }
+    .atlas-drop-picker {
+      backdrop-filter: blur(6px);
+      background: color-mix(in srgb, var(--card) 96%, transparent);
+      border: 1px solid var(--primary);
+      border-radius: var(--radius);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+      box-sizing: border-box;
+      color: var(--foreground);
+      display: flex;
+      flex-direction: column;
+      font: 600 13px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      gap: 8px;
+      overflow: hidden;
+      padding: 12px 12px 14px;
+      pointer-events: auto;
+      position: fixed;
+      right: 16px;
+      top: 16px;
+      width: 260px;
+      z-index: 2147483647;
+    }
+    .atlas-drop-picker-header { align-items: center; display: flex; justify-content: space-between; }
+    .atlas-drop-picker-dismiss {
+      appearance: none; background: transparent; border: 0; border-radius: var(--radius); color: var(--muted-foreground);
+      cursor: pointer; display: inline-flex; padding: 2px;
+    }
+    .atlas-drop-picker-dismiss:hover, .atlas-drop-picker-dismiss:focus-visible { background: var(--muted); color: var(--foreground); outline: none; }
+    .atlas-drop-picker-detail, .atlas-drop-picker-hint {
+      color: var(--muted-foreground); font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .atlas-drop-picker-hint { white-space: normal; }
+    .atlas-drop-picker .atlas-static-icons { align-items: center; display: flex; justify-content: space-between; }
+    .atlas-drop-picker .atlas-static-icon { padding: 8px; }
+    .atlas-drop-picker-timer { background: var(--muted); bottom: 0; height: 3px; left: 0; position: absolute; right: 0; }
+    .atlas-drop-picker-timer span {
+      animation-fill-mode: forwards; animation-name: atlas-drop-countdown; animation-timing-function: linear;
+      background: var(--primary); display: block; height: 100%; transform-origin: left;
+    }
+    @keyframes atlas-drop-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+    ${getReactionIconStyles()}
   `;
 }

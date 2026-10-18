@@ -25,8 +25,9 @@ start a browser for E2E files.
 | `tests/e2e/harness/desktop-mock.mjs` | Atlas Desktop extension API mock (HTTP + WebSocket events) and a simulated download engine. |
 | `tests/e2e/harness/recording-proxy.mjs` | Records requests while forwarding them to a real Desktop dev instance. |
 | `tests/e2e/harness/fixture-server.mjs` | Serves `tests/e2e/fixtures/` on a loopback port. |
-| `tests/e2e/harness/visual.mjs` | Native HTML5 drag helper (`startDrag`), visible cursor for videos, `exposedPoint`. |
-| `tests/e2e/fixtures/` | Static pages and media used by tests. |
+| `tests/e2e/harness/visual.mjs` | Native HTML5 drag helper (`startDrag`, with `alt` for Alt+drag and `prefer` for the start row), visible cursor for videos, `exposedPoint`. |
+| `tests/e2e/harness/drop-zone.mjs` | `dropOnZone(atlas, page, locator, { pick, alt, beforeDrop, beforePick })`: drags onto the drop zone and answers the reaction picker (`pick: 'love'…`, `'dismiss'`, or `null` to wait for the timeout); resolves the reaction request. |
+| `tests/e2e/fixtures/` | Static pages and media used by tests (`media.html` + `media/`: small generated WebM/MP4/Ogg/MP3 clips). |
 | `scripts/run-e2e.mjs` | Runner behind the npm scripts (headed/Xvfb, proof mode, MP4 conversion). |
 | `scripts/e2e-desktop-mock.mjs` | `npm run e2e:desktop-mock`: run the mock standalone; its log is at `<url>/__mock`. |
 

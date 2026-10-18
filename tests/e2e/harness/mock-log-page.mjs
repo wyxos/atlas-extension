@@ -2,9 +2,12 @@
 // show exactly what Atlas Extension sent and what the mock downloaded.
 export function renderMockLog(state) {
   const files = state.files.map(file => {
-    const preview = file.stored && file.stored.content_type.startsWith('image/')
-      ? `<img src="/__mock/files/${file.id}" alt="">`
-      : `<div class="noimg">${escape(file.stored?.content_type ?? 'not downloaded')}</div>`;
+    const type = file.stored?.content_type ?? '';
+    const media = `/__mock/files/${file.id}`;
+    const preview = type.startsWith('image/') ? `<img src="${media}" alt="">`
+      : type.startsWith('video/') ? `<video src="${media}" muted autoplay loop></video>`
+        : type.startsWith('audio/') ? `<div class="noimg">${escape(type)}<audio src="${media}" controls></audio></div>`
+          : `<div class="noimg">${escape(type || 'not downloaded')}</div>`;
     const rows = [
       ['asset_url', file.url], ['referrer_url', file.referrer_url], ['source', file.source], ['reaction', file.reaction],
       ['download', `${file.download?.status ?? '—'} ${file.download?.progress_percent ?? ''}%`],
@@ -21,7 +24,7 @@ export function renderMockLog(state) {
     h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;color:#9ba3b5}
     p.sub{margin:0 0 16px;color:#9ba3b5}
     article{display:flex;gap:16px;background:#000b1f;border:1px solid #33415c;border-radius:4px;padding:12px;margin-bottom:12px}
-    .preview img{width:180px;border-radius:4px;display:block}.noimg{width:180px;height:100px;display:grid;place-items:center;background:#1e2737;border-radius:4px;color:#9ba3b5}
+    .preview img,.preview video{width:180px;border-radius:4px;display:block}.noimg audio{width:170px;margin-top:6px}.noimg{width:180px;height:100px;display:grid;place-items:center;align-content:center;background:#1e2737;border-radius:4px;color:#9ba3b5}
     table{border-collapse:collapse;font-size:12px}th{text-align:left;color:#9ba3b5;font-weight:500;padding:2px 12px 2px 0;white-space:nowrap;vertical-align:top}
     td{padding:2px 0;word-break:break-all;color:#fff}ul{margin:0;padding-left:18px;font-size:12px;columns:2}code{color:#0f85fa}
   </style></head><body><h1>Atlas Desktop mock · captured items</h1>

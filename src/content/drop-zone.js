@@ -1,35 +1,59 @@
 import { fetchAssetStatusesViaBackground, postAssetReactionViaBackground } from './background-api.js';
-import { describeDragSource, dropEffectFor, isWindowExit, submitDroppedItem } from './drop-zone-model.js';
+import { containedMediaFor, describeDragSource, dropEffectFor, isWindowExit, submitDroppedItem } from './drop-zone-model.js';
+import { createDropReactionPicker } from './drop-zone-picker.js';
 import { getDropZoneStyles } from './drop-zone-styles.js';
 import { createOverlayRoot } from './overlay-host.js';
+import { reactionOptions } from './reaction-options.js';
 
 export const dropZoneHostId = 'atlas-extension-drop-zone';
 const toastDurationMs = 4000;
+const pointerMemoryMs = 3000;
 // lucide "download" icon paths. Built with DOM APIs (no innerHTML) so pages
 // enforcing Trusted Types cannot block the overlay.
 const downloadIconPaths = ['M12 15V3', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'm7 10 5 5 5-5'];
 const svgNamespace = 'http://www.w3.org/2000/svg';
-const kindLabels = { file: 'File', image: 'Image', link: 'Link' };
+const kindLabels = { audio: 'Audio', file: 'File', image: 'Image', link: 'Link', video: 'Video' };
+const reactionLabels = Object.fromEntries(reactionOptions.map(option => [option.type, option.label]));
 
-// Shown only while the page drags an image or link. It never cancels or
-// rewrites page drag events; only drops onto the box itself are consumed.
+// Universal fallback for assets Atlas's badges do not cover. Shown only while
+// the page drags an image, media or link; it never cancels or rewrites page
+// drag events, and only drops onto the box itself are consumed. Alt+drag makes
+// a non-draggable element (a <video>, or an overlay above media) draggable for
+// that gesture only.
 export function initializeDropZone({
   documentContext = document,
   windowContext = window,
-  submit = (item) => submitDroppedItem(item, {
-    fetchStatuses: fetchAssetStatusesViaBackground,
-    locationContext: windowContext.location,
-    post: postAssetReactionViaBackground,
-  }),
+  submit,
+  pickerTimeoutMs,
 } = {}) {
   let session = null;
   let ui = null;
   let toastTimer = null;
+  let pointer = null;
+  let altDraggable = null;
+  submit ??= (item, { onSaving } = {}) => submitDroppedItem(item, {
+    onSaving,
+    chooseReaction: ({ statePromise }) => {
+      ensureUi().toast.hidden = true;
+      return ui.picker.choose({ item, statePromise });
+    },
+    fetchStatuses: fetchAssetStatusesViaBackground,
+    locationContext: windowContext.location,
+    post: postAssetReactionViaBackground,
+  });
 
   const listen = (type, listener, options) => windowContext.addEventListener(type, listener, options);
+  listen('mousedown', (event) => {
+    restoreAltDraggable();
+    if (event.button !== 0) return;
+    pointer = { x: event.clientX, y: event.clientY, at: Date.now() };
+    if (event.altKey) enableAltDrag(event);
+  }, true);
+  listen('mouseup', () => restoreAltDraggable(), true);
   listen('dragstart', (event) => {
     if (event.defaultPrevented) return;
-    const item = describeDragSource(event.target, { documentContext, locationContext: windowContext.location });
+    const point = pointer && Date.now() - pointer.at < pointerMemoryMs ? pointer : { x: event.clientX, y: event.clientY };
+    const item = describeDragSource(event.target, { documentContext, locationContext: windowContext.location, point });
     session = item;
     if (item) show(item);
     else hide();
@@ -38,7 +62,31 @@ export function initializeDropZone({
   listen('dragleave', (event) => { if (session && isWindowExit(event, windowContext)) hide(); }, true);
   listen('drop', (event) => { if (!ui || !event.composedPath().includes(ui.box)) end(); }, true);
   listen('dragend', end, true);
-  listen('keydown', (event) => { if (event.key === 'Escape' && session) end(); }, true);
+  listen('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (session) end();
+    else if (ui?.picker.isOpen()) ui.picker.dismiss();
+  }, true);
+
+  function enableAltDrag(event) {
+    const stack = documentContext.elementsFromPoint?.(event.clientX, event.clientY) ?? [];
+    const top = stack[0];
+    // Atlas's own badge is the UI for that asset; never hijack it.
+    if (top?.closest?.('[data-atlas-extension-badge-host]')) return;
+    const hasAsset = stack.some(element => ['AUDIO', 'IMG', 'VIDEO'].includes(String(element.tagName).toUpperCase()))
+      || Boolean(top && containedMediaFor(top));
+    if (!top || !hasAsset || top.draggable === true) return;
+    altDraggable = { element: top, previous: top.getAttribute('draggable') };
+    top.setAttribute('draggable', 'true');
+  }
+
+  function restoreAltDraggable() {
+    if (!altDraggable) return;
+    const { element, previous } = altDraggable;
+    altDraggable = null;
+    if (previous === null) element.removeAttribute('draggable');
+    else element.setAttribute('draggable', previous);
+  }
 
   function ensureUi() {
     if (ui) return ui;
@@ -73,7 +121,8 @@ export function initializeDropZone({
       end();
       if (item) void deliver(item);
     });
-    ui = { box, toast };
+    const picker = createDropReactionPicker({ root, documentContext, windowContext, timeoutMs: pickerTimeoutMs });
+    ui = { box, toast, picker };
     return ui;
   }
 
@@ -85,10 +134,15 @@ export function initializeDropZone({
   }
 
   function show(item) {
-    const { box } = ensureUi();
+    const { box, toast } = ensureUi();
+    toast.hidden = true;
+    const unsupported = Boolean(item.unsupported);
+    box.querySelector('.atlas-drop-zone-title').textContent = unsupported
+      ? `Can't save this ${kindLabels[item.kind]?.toLowerCase() ?? 'item'}` : 'Drop to save to Atlas';
     box.querySelector('.atlas-drop-zone-kind').textContent = kindLabels[item.kind] ?? item.kind;
-    box.querySelector('.atlas-drop-zone-detail').textContent = item.label;
+    box.querySelector('.atlas-drop-zone-detail').textContent = unsupported ? unsupportedMessage(item) : item.label;
     box.setAttribute('data-atlas-drop-kind', item.kind);
+    box.setAttribute('data-atlas-drop-state', unsupported ? 'unsupported' : 'ready');
     box.classList.remove('is-over');
     box.hidden = false;
   }
@@ -105,17 +159,21 @@ export function initializeDropZone({
   }
 
   async function deliver(item) {
-    notify('pending', `Saving ${item.label} to Atlas…`);
+    if (item.unsupported) {
+      notify('error', `${unsupportedMessage(item)} Nothing was sent to Atlas.`);
+      return;
+    }
     try {
-      const result = await submit(item);
+      const result = await submit(item, { onSaving: () => notify('pending', `Saving ${item.label} to Atlas…`) });
       if (result?.skipped === 'blacklisted') {
         notify('error', 'This item is blacklisted in Atlas and was not downloaded.');
         return;
       }
       const status = result?.download?.status;
+      const reaction = reactionLabels[result?.reactionType] ?? 'Saved';
       notify('success', status === 'queued' || status === 'completed' || status === 'downloading'
-        ? `Download ${status === 'queued' ? 'queued' : status} in Atlas · ${item.label}`
-        : `Saved to Atlas · ${item.label}`);
+        ? `Download ${status === 'queued' ? 'queued' : status} in Atlas · ${reaction} · ${item.label}`
+        : `Saved to Atlas · ${reaction} · ${item.label}`);
     } catch (error) {
       notify('error', `Atlas could not save this item · ${error?.message ?? 'Request failed.'}`);
     }
@@ -131,6 +189,13 @@ export function initializeDropZone({
   }
 
   return { isVisible: () => Boolean(ui && !ui.box.hidden) };
+}
+
+function unsupportedMessage(item) {
+  const kind = kindLabels[item.kind]?.toLowerCase() ?? 'item';
+  return item.unsupported === 'stream'
+    ? `This ${kind} plays from a browser stream (blob:, data: or MediaSource) with no downloadable URL.`
+    : `This ${kind} has no source URL to download.`;
 }
 
 function span(documentContext, className, text = '') {
