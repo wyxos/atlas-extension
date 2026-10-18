@@ -335,3 +335,34 @@ test('Desktop Rust tests receive committed provider snapshots inside the update 
   assert.equal(fs.readFileSync(path.join(provider, 'Cargo.toml'), 'utf8'), '# unfinished provider');
   assert.deepEqual(fs.readdirSync(path.join(f.stateDirectory, 'workspaces')), []);
 });
+
+test('Rust timing detail is retained on its existing stage and stale reports are never reused', async t => {
+  for (const kind of ['v3', 'v2', 'missing', 'invalid', 'failed']) {
+    const f = fixture(t);
+    const file = path.join(f.stateDirectory, 'rust-test-timings.json');
+    fs.mkdirSync(f.stateDirectory);
+    fs.writeFileSync(file, JSON.stringify({ version: 3, elapsedMs: 999999, stages: [], cargoPhases: [] }));
+    const originalError = new Error('original command failure');
+    const operation = runIsolatedUpdate({ ...f, execute: async (name, args, options) => {
+      if (name === 'pwsh.exe' && args.join(' ').includes('npm.cmd run test:rust')) {
+        assert.equal(fs.existsSync(file), false);
+        if (kind !== 'missing') fs.writeFileSync(file, kind === 'invalid' ? '{' : JSON.stringify({
+          version: kind === 'v2' ? 2 : 3, elapsedMs: 10, outcome: kind === 'failed' ? 'failed' : 'passed',
+          stages: [{ name: 'rust-workspace', elapsedMs: 10, outcome: kind === 'failed' ? 'failed' : 'passed' }],
+          cargoPhases: [{ name: 'rust-workspace', compilationMs: 4, executionMs: 6, unattributedMs: 0,
+            outcome: kind === 'failed' ? 'failed' : 'passed', boundary: 'build-finished', executionIncludesDoctestCompilation: true }],
+        }));
+        if (kind === 'failed') throw originalError;
+      }
+      return f.execute(name, args, options);
+    } });
+    if (kind === 'failed') await assert.rejects(operation, error => error.cause === originalError);
+    else await operation;
+    const report = JSON.parse(fs.readFileSync(path.join(f.stateDirectory, 'updater-timings.json'), 'utf8'));
+    const stages = report.stages.filter(stage => stage.name.endsWith(': run Rust tests'));
+    assert.equal(stages.length, 1);
+    assert.equal(stages[0].rustTests.status, kind === 'v2' ? 'legacy' : ['missing', 'invalid'].includes(kind) ? 'unavailable' : 'available');
+    assert.equal(stages[0].outcome, kind === 'failed' ? 'failed' : 'passed');
+    if (kind === 'v3') assert.ok(f.logs.some(line => line.includes('Rust test compilation:')));
+  }
+});

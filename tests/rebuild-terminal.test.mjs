@@ -49,3 +49,16 @@ test('NO_COLOR retains live progress without color escapes', () => {
   assert.ok(output.includes('\r\x1b[2K'));
   assert.equal(output.replaceAll('\x1b[2K', ''), stripVTControlCharacters(output));
 });
+
+test('Rust breakdown follows the completed step without adding steps or success lines', () => {
+  let output = '';
+  const display = createTerminal({ stream: { isTTY: false, write: text => { output += text; } }, now: () => 0 });
+  display.start('Desktop: run Rust tests', 4, 16);
+  display.done();
+  display.rustTests({ status: 'available', cargoPhases: [{ boundary: 'build-finished' }],
+    compilationMs: 2000, executionMs: 6000, preparationMs: 1000, unknownMs: 2000 });
+  assert.equal((output.match(/OK/g) ?? []).length, 1);
+  assert.match(output, /OK {2}run Rust tests.*\n {6}Rust test compilation: 2s measured/);
+  assert.match(output, /includes doctest compilation/);
+  assert.equal(output, stripVTControlCharacters(output));
+});

@@ -7,15 +7,23 @@ export function updateTimings(file, revisions, { now = () => performance.now() }
   const report = { version: 1, startedAt: new Date().toISOString(), revisions, stages: [] };
   const save = () => saveState(file, report);
   return {
-    async stage(name, action) {
+    async stage(name, action, details = () => undefined) {
       const start = now();
       let outcome = 'passed';
       let primaryError;
       let result;
       try { result = await action(); }
       catch (error) { primaryError = error; outcome = 'failed'; }
-      report.stages.push({ name, startedMs: Math.max(0, Math.round(start - started)),
-        elapsedMs: Math.max(0, Math.round(now() - start)), outcome });
+      const stage = { name, startedMs: Math.max(0, Math.round(start - started)),
+        elapsedMs: Math.max(0, Math.round(now() - start)), outcome };
+      const rustTests = details();
+      if (rustTests) {
+        stage.rustTests = rustTests;
+        if (rustTests.status === 'available') {
+          rustTests.updaterOverheadMs = Math.max(0, stage.elapsedMs - rustTests.elapsedMs);
+        }
+      }
+      report.stages.push(stage);
       try { save(); } catch {
         report.reportingFailure = 'write-failed';
         if (outcome !== 'failed') throw new Error('Updater timing report could not be saved.');

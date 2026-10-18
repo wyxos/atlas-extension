@@ -221,8 +221,20 @@ Dependency installation uses npm's verified download cache with `--prefer-offlin
 missing artifacts are fetched normally and installation still runs in each snapshot.
 
 Completed and failed steps write `updater-timings.json` beside the detailed update
-log, including retries and scope cleanup. `rust-test-timings.json` in that same
-directory separates native compilation, fixture preparation and test execution.
+log, including retries and scope cleanup. The existing **run Rust tests** line
+keeps its total duration. Additional lines show measured Cargo test compilation, test
+execution, setup and cleanup, and remaining runner overhead or unassigned time.
+Execution includes any compilation performed by Rust's documentation tests.
+Setup includes preparing the disposable database engine and building its test
+supervisor. The earlier **check Rust code** step keeps its separate timing.
+Missing compilation boundaries are reported as unknown rather than estimated.
+These details are nested under that attempt's `rustTests` field in the updater
+report; they are parts of the existing step, not extra stages to add to its total.
+The native report is retained as `rust-test-timings.json` in that same directory;
+retries use `rust-test-timings-2.json` and subsequent numbered files. Each attempt
+uses only a newly written report. Older Desktop revisions retain combined Cargo
+timings and explicitly report that the compilation/execution split is unavailable.
+Missing or invalid native reports do not change the original command's result.
 Both reports survive removal of the temporary source checkout. The updater report
 starts after build-scope acquisition; use the outer transcript for total elapsed
 time including version review and initial storage setup. Compare cold and warm

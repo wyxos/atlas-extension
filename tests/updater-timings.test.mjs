@@ -27,3 +27,20 @@ test('timings retain failed attempts, retries and cleanup without error contents
   assert.equal(JSON.stringify(report).includes(failure.message), false);
   assert.deepEqual(fs.readdirSync(directory), ['report.json']);
 });
+
+test('Rust phase details remain nested and updater overhead is part of the original stage total', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-update-timing-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let now = 0;
+  const file = path.join(directory, 'timing.json');
+  const timings = updateTimings(file, [], { now: () => now });
+  const rustTests = { status: 'available', elapsedMs: 30, compilationMs: 10,
+    executionMs: 10, preparationMs: 5, unknownMs: 5 };
+  await timings.stage('Desktop: run Rust tests', () => { now = 40; }, () => rustTests);
+  const report = timings.finish('passed');
+  assert.equal(report.stages.length, 1);
+  assert.equal(report.elapsedMs, 40);
+  assert.equal(report.stages[0].elapsedMs, 40);
+  assert.equal(report.stages[0].rustTests.updaterOverheadMs, 10);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).stages[0].rustTests.executionMs, 10);
+});

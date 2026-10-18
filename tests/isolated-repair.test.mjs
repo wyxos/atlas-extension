@@ -43,6 +43,35 @@ function fixture(t) {
 const scriptName = args => /npm\.cmd run ([^ ;]+)/.exec(args.join(' '))?.[1];
 const failure = (name, args) => new CommandFailure(name, args, 1, null, 'AssertionError: synthetic regression');
 
+test('failed Rust timing stays with its attempt and retry never borrows the previous report', async t => {
+  const f = fixture(t);
+  let attempts = 0;
+  const files = [];
+  await runIsolatedUpdate({ ...f, execute: async (name, args, options) => {
+    if (scriptName(args) === 'test:rust') {
+      attempts++;
+      const file = /--timings=([^']+)'/.exec(args.join(' '))[1].replaceAll("''", "'");
+      files.push(file);
+      assert.equal(fs.existsSync(file), false);
+      if (attempts === 1) {
+        fs.writeFileSync(file, JSON.stringify({ version: 3, elapsedMs: 20, outcome: 'failed',
+          stages: [{ name: 'rust-workspace', elapsedMs: 20, outcome: 'failed' }],
+          cargoPhases: [{ name: 'rust-workspace', compilationMs: 10, executionMs: 10, unattributedMs: 0,
+            outcome: 'failed', boundary: 'build-finished', executionIncludesDoctestCompilation: true }] }));
+        throw failure(name, args);
+      }
+    }
+    return f.execute(name, args, options);
+  }, repair: async ({ repo }) => { fs.writeFileSync(path.join(repo.snapshot, 'source.txt'), 'fixed'); } });
+  assert.equal(attempts, 2);
+  assert.notEqual(files[0], files[1]);
+  assert.equal(path.basename(files[1]), 'rust-test-timings-2.json');
+  const report = JSON.parse(fs.readFileSync(path.join(path.dirname(f.logFile), 'updater-timings.json'), 'utf8'));
+  const stages = report.stages.filter(stage => stage.name.endsWith(': run Rust tests'));
+  assert.deepEqual(stages.map(stage => [stage.outcome, stage.rustTests.status]), [['failed', 'available'], ['passed', 'unavailable']]);
+  assert.equal(JSON.parse(fs.readFileSync(files[0], 'utf8')).outcome, 'failed');
+});
+
 test('a validation failure calls Codex, independently checks the fix, commits and continues', async t => {
   const f = fixture(t);
   let checks = 0, repairs = 0;

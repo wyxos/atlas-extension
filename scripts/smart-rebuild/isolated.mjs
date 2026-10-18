@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { setInterval, clearInterval } from 'node:timers';
+import { performance } from 'node:perf_hooks';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -13,6 +14,7 @@ import { publishRepair } from './repair-publication.mjs';
 import { captureRepairContract, assertRepairContract, canRepairFailure, cargoWorkspaceManifests } from './repair-policy.mjs';
 import { documentationOnlyChanges } from './documentation.mjs';
 import { updateTimings } from './timings.mjs';
+import { readRustTestTimings } from './rust-test-timings.mjs';
 
 export function removeWorkspace(parent, directory) {
   const base = fs.realpathSync(parent);
@@ -207,13 +209,25 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
   const steps = [];
   const run = (name, args, cwd, options = {}) => execute(name, args, { cwd, env: environment, logFile,
     status: (message) => display.status(message.replace(/^Desktop: /, '')), ...options });
-  const npm = (script, cwd) => {
+  let rustAttempt = 0;
+  const npm = async (script, cwd, recordRustTiming) => {
     // A cold checkout otherwise launches a jsdom worker for nearly every CPU;
     // module transforms contend and short router tests time out before running.
-    const testReport = path.join(path.dirname(logFile), 'rust-test-timings.json').replaceAll("'", "''");
+    const reportFile = script === 'test:rust' ? path.join(path.dirname(logFile),
+      `rust-test-timings${++rustAttempt === 1 ? '' : '-' + rustAttempt}.json`) : undefined;
+    let fresh = true;
+    if (reportFile) {
+      try { fs.unlinkSync(reportFile); } catch (error) { fresh = error.code === 'ENOENT'; }
+    }
+    const testReport = reportFile?.replaceAll("'", "''");
     const options = script === 'test:unit' ? ' -- --maxWorkers=4'
       : script === 'test:rust' ? ` -- '--timings=${testReport}'` : '';
-    return run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd run ${script}${options}; exit $LASTEXITCODE`], cwd);
+    const started = performance.now();
+    try { return await run('pwsh.exe', ['-NoProfile', '-Command', `& npm.cmd run ${script}${options}; exit $LASTEXITCODE`], cwd); }
+    finally {
+      if (reportFile) recordRustTiming?.(fresh ? readRustTestTimings(reportFile,
+        { elapsedMs: performance.now() - started }) : { status: 'unavailable' });
+    }
   };
   const installDependencies = async (repo) => {
     const install = fs.existsSync(path.join(repo.snapshot, 'package-lock.json')) ? 'ci' : 'install';
@@ -262,11 +276,15 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       'lint:rust': 'check Rust code', 'test:rust': 'run Rust tests' };
     repo.checkStart = steps.length;
     repo.repairAttempts = 0;
-    for (const check of checks) steps.push({ title: `${repo.name}: ${labels[check]}`, repo,
+    for (const check of checks) {
+      const step = { title: `${repo.name}: ${labels[check]}`, repo,
       repairable: !check.startsWith('prepare:'), action: async () => {
-        await npm(check, repo.snapshot);
+        step.rustTests = undefined;
+        await npm(check, repo.snapshot, timing => { step.rustTests = timing; });
         if (check === checks.at(-1) && repo.kind === 'desktop') await saveRepair(repo);
-      } });
+      } };
+      steps.push(step);
+    }
     steps.push({ title: repo.kind === 'desktop' ? 'Desktop: build installer, install and reopen' : 'Extension: build',
       repo, repairable: repo.kind === 'extension' && !buildOverride, action: async () => {
       if (buildOverride) {
@@ -306,8 +324,9 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       display.start(step.title, completed, steps.length);
       appendLogFile(logFile, `\nStep ${completed + 1}/${steps.length}: ${step.title}\n`);
       const timer = setInterval(display.tick, 1000);
-      try { await timings.stage(step.title, step.action); } catch (error) {
+      try { await timings.stage(step.title, step.action, () => step.rustTests); } catch (error) {
         display.fail();
+        if (step.rustTests) display.rustTests(step.rustTests);
         const repo = step.repo;
         // Only completed development/code commands are candidates. Spawn errors,
         // cancellation, dependency installation and installation/publication
@@ -349,6 +368,7 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       } finally { clearInterval(timer); }
       completed++;
       display.done();
+      if (step.rustTests) display.rustTests(step.rustTests);
     }
   } catch (error) { failure = error; }
   finally {
