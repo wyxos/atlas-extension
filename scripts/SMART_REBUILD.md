@@ -41,6 +41,14 @@ Desktop before rerunning the updater.
    for a message based on an immutable diff, verifies no edits/staging changed,
    and commits exactly that snapshot. Versioning is a separate step afterward.
    The main checkout is found even when the launcher runs from another branch.
+   When Desktop needs rebuilding, check its bundled yt-dlp pin before version
+   review. If stale, download the official stable executable in a disposable
+   checkout, verify its checksum and executable header, and probe its version and
+   help command. Save only the verified manifest change as a local main commit;
+   unrelated edits and staging remain intact. Verification failures stop before
+   tests or builds. Pin conflicts or concurrent main changes stop publication.
+   A saved journal recovers interrupted pin publication before dirty-file handling.
+   Normal version review then includes the pin commit in the captured build source.
 2. Capture both local `main` commits. For each repository with unreviewed source
    changes, ask Codex whether a version bump is needed: none, patch, minor or major.
    Changes limited to safe prose files keep the current version without a CLI review:
@@ -67,7 +75,9 @@ Desktop before rerunning the updater.
    `%LOCALAPPDATA%\AtlasBuild\workspaces`. When Desktop needs rebuilding, check
    the captured yt-dlp pin against the latest official stable release before
    installing dependencies, preparing provider fixtures or running tests. A stale
-   pin or unavailable release service stops the update at this step. Packaging
+   pin or unavailable release service stops the update at this step. Source
+   preparation normally refreshes stale pins before version review; this second
+   check guards the captured source against a newer upstream release. Packaging
    checks again in case upstream changes during the build. Older captured Desktop
    revisions without the checker retain their existing packaging behavior.
    Dry runs, up-to-date Desktop and Extension-only updates skip this check.

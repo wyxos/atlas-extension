@@ -12,7 +12,7 @@ import { runCapturedSnapshots } from './captured-snapshots.mjs';
 import { repairSnapshot } from './repair.mjs';
 import { publishRepair } from './repair-publication.mjs';
 import { captureRepairContract, assertRepairContract, canRepairFailure, cargoWorkspaceManifests } from './repair-policy.mjs';
-import { documentationOnlyChanges } from './documentation.mjs';
+import { buildPlan } from './build-plan.mjs';
 import { updateTimings } from './timings.mjs';
 import { readRustTestTimings } from './rust-test-timings.mjs';
 import { clearInstallerTimingReports, readInstallerTimings, readInstalledReopenTiming } from './installer-timings.mjs';
@@ -173,15 +173,9 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     // The entry point supplies reviewed/versioned commits. Never recapture main
     // after review: ongoing commits belong to the next update.
     const head = git(repo.root, ['rev-parse', '--verify', `${repo.head ?? 'refs/heads/main'}^{commit}`]);
-    const tree = git(repo.root, ['rev-parse', `${head}^{tree}`]);
     const key = path.resolve(repo.root).toLowerCase();
-    const previous = state.repos[key];
     if (!dryRun && repo.kind === 'extension') recoverPublication(repo.artifact);
-    const fingerprint = artifactFingerprint(repo.artifact);
-    const documentationOnly = previous?.tree !== tree && documentationOnlyChanges(repo.root, previous?.tree, tree);
-    const needed = !previous || (previous.tree !== tree && !documentationOnly)
-      || !fingerprint || previous.artifact !== fingerprint;
-    return { ...repo, head, tree, key, needed, documentationOnly };
+    return { ...repo, head, key, ...buildPlan(repo, head, state.repos[key]) };
   });
   log('\nATLAS UPDATE', 'blue');
   for (const repo of plans) log(`${repo.name}: ${repo.needed ? 'pending'
