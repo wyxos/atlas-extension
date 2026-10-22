@@ -64,7 +64,14 @@ Desktop before rerunning the updater.
    altered output is rebuilt, including after documentation-only changes. First
    builds and mixed code/documentation changes keep all checks.
 4. Fetch each captured commit into a temporary independent Git repository under
-   `%LOCALAPPDATA%\AtlasBuild\workspaces`. Each build uses its own dependencies
+   `%LOCALAPPDATA%\AtlasBuild\workspaces`. When Desktop needs rebuilding, check
+   the captured yt-dlp pin against the latest official stable release before
+   installing dependencies, preparing provider fixtures or running tests. A stale
+   pin or unavailable release service stops the update at this step. Packaging
+   checks again in case upstream changes during the build. Older captured Desktop
+   revisions without the checker retain their existing packaging behavior.
+   Dry runs, up-to-date Desktop and Extension-only updates skip this check.
+   Each build uses its own dependencies
    installed with `npm ci` when a committed lockfile exists, otherwise `npm install`
    inside the temporary checkout. The Extension currently ignores its lockfile;
    transitive dependencies may resolve differently between builds. Ignored local `.env`

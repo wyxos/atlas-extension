@@ -6,7 +6,7 @@ import path from 'node:path';
 import { git } from '../scripts/smart-rebuild/repository.mjs';
 import { command, runIsolatedUpdate, publishExtension, recoverPublication, removeWorkspace, isolatedBuildEnvironment } from '../scripts/smart-rebuild/isolated.mjs';
 
-function fixture(t) {
+function fixture(t, releaseCheck) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-isolation-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const repos = ['extension', 'desktop'].map((kind) => {
@@ -19,6 +19,10 @@ function fixture(t) {
     fs.mkdirSync(path.join(directory, 'src-tauri'));
     fs.writeFileSync(path.join(directory, 'src-tauri', 'placeholder'), 'tracked');
     fs.writeFileSync(path.join(directory, 'source.txt'), 'committed');
+    if (kind === 'desktop' && releaseCheck) {
+      fs.mkdirSync(path.join(directory, 'scripts'));
+      fs.writeFileSync(path.join(directory, 'scripts', 'ytdlp-release.mjs'), releaseCheck);
+    }
     git(directory, ['add', '.']);
     git(directory, ['commit', '-m', 'initial']);
     fs.writeFileSync(path.join(directory, 'source.txt'), 'staged');
@@ -44,6 +48,69 @@ function fixture(t) {
       }
     } };
 }
+
+test('release preflight stops stale pins and service failures before dependencies or validation', async t => {
+  for (const reason of ['A newer yt-dlp release needs verification', 'Release service unavailable']) {
+    const f = fixture(t, `throw new Error(${JSON.stringify(reason)});`);
+    const calls = [];
+    let builds = 0, repairs = 0, closed = false;
+    await assert.rejects(runIsolatedUpdate({ ...f,
+      execute: (name, args, options) => {
+        calls.push({ name, args, cwd: options.cwd });
+        return f.execute(name, args, options);
+      },
+      scopeFactory: async (...args) => ({ ...await f.scopeFactory(...args), close: async () => { closed = true; } }),
+      buildOverride: async (...args) => { builds++; await f.buildOverride(...args); },
+      repair: async () => { repairs++; },
+    }), /check bundled yt-dlp release/);
+    assert.equal(calls.some(call => call.name === 'pwsh.exe'), false, 'no npm installs, checks or installer');
+    assert.equal(builds, 0);
+    assert.equal(repairs, 0, 'release prerequisites must not invoke source repair');
+    assert.equal(closed, true);
+    assert.equal(fs.existsSync(path.join(f.stateDirectory, 'isolated-state.json')), false);
+    assert.deepEqual(fs.readdirSync(path.join(f.stateDirectory, 'workspaces')), []);
+    assert.ok(fs.readFileSync(path.join(f.stateDirectory, 'build-latest.log'), 'utf8').includes(reason));
+  }
+});
+
+test('release preflight checks the captured source before installs and allows the update to finish', async t => {
+  const f = fixture(t, "import assert from 'node:assert/strict'; assert.deepEqual(process.argv.slice(2), ['--check']);");
+  // Uncommitted release-checker changes must not replace the captured checker.
+  fs.writeFileSync(path.join(f.repos[1].root, 'scripts', 'ytdlp-release.mjs'), "throw new Error('live checkout checker');");
+  const calls = [];
+  await runIsolatedUpdate({ ...f, execute: (name, args, options) => {
+    calls.push({ name, args, cwd: options.cwd });
+    return f.execute(name, args, options);
+  } });
+  const preflight = calls.findIndex(call => call.args[0] === 'scripts/ytdlp-release.mjs');
+  assert.ok(preflight >= 0);
+  assert.notEqual(calls[preflight].cwd, f.repos[1].root);
+  assert.ok(preflight < calls.findIndex(call => call.name === 'pwsh.exe'));
+  const report = JSON.parse(fs.readFileSync(path.join(f.stateDirectory, 'updater-timings.json')));
+  assert.equal(report.outcome, 'passed');
+  assert.equal(report.stages.find(stage => stage.name.endsWith('check bundled yt-dlp release')).outcome, 'passed');
+});
+
+test('dry runs, up-to-date Desktop and Extension-only updates do not check remote releases', async t => {
+  const f = fixture(t, '');
+  await runIsolatedUpdate(f);
+  const desktop = f.repos[1];
+  fs.mkdirSync(path.join(desktop.root, 'scripts'));
+  fs.writeFileSync(path.join(desktop.root, 'scripts', 'ytdlp-release.mjs'), "throw new Error('must not run');");
+  git(desktop.root, ['add', 'scripts/ytdlp-release.mjs']);
+  git(desktop.root, ['commit', '-m', 'fixture checker']);
+  git(desktop.root, ['update-ref', 'refs/heads/main', 'HEAD']);
+  await runIsolatedUpdate({ ...f, dryRun: true });
+  const statePath = path.join(f.stateDirectory, 'isolated-state.json');
+  const state = JSON.parse(fs.readFileSync(statePath));
+  state.repos[path.resolve(desktop.root).toLowerCase()].tree = git(desktop.root, ['rev-parse', 'main^{tree}']);
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  assert.ok((await runIsolatedUpdate(f)).every(repo => !repo.needed));
+  fs.rmSync(f.repos[0].artifact, { recursive: true });
+  const plans = await runIsolatedUpdate(f);
+  assert.equal(plans[0].needed, true);
+  assert.equal(plans[1].needed, false);
+});
 
 test('installer and actual deferred reopen details attach to their existing stages', async t => {
   const f = fixture(t);
