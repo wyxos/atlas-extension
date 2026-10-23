@@ -6,10 +6,13 @@ import { committedVersion, versionBaseline, planVersionCommit, publishVersionCom
 import { terminal } from './terminal.mjs';
 import { prepareMainChanges } from './main-changes.mjs';
 import { documentationOnlyChanges } from './documentation.mjs';
+import { prepareYtdlpPin, recoverYtdlpPin } from './ytdlp-preparation.mjs';
 
 export async function prepareBuildSources(options) {
+  recoverYtdlpPin(options);
   await prepareVersions({ ...options, recoverOnly: true });
   await prepareMainChanges({ ...options, review: options.reviewChanges });
+  await prepareYtdlpPin(options);
   const prepared = await prepareVersions(options);
   if (options.dryRun) (options.log ?? terminal.line)('Build inspection uses current commits; a version commit may require a rebuild.');
   return prepared;

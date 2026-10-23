@@ -12,7 +12,7 @@ import { runCapturedSnapshots } from './captured-snapshots.mjs';
 import { repairSnapshot } from './repair.mjs';
 import { publishRepair } from './repair-publication.mjs';
 import { captureRepairContract, assertRepairContract, canRepairFailure, cargoWorkspaceManifests } from './repair-policy.mjs';
-import { documentationOnlyChanges } from './documentation.mjs';
+import { buildPlan } from './build-plan.mjs';
 import { updateTimings } from './timings.mjs';
 import { readRustTestTimings } from './rust-test-timings.mjs';
 import { clearInstallerTimingReports, readInstallerTimings, readInstalledReopenTiming } from './installer-timings.mjs';
@@ -173,15 +173,9 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     // The entry point supplies reviewed/versioned commits. Never recapture main
     // after review: ongoing commits belong to the next update.
     const head = git(repo.root, ['rev-parse', '--verify', `${repo.head ?? 'refs/heads/main'}^{commit}`]);
-    const tree = git(repo.root, ['rev-parse', `${head}^{tree}`]);
     const key = path.resolve(repo.root).toLowerCase();
-    const previous = state.repos[key];
     if (!dryRun && repo.kind === 'extension') recoverPublication(repo.artifact);
-    const fingerprint = artifactFingerprint(repo.artifact);
-    const documentationOnly = previous?.tree !== tree && documentationOnlyChanges(repo.root, previous?.tree, tree);
-    const needed = !previous || (previous.tree !== tree && !documentationOnly)
-      || !fingerprint || previous.artifact !== fingerprint;
-    return { ...repo, head, tree, key, needed, documentationOnly };
+    return { ...repo, head, key, ...buildPlan(repo, head, state.repos[key]) };
   });
   log('\nATLAS UPDATE', 'blue');
   for (const repo of plans) log(`${repo.name}: ${repo.needed ? 'pending'
@@ -259,6 +253,22 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
     steps.push({ title: `${repo.name}: copy committed main`, action: async () => {
       await runCapturedSnapshots([{ id: repo.kind, source: repo.root, snapshot: repo.snapshot, head: repo.head }], workspace, run);
     } });
+  }
+  const desktop = plans.find((repo) => repo.kind === 'desktop' && repo.needed);
+  if (desktop) steps.push({ title: 'Desktop: check bundled yt-dlp release', action: async () => {
+    const checker = 'scripts/ytdlp-release.mjs';
+    if (!fs.existsSync(path.join(desktop.snapshot, checker))) {
+      // Older captured revisions predate the release gate. Keep their existing
+      // packaging behavior rather than running a newer checker against old pins.
+      log('Desktop: captured revision predates the yt-dlp release check.', 'dim');
+      return;
+    }
+    // The checker uses only Node built-ins, so reject stale pins or unavailable
+    // release metadata before npm installs, provider setup or long test suites.
+    // Packaging checks again in case upstream changes during the build.
+    await run(process.execPath, [checker, '--check'], desktop.snapshot);
+  } });
+  for (const repo of snapshots) {
     steps.push({ title: `${repo.name}: install dependencies`, action: async () => {
       await installDependencies(repo);
       repo.contract = captureRepairContract(repo);
@@ -267,7 +277,6 @@ export async function runIsolatedUpdate({ repos, stateDirectory, dryRun = false,
       }
     } });
   }
-  const desktop = plans.find((repo) => repo.kind === 'desktop' && repo.needed);
   if (desktop) steps.push({ title: 'Desktop: prepare provider test snapshots', action: async () => {
     const sources = await prepareProviderTestSnapshots({ desktop, workspace, run, env: environment });
     if (sources) environment.ATLAS_TEST_PROVIDER_SOURCES = JSON.stringify(sources);
