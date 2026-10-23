@@ -127,6 +127,11 @@ isolated checkout, using the configured Codex CLI and model. The updater supplie
 the failed command's diagnostics and allows up to two repair attempts per repository.
 Codex is instructed to fix the cause while preserving the intended behavior and
 validation checks. Repair uses workspace-write access; it cannot start another updater.
+The captured managed scope adds only its existing `.cache/atlas-build` storage and
+the controller's `.cache/atlas-runtime/runs` directory through Codex `--add-dir` flags,
+so repair can run the same managed checks. Source edits remain confined to the
+isolated checkout; Dev state and local provider credentials stay outside these grants.
+Invalid cache roots stop repair before Codex starts.
 On Windows it prefers Codex's compatible native MXC sandbox, preserving the same
 workspace and approval boundaries. Codex retains its policy and compatibility
 fallback; the updater does not change saved sandbox settings.
