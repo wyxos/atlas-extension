@@ -91,6 +91,53 @@ test('repair input, diagnostic output and final message redact credentials witho
   assert.equal(fs.readFileSync(result.messageFile, 'utf8').includes('synthetic-environment-key'), false);
 });
 
+test('repair grants managed checks their cache roots without granting source or updater workspaces', async (t) => {
+  const options = fixture(t);
+  const controller = path.join(options.repo.root, 'desktop-controller');
+  const store = path.join(controller, '.cache', 'atlas-build');
+  const runtime = path.join(controller, '.cache', 'atlas-runtime', 'runs');
+  for (const directory of [store, runtime]) fs.mkdirSync(directory, { recursive: true });
+  Object.assign(options.env, { ATLAS_BUILD_CONTROLLER: controller,
+    ATLAS_BUILD_CONNECTION: JSON.stringify({ protocol: 1, store, token: 'synthetic-private-token' }) });
+  await repairSnapshot({ ...options, execute: async (_executable, args, settings) => {
+    const roots = args.flatMap((value, index) => value === '--add-dir' ? [args[index + 1]] : []);
+    assert.deepEqual(roots, [fs.realpathSync(store), fs.realpathSync(runtime)]);
+    for (const forbidden of [controller, options.repo.root, path.dirname(store), path.dirname(options.repo.snapshot),
+      path.dirname(runtime), path.join(path.dirname(runtime), 'dev'), path.join(path.dirname(runtime), 'local-provider-data')]) {
+      assert.equal(roots.includes(forbidden), false);
+    }
+    assert.equal(args.join(' ').includes('synthetic-private-token'), false);
+    assert.equal(settings.env.ATLAS_BUILD_CONNECTION, options.env.ATLAS_BUILD_CONNECTION);
+    const prompt = fs.readFileSync(path.join(settings.cwd, '.git', 'atlas-repair-request.txt'), 'utf8');
+    assert.ok(prompt.includes('managed checks may write only their runtime/build caches'));
+  } });
+});
+
+test('repair rejects malformed, relative and broadened managed storage before invoking Codex', async (t) => {
+  const options = fixture(t);
+  for (const connection of ['invalid-json', 'null', '{}', JSON.stringify({ store: 'relative-cache' }),
+    JSON.stringify({ store: options.repo.root })]) {
+    await assert.rejects(repairSnapshot({ ...options,
+      env: { ...options.env, ATLAS_BUILD_CONNECTION: connection, ATLAS_BUILD_CONTROLLER: options.repo.root },
+      execute: () => assert.fail('Invalid scope must not invoke Codex'),
+    }), /valid managed runtime cache directories/);
+  }
+});
+
+test('repair rejects a runtime runs junction redirected into protected controller state', async (t) => {
+  const options = fixture(t);
+  const controller = options.repo.root;
+  const store = path.join(controller, '.cache', 'atlas-build');
+  const runtime = path.join(controller, '.cache', 'atlas-runtime');
+  const protectedState = path.join(runtime, 'local-provider-data');
+  for (const directory of [store, protectedState]) fs.mkdirSync(directory, { recursive: true });
+  fs.symlinkSync(protectedState, path.join(runtime, 'runs'), process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(repairSnapshot({ ...options,
+    env: { ...options.env, ATLAS_BUILD_CONTROLLER: controller, ATLAS_BUILD_CONNECTION: JSON.stringify({ store }) },
+    execute: () => assert.fail('Redirected cache must not invoke Codex'),
+  }), /valid managed runtime cache directories/);
+});
+
 test('diagnostics preserve the trailing failure and mark bounded truncation', () => {
   const text = sanitizeRepairDiagnostics('x'.repeat(100_000) + '\nAssertionError: final failure');
   assert.ok(text.startsWith('[Earlier diagnostics truncated.]'));
